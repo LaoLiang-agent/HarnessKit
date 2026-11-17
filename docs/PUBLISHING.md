@@ -43,7 +43,7 @@
 
 ```sh
 node test/sim.mjs          # 回归（mock agent，不需要 DSH 运行时）
-npm pack --dry-run         # 检查真实发布的文件清单
+npm run pack:check         # 打包 tarball 并校验文件清单/导入/locale/dsh.bundle
 git status --short         # 不应有未提交改动
 ```
 
@@ -52,22 +52,23 @@ git status --short         # 不应有未提交改动
 
 ### 3.3 干净环境验证（不要用 `link:` 代替）
 
-软链安装不会过滤 `files`，所以必须用 tarball 验证一次：
+软链安装不会过滤 `files`，所以必须用 tarball 验证一次。`npm run pack:check` 已经自动检查
+包结构、`dsh.bundle`、client id、locale 详情、导出路径与相对导入；剩下的是 DSH 真实装载：
 
 ```sh
 npm pack
-dsh plugin --profile hktest add "$PWD/dsh-harness-kit-<version>.tgz"
-dsh --profile hktest --dump-config | grep -A3 harness-kit
 ```
 
-然后在 `hktest` profile 启动一次 Web（或直接用当前 profile 装 tarball 验证），确认：
+二选一验证：
 
-- 插件行存在且没有启动诊断；
-- 命令 `/hk-doctor` 可执行；
-- 侧栏出现 Harness Kit 面板，`/harness-kit/state` 返回 200；
-- 冷启动（完全重启 DSH）后面板端点仍然可用——这是 `ctx.inject` 挂载路由的历史事故点。
+- **图形界面**：Plugins → Add plugin，输入 tarball 的绝对路径，安装后确认插件行、
+  命令 `/hk-doctor`、侧栏 Harness Kit 面板都正常。验证完可以卸载，再按 §7 恢复 `link:` 开发。
+- **CLI**（需要 `dsh` 在 PATH，且 Desktop 已完全退出）：
+  `dsh plugin --profile hktest add "$PWD/dsh-harness-kit-<version>.tgz"`，
+  再 `dsh --profile hktest --dump-config | grep -A3 harness-kit`。
 
-验证完删除测试 profile，避免污染本机。
+无论哪种方式，都要做一次**完全重启**后的冷启动验证——路由挂载用 `ctx.inject`，冷启动与热重载
+是两条不同路径。
 
 ### 3.4 发布 npm
 
@@ -75,10 +76,13 @@ dsh --profile hktest --dump-config | grep -A3 harness-kit
 npm publish --access public
 ```
 
-- scoped 包才需要 `--access public`；当前包名无 scope，保留该参数无害。
-- 首次发布建议加 `--provenance`（见 CI 说明）。
+- 首次发布建议加 `--provenance`（需要公开仓库与 GitHub Actions 的 OIDC；只在本机发布时不要加）。
+- 若 npm 账号开了发布 2FA，`npm publish` 会要求 OTP，并可能打开浏览器认证页。这一步必须由维护者
+  在交互终端完成；把 OTP 交给别人或写进脚本都不安全。
+- 非交互环境（CI、agent shell）发布失败会报 `EOTP`，这表示需要人工验证，不是配置错误。
 - 发布后用 `npm view dsh-harness-kit version` 与 `npm view dsh-harness-kit dist-tags` 确认。
-- 若 npm 账号开了发布 2FA，命令会提示 OTP，需人工输入。
+- 本仓库的 `release.yml` 在 tag 触发时会先查该版本是否已发布，已发布就跳过；所以手动发布过的
+  版本再推 tag 也不会重复上传。
 
 ### 3.5 打 tag 与 Release
 

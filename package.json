@@ -31,7 +31,7 @@
   },
   "scripts": {
     "test": "node test/sim.mjs",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "node test/pack-check.mjs"
   },
   "exports": {
     ".": "./index.js",
