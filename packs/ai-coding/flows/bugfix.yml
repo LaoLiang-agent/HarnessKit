@@ -1,0 +1,37 @@
+# bugfix 全流程（profile 版）：缺陷修复快线。与 /hk-fix 直通的区别：
+# 直通是"无相关文档的简单 bug"（PM 直写 bugfix.md + 质量门裁决）；本流程走
+# BA 单 Worker + 审批 1 的完整提案路径，由 /hk-new → /hk-propose → /hk-apply 驱动。
+# 仅支持 miniyaml 子集：2 空格缩进、map、- 列表、标量。
+name: bugfix 全流程
+description: 缺陷修复：BA（bugfix.md 单页）→ 审批1 → Dev → CR → TE → 审批2
+stages:
+  - name: 缺陷分析
+    phase: propose
+    worker: business-analyst
+    do:
+      - 派发 Business Analyst：读 proposal.md 与缺陷报告，单 Worker 产出 bugfix.md（根因分析 + 影响面 + 验收 GWT + 就绪自评），替代 requirements/design
+      - bugfix.md 末尾「## 结论」段写 PASS 或 BLOCK
+  - name: 审批 1
+    phase: propose
+    approval: 向人展示 bugfix.md 要点（根因/影响面/验收），交人审批。通过后把「审批 1：通过（YYYY-MM-DD）」写入 proposal.md 末尾——写入后源码区红线自动解锁
+  - name: 开发
+    phase: apply
+    worker: developer
+    do:
+      - 派发 Developer 按 bugfix.md 修复；允许写范围 = kit.json sources 对应仓库内相关文件
+      - 产出 dev-log.md（改动清单、自测结果）
+  - name: 代码审查
+    phase: apply
+    worker: code-reviewer
+    do:
+      - 派发 Code Reviewer 审查改动 diff，产出 code-review.md，结论 PASS 或打回；打回 → 回开发阶段
+  - name: 测试
+    phase: apply
+    worker: test-engineer
+    do:
+      - 派发 Test Engineer 验证（bugfix 覆盖度：复现用例回归 + 构建/单测，可免 E2E），产出 test-report.md，最后一个「## 结论」段写 PASS 或 BLOCK
+  - name: 审批 2
+    phase: apply
+    approval: 向人汇报测试结论与交付摘要，交人审批。通过后把看板置 AWAITING_ARCHIVE 并记录「审批 2：通过」（链上审批2✅）——自动续接引擎会接力 /hk-archive <任务名>，无需人手动敲；若工作区关闭自动续接（kit.autoAdvance=false），则提醒人运行
+after:
+  - 回退规则：CR 不通过 → Dev；TE 实现级 → Dev；TE 需求级 → propose

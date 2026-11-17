@@ -1,0 +1,83 @@
+# Harness Kit 初始化流程 — 对应原 /harness-init 的 Steps 1-7b
+# 由 /hk-init 在完成 .harness 骨架与资产物化后编译为 PM 编排提示词。
+name: 工程初始化（子工程探测与文档生成）
+stages:
+  - name: 探测子工程
+    actor: PM
+    do:
+      - 运行 `python3 .harness/scripts/harness_init.py --detect`
+      - 计划写入 .harness/.logs/workflow/harness-init-plan.json —— 用 read 读该文件，不要解析 stdout
+      - 计划含每个子工程的类型（maven-multimodule / maven / vue-multimodule / mobile-app / uniapp / dotnet）、角色、模板路径、各文件状态（EXISTS / MISSING）、build.json 的 missing_keys
+      - 若没有任何子工程被探测到（services/ 为空或全部已齐），如实向人报告并结束，不要编造生成项
+  - name: 展示计划
+    actor: PM
+    do:
+      - 以表格向人展示每个子工程：类型、模板、L1 CLAUDE.md / L1.5 .harness/build.json / L2 docs/CODE_STANDARDS.md 各项状态（✅已存在跳过 / ♻️补齐缺失键 / ⬜待生成）、模块级 CLAUDE.md 的缺失清单
+  - name: 生成确认
+    actor: PM
+    gate: 把计划交人确认（全部生成 / 逐项确认 / 取消），用 ask_user_question 工具；确认前不得写任何子工程文件
+  - name: build.json 落盘
+    actor: PM
+    do:
+      - build.json 是纯模板拷贝，不需要 AI 分析代码，PM 直接用 bash 完成
+      - status MISSING → 将 .harness/templates/<模板目录>/build.tmpl 内容整体写入 <子工程>/.harness/build.json
+      - status EXISTS 且 missing_keys 非空 → 只补缺失键，绝不覆盖已有值（已有值是工程事实）；用 python3 -c 读两侧 JSON 取差集追加
+      - build.json 非法 JSON → 停下报给人，不要当空配置继续
+      - 模板留空的键（前端/移动的 compile、所有工程的 start-ok 等）不在本阶段编造，由下一阶段「启动命令补齐」按工程事实推断并经人确认后填入
+  - name: 启动命令补齐（人机协作）
+    actor: PM
+    gate: 补齐方案必须经人确认后才写盘；未经确认不得改 build.json
+    do:
+      - 目标：初始化完成后每个子工程都能真实编译和启动 —— build.json 的 compile / test / start / start-ok / start-timeout / start-port 必须是**可执行的工程事实**，不是模板占位
+      - 对每个子工程先探索事实再提方案：读 package.json 的 scripts / pom.xml / build.gradle / *.csproj / README / 已有 CLAUDE.md，推断各键的具体命令、启动端口、启动成功的日志特征（start-ok 正则候选，如 `Started .* in [0-9.]+ seconds`、`Local:.*http`）
+      - 以表格向人展示每个子工程的补齐方案：键、推断值、推断依据（来源文件）；用 ask_user_question 让人逐项确认 / 修改 / 跳过
+      - 确认后写盘：用 python3 -c 读改 JSON，只覆盖人确认过的键，其余键原样保留；写完校验 JSON 合法
+      - 工程事实也推不出的键保持空 = 未声明（后续验证如实报「未验证」），禁止拍脑袋编造
+  - name: 编译验证
+    actor: PM
+    do:
+      - 逐子工程运行 `python3 .harness/scripts/harness.py run-field <子工程名> compile`（也可用 `--all compile` 一轮跑完）
+      - 编译通过 → 记录 ✅；compile 未声明 → 记录「未验证」并说明原因
+      - 编译失败 → 把报错要点报给人，用 ask_user_question 询问：修正 build.json 命令后重试一次 / 标记未验证跳过；最多重试一轮，禁止无限循环
+  - name: 启动验证
+    actor: PM
+    do:
+      - 逐子工程运行 `python3 .harness/scripts/harness.py run-field <子工程名> start`
+      - 命中 start-ok 判据 = 启动成功 → **立即** `python3 .harness/scripts/harness.py run-field <子工程名> stop` 停掉服务，再验下一个（验证完不得遗留运行中的服务）
+      - 超时未命中、但日志里出现明显成功标志 → 停下把该日志行报给人，经人确认后更新 start-ok 正则；先 stop 清场再重试一次
+      - start 未声明 → 「未验证」，如实记录；进程退出或判定失败 → 报人并按编译验证同款对话机制处理（修命令重试一次 / 标记未验证）
+      - 全部验完后汇总确认无遗留服务（对每个启过的工程复核一次 stop 已执行）
+  - name: L2 编码规范
+    actor: PM
+    do:
+      - 对每个确认生成的子工程派发一个 subagent：自包含 prompt = 模板 .harness/templates/<模板目录>/CODE_STANDARDS.tmpl 全文 + 目标代码目录路径 + 输出路径 <子工程>/docs/CODE_STANDARDS.md
+      - subagent 读代码后按模板章节据实生成，写盘后返回；等待返回再发下一个（串行，1-2 个很快）
+      - 必须在 build.json 之后、root CLAUDE.md 之前完成
+  - name: L1 根 CLAUDE.md
+    actor: PM
+    do:
+      - 对每个确认生成的子工程派发一个 subagent：模板 root-CLAUDE.tmpl 全文 + 目标代码目录 + 输出 <子工程>/CLAUDE.md
+      - 「参考文档」段必须列 docs/CODE_STANDARDS.md —— 模板已写死该引用，不得按当前盘面自行判断"无参考文档"
+  - name: 模块级 CLAUDE.md
+    actor: PM
+    do:
+      - 按 plan 中缺失的模块清单派发 subagent（后端 module-CLAUDE.tmpl / 前端 app-CLAUDE.tmpl），每批最多 5 个并行，避免上下文爆炸
+      - 每个 prompt 自包含：模板全文 + 模块路径 + 输出路径
+  - name: CodeGraph 索引
+    actor: PM
+    do:
+      - 运行 `python3 .harness/scripts/check_codegraph.py --sync --all`（codegraph CLI 缺失时脚本自动 npm install -g，该全局安装走 DSH 审批，先向人说明）
+      - 退出码 0=OK；非 0 时如实向人报告失败原因，禁止假装成功
+      - 人明确拒绝安装 codegraph 时跳过本阶段并在汇报中标注
+  - name: 完整性校验
+    actor: PM
+    do:
+      - 运行 `python3 .harness/scripts/codebase_guide_init.py`，汇总 WARN / FAIL 如实报人；可按其提示补生成骨架
+  - name: 环境诊断
+    actor: PM
+    do:
+      - 对每个子工程运行 `python3 .harness/scripts/harness.py env-auto <子工程名> --check`，汇总运行环境体检结果报人
+after:
+  - 向人汇报初始化总览：每个子工程生成了什么、跳过了什么、build.json 补齐了哪些键、编译/启动验证结论（✅通过 / ⚠️未验证及原因）、CodeGraph 状态、遗留 WARN 清单
+  - 验证未通过的子工程不视为初始化失败：如实列出，并指引「修正 <子工程>/.harness/build.json 后手工复验：python3 .harness/scripts/harness.py run-field <子工程> compile|start」
+  - 根 AGENTS.md 只描述工作区资源与子工程地图，构建/启动命令的权威来源永远是各子工程 .harness/build.json —— 不要把命令抄回 AGENTS.md

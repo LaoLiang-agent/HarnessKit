@@ -1,0 +1,56 @@
+---
+description: uni-app 多端工程根 CLAUDE.md 生成指令
+target: services/{{SUB_PROJECT}}/CLAUDE.md
+---
+
+请分析 `services/{{SUB_PROJECT}}/` 下的工程结构，生成根级 CLAUDE.md。
+
+> 本工程是 **uni-app 多端工程**（一套代码编译到 H5 / 小程序 / App），不是普通 Web H5 SPA，
+> 不要按 `src/views` + `vue-router` + `rem/postcss-pxtorem` 的 Web 套路描述。先判定形态再动笔：
+>
+> - **HBuilderX 工程**：`manifest.json` + `pages.json` + `App.vue` + `main.js` 在**根目录**，无 `package.json`，靠 IDE 编译发行
+> - **CLI 工程**：`package.json` 依赖含 `@dcloudio/*`，`manifest.json` / `pages.json` 在 **`src/`** 下，命令走 npm scripts
+>
+> 两处结构差异会传导到每一段（目录树、构建命令、依赖引入方式），写错形态等于整篇作废。
+
+## 必须包含的章节
+
+### Build
+<!-- 按形态写实际命令：
+     CLI → 从 package.json scripts 提取（dev:h5 / dev:mp-weixin / build:mp-weixin / build:h5 等，注明各命令对应的目标端；
+           同时说明 `.harness/build.json` 的 start 需按本项目主要目标端补齐——模板默认留空，不会自动带出）
+     HBuilderX → 写「运行/发行」菜单路径与需要先装的插件/环境（HBuilderX 版本要求），说明本工程无 npm 脚本 -->
+
+### 项目概述
+<!-- 2-3 句话：uni-app 版本与 vue 版本（vue2 / vue3 语法差异大，必须写准）、编译目标端（H5 / 各平台小程序 / App…）、
+     UI 组件库、状态管理、目标运行环境（浏览器、内嵌 WebView、小程序、独立 App） -->
+
+### 目录结构
+<!-- 列出实际顶层目录并说明用途：pages/（页面）、static/、components/、uni_modules/（插件市场引入的模块）、
+     以及 CLI 形态下的 src/ 层；说明 manifest.json 与 pages.json 的位置（根 或 src/） -->
+
+### 关键框架模式
+<!-- 扫描代码，提取核心模式（附实际代码片段）：
+     - 路由与页面注册：pages.json 的 pages 数组、tabBar、分包 subPackages、页面参数传递方式
+     - 页面生命周期：onLoad / onShow / onReady / onHide / onUnload 的使用位置与时机
+     - 条件编译：`// #ifdef MP-WEIXIN` / `<!-- #ifdef H5 -->` 等平台分支的既有约定
+     - 跨端 API：uni.xxx（uni.request / uni.navigateTo / uni.setStorage）封装层次
+     - 全局状态：store 的组织与持久化、globalData 的使用边界
+     - easycom 等自动引入规则（组件按目录约定自动注册，不写 import） -->
+
+### 关键约定
+<!-- 从代码中归纳：文件与组件命名规范、rpx 尺寸单位的使用（何时用 rpx / 何时必须 px）、
+     样式预处理器与 scoped 约定、多端差异的封装位置（utils/platform 之类）、
+     登录态与授权（uni.login / uni.getUserProfile / token 存储）、
+     环境与配置（manifest.json 多端配置、ext.json、环境变量） -->
+
+### 参考文档
+<!-- 必须固定列出 docs/CODE_STANDARDS.md（本次初始化同时生成的编码规范，CR 审查基准）；
+     它由 L2 步骤在你之后落盘，**不要因为此刻看不到 docs/ 目录就写「无参考文档」**。
+     随后再补充 docs/ 下实际存在的其它文档。 -->
+
+## 约束
+- 文件总行数严禁超过 256 行
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 只生成以上章节
+- 关键框架模式必须包含实际代码片段

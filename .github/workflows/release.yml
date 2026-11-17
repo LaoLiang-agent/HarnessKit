@@ -1,0 +1,51 @@
+name: Release
+
+# Publishes the version in package.json when a v* tag is pushed.
+# Requires the repository secret NPM_TOKEN (an npm automation token),
+# or configure npm Trusted Publishing for this repository and remove the
+# NODE_AUTH_TOKEN line below.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify the tag matches package.json
+        run: |
+          node -e "
+          const version = require('./package.json').version
+          const tag = process.env.GITHUB_REF_NAME.replace(/^v/, '')
+          if (version !== tag) {
+            console.error('tag ' + tag + ' does not match package version ' + version)
+            process.exit(1)
+          }
+          "
+
+      - name: Regression suite
+        run: node test/sim.mjs
+
+      - name: Skip a version that is already published
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "dsh-harness-kit@$VERSION" version >/dev/null 2>&1; then
+            echo "dsh-harness-kit@$VERSION is already on npm; skipping publish."
+            echo "SKIP_PUBLISH=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Publish to npm
+        if: env.SKIP_PUBLISH != 'true'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

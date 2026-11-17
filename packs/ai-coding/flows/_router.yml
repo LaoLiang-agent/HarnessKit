@@ -1,0 +1,14 @@
+# Profile 路由表：Bootstrap 阶段由 PM 按 when 条件（自然语言）逐条判定，
+# 与人确认后写入 proposal.md。保持「AI 判定 + 人裁决」语义，不是硬编码规则引擎。
+# 仅支持 miniyaml 子集。
+name: profile 路由表
+routes:
+  - when: 修复已知缺陷（有明确复现、根因已定位），且影响面单一（不跨模块）、核心逻辑改动 ≤2 文件（配置/测试/文档等伴随改动不计入）、无新增 API/接口/模型、无数据模型变更
+    flow: bugfix
+  - when: 跨模块（≥2 个模块）变更或重构
+    flow: refactor
+  - when: ≤2 文件改动且无新增 API/模型
+    flow: quick
+  - when: 含新增模型/视图/接口
+    flow: standard
+default: standard

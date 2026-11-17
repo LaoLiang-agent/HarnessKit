@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "title": "Harness Kit",
+    "description": "多 Agent 工程流程框架：角色、流程、护栏与工作区资产。",
+    "detail": "docs/DETAIL.md"
+  },
+  "commands": {
+    "hk-setup": "收集代码仓库并登记 kit.json",
+    "hk-init": "初始化 .harness 工作区骨架",
+    "hk-fix": "端到端跑一个轻量 fix 任务",
+    "hk-archive": "归档已完成任务的本轮产物",
+    "hk-doctor": "检查 harness 工作区健康度"
+  }
+}

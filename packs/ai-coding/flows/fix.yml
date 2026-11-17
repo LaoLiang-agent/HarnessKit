@@ -1,0 +1,44 @@
+# fix 直通流程（轻量/全量由质量门人裁决决定）
+# 仅支持 miniyaml 子集：2 空格缩进、map、- 列表、标量。勿用锚点/块标量/流式语法。
+name: fix 直通
+stages:
+  - name: 分支准备
+    actor: PM
+    do:
+      - 确定本次修复的目标源码仓库（按 kit.json sources 与问题归属，多仓库时逐一处理）
+      - 源码工作区已由内核分配：见「运行时纪律·并行工作区」节（主工作树 or 池化 worktree slot，分支 fix/harness-<任务名>）；只在该分配目录内工作，不要自行另建/切分支
+      - 若运行时纪律里没有分配清单（纯文档/仓不可用场景），才退回手工建 fix/harness-<任务名>
+      - 绝不使用 git reset --hard / clean -f / push --force；不破坏当前 git 上下文
+  - name: 缺陷文档
+    actor: PM
+    do:
+      - 直写活目录 bugfix.md：补全问题描述、根因假设、修复方案、影响面；单页，不走 propose 文档审批
+      - 信息不足时先向人反问（PM 澄清义务），不要自行补全口径
+  - name: 质量门
+    actor: PM
+    gate: 按 bugfix.md「质量门」表评估复杂度并给出建议（轻量 或 --full）。裁决无默认值，必须交人；人裁决后把「裁决：轻量」或「裁决：--full」写入 bugfix.md 的 R0 段——写入后源码区红线自动解锁，方可进入开发。轻量 = 只 Dev + 验证；--full = Dev → CR → TE。
+  - name: 开发修复
+    worker: developer
+    do:
+      - 派发 Developer Worker 实施修复；prompt 内嵌 developer 角色定义全文、bugfix.md 全文、允许写范围（仅目标仓库内与修复直接相关的文件）
+      - Worker 返回后，PM 复核改动 diff 是否与方案一致
+  - name: 评审
+    worker: code-reviewer
+    do:
+      - 仅当裁决为 --full 时执行本阶段：派发 Code Reviewer 审查改动；轻量裁决跳过
+  - name: 验证
+    actor: PM
+    do:
+      - 运行目标仓库的构建/测试命令（参照根 AGENTS.md 或 .harness/codebase-guide/ 中的 build 命令；缺失时向人询问，不要猜）
+      - 修复未通过构建/测试时回到「开发修复」阶段；循环不超过 3 次，仍失败则停下向人汇报
+  - name: Memory Merge
+    actor: PM
+    do:
+      - 把本轮踩坑/教训以条目文件追加到 .harness/memory/entries/，并在 .harness/memory/index.md 追加索引行（一人一事一文件，只追加）
+  - name: 归档
+    actor: PM
+    do:
+      - 补全 bugfix.md 的 R0 段（修复摘要、验证结果）
+      - 提醒人运行 /hk-archive <任务名> 完成归档；归档预检会强制校验质量门裁决记录
+after:
+  - 代码合入（push / MR）由人决定，AI 不主动执行

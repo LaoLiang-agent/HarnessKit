@@ -1,0 +1,50 @@
+# refactor 重构流程：跨模块改动，SA 先做影响面分析
+# 仅支持 miniyaml 子集：2 空格缩进、map、- 列表、标量。
+name: refactor 重构流程
+description: 重构/跨模块：SA 影响面 → BA → SA → RR → 审批1 → Dev → CR → TE → 审批2
+stages:
+  - name: 影响面分析
+    phase: propose
+    worker: solution-architect
+    do:
+      - 派发 Solution Architect：读 proposal.md 与 codebase-guide，先做跨模块影响面分析，产出 impact-analysis.md（受影响模块清单、Blast Radius、风险点）
+  - name: 需求分析
+    phase: propose
+    worker: business-analyst
+    do:
+      - 派发 Business Analyst：读 proposal.md + impact-analysis.md，产出 requirements.md（GWT 需求 + §7 Spec Delta 草稿）
+  - name: 方案设计
+    phase: propose
+    worker: solution-architect
+    do:
+      - 派发 Solution Architect：基于 requirements.md + impact-analysis.md 产出 design.md（重构方案、迁移路径、兼容性策略）
+  - name: 就绪评审
+    phase: propose
+    worker: readiness-reviewer
+    do:
+      - 派发 Readiness Reviewer：审 impact-analysis + requirements + design，产出 readiness-report.md，最后一个「## 结论」段写 PASS 或 BLOCK
+      - BLOCK → 回对应阶段重做
+  - name: 审批 1
+    phase: propose
+    approval: 向人展示影响面/需求/方案/就绪结论，交人审批。通过后把「审批 1：通过（YYYY-MM-DD）」写入 proposal.md 末尾——写入后源码区红线自动解锁
+  - name: 开发
+    phase: apply
+    worker: developer
+    do:
+      - 派发 Developer 按 design.md 实施重构；允许写范围 = kit.json sources 对应仓库内相关文件
+      - 产出 dev-log.md（改动清单、自测结果）；重构须保持行为兼容或按方案显式变更
+  - name: 代码审查
+    phase: apply
+    worker: code-reviewer
+    do:
+      - 派发 Code Reviewer 审查改动 diff，产出 code-review.md，结论 PASS 或打回；打回 → 回开发阶段
+  - name: 测试
+    phase: apply
+    worker: test-engineer
+    do:
+      - 派发 Test Engineer 验证（refactor 覆盖度：全量回归 + 关键路径 E2E），产出 test-report.md，最后一个「## 结论」段写 PASS 或 BLOCK
+  - name: 审批 2
+    phase: apply
+    approval: 向人汇报测试结论与交付摘要，交人审批。通过后把看板置 AWAITING_ARCHIVE 并记录「审批 2：通过」（链上审批2✅）——自动续接引擎会接力 /hk-archive <任务名>，无需人手动敲；若工作区关闭自动续接（kit.autoAdvance=false），则提醒人运行
+after:
+  - 回退规则：CR 不通过 → Dev；TE 实现级 → Dev；TE 需求级 → propose；环境阻塞 → 升级给人

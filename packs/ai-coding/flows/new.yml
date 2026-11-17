@@ -1,0 +1,29 @@
+# bootstrap 需求澄清流程（/hk-new 驱动）：只打磨 proposal.md，不碰源码
+# 仅支持 miniyaml 子集：2 空格缩进、map、- 列表、标量。
+name: bootstrap 需求澄清
+description: 解读输入 → 起草 proposal → profile 判定 → 消歧义 → 定稿 → 交接
+stages:
+  - name: 解读输入
+    actor: PM
+    do:
+      - 读取任务描述；若任务目录下有需求文件（/hk-new --file 拷入），先读全文
+      - 读 .harness/specs/_index.md 与 .harness/codebase-guide/index.md（存在时），建立能力域背景
+      - 起草 proposal.md 各段：任务范围（做什么/不做什么）、受影响的能力表、可验证的验收条件
+  - name: Profile 判定
+    actor: PM
+    do:
+      - 按路由表（flows/_router.yml）的 when 条件逐条判定 profile，写明选择理由；无法确定默认 standard（保守原则）
+      - 把 profile 与 flow-mode（auto/review，人未指定则 auto）写入 proposal.md「流程 profile」段
+  - name: 模糊点反问
+    actor: PM
+    gate: 把「## 模糊点」段列全：所有歧义、口径不明、验收模糊之处，用 ask_user_question 逐条交人澄清；禁止 AI 自行补全。bugfix 例外：缺陷报告本身即验收标准，无歧义可跳过
+  - name: 定稿
+    actor: PM
+    approval: 展示 proposal 全部要点（范围/profile/验收/模糊点澄清结果）交人确认；人确认后把状态行改为「> **状态**：approved」
+  - name: 交接
+    actor: PM
+    do:
+      - 汇报「Bootstrap 完成 → proposal.md 已定稿（profile=<判定值>）」
+      - 告知人「已定稿，自动续接引擎将自动进入 propose 阶段（BA→SA→RR），无需手动运行 /hk-propose」；若数分钟内未自动接力（如会话未绑定），再提示人手动运行 /hk-propose <任务名>
+after:
+  - Bootstrap 阶段硬红线：禁止修改 kit.json sources 与 e2e/ 下任何源码（护栏已强制）

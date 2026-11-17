@@ -1,0 +1,10 @@
+# Submission entry for awesome-dsh-plugin/awesome-dsh-plugin
+# Copy this file to data/plugins/LaoLiang-agent__HarnessKit.yml in that repository
+# and open a pull request that adds only this file.
+url: https://github.com/LaoLiang-agent/HarnessKit
+name: LaoLiang-agent/HarnessKit
+category: workflow
+description:
+  en: 'Multi-agent engineering workflow for DeepSeek Harness: seven roles, four flow profiles, approval gates, guards and a shareable workspace asset repository.'
+  zh: '多 Agent 工程流程框架：七个角色、四档流程、人工审批点、护栏与可共享的工作区资产仓库。'
+icon: https://raw.githubusercontent.com/LaoLiang-agent/HarnessKit/main/assets/icon-180.png

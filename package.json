@@ -1,0 +1,62 @@
+{
+  "name": "dsh-harness-kit",
+  "version": "0.1.0",
+  "description": "Multi-agent engineering workflow for DeepSeek Harness: roles, flows, guards and workspace assets.",
+  "private": false,
+  "license": "MIT",
+  "author": "leo",
+  "type": "module",
+  "homepage": "https://github.com/LaoLiang-agent/HarnessKit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LaoLiang-agent/HarnessKit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LaoLiang-agent/HarnessKit/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "multi-agent",
+    "workflow",
+    "agents"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0 <0.3.0",
+    "node": ">=24.9.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node test/sim.mjs",
+    "pack:check": "npm pack --dry-run"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "kernel/*.js",
+    "packs/**",
+    "locale/*.json",
+    "icon.svg",
+    "docs/DETAIL.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  }
+}

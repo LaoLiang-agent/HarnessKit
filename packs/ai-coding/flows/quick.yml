@@ -1,0 +1,40 @@
+# quick 快速流程：小改动/热修复（跳过 RR，SA 就绪自评替代）
+# 仅支持 miniyaml 子集：2 空格缩进、map、- 列表、标量。
+name: quick 快速流程
+description: 小改动：BA → SA（就绪自评）→ 审批1 → Dev → CR → TE → 审批2
+stages:
+  - name: 需求分析
+    phase: propose
+    worker: business-analyst
+    do:
+      - 派发 Business Analyst：读 proposal.md 与 specs/_index.md，产出 requirements.md（GWT 需求，小改动可精简，但验收 GWT 不可省）
+  - name: 方案设计 + 就绪自评
+    phase: propose
+    worker: solution-architect
+    do:
+      - 派发 Solution Architect：产出 design.md（quick 规模从简），并在文末「## 就绪自评」段自评就绪性，结论写 PASS 或 BLOCK（附原因）
+      - 自评 BLOCK → 补全方案后重评
+  - name: 审批 1
+    phase: propose
+    approval: 向人展示 requirements/design 要点与 SA 就绪自评结论，交人审批。通过后把「审批 1：通过（YYYY-MM-DD）」写入 proposal.md 末尾——写入后源码区红线自动解锁
+  - name: 开发
+    phase: apply
+    worker: developer
+    do:
+      - 派发 Developer 按 design.md 实施；允许写范围 = kit.json sources 对应仓库内相关文件
+      - 产出 dev-log.md（改动清单、自测结果）
+  - name: 代码审查
+    phase: apply
+    worker: code-reviewer
+    do:
+      - 派发 Code Reviewer 审查改动 diff，产出 code-review.md，结论 PASS 或打回；打回 → 回开发阶段
+  - name: 测试
+    phase: apply
+    worker: test-engineer
+    do:
+      - 派发 Test Engineer 验证（quick 覆盖度：构建/单测 + 手动验证，可免 E2E），产出 test-report.md，最后一个「## 结论」段写 PASS 或 BLOCK
+  - name: 审批 2
+    phase: apply
+    approval: 向人汇报测试结论与交付摘要，交人审批。通过后把看板置 AWAITING_ARCHIVE 并记录「审批 2：通过」（链上审批2✅）——自动续接引擎会接力 /hk-archive <任务名>，无需人手动敲；若工作区关闭自动续接（kit.autoAdvance=false），则提醒人运行
+after:
+  - 回退规则：CR 不通过 → Dev；TE 实现级 → Dev；TE 需求级 → propose

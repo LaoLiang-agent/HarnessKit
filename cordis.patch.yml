@@ -1,0 +1,4 @@
+# Harness Kit bundle composition: one Host plugin row.
+- insert:
+    - id: harness-kit
+      name: 'dsh-harness-kit'

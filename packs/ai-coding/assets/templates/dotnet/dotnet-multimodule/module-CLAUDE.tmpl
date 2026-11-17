@@ -1,0 +1,42 @@
+---
+description: .NET 项目级 CLAUDE.md 生成指令
+target: services/{{SUB_PROJECT}}/{{PROJECT_NAME}}/CLAUDE.md
+variables:
+  PROJECT_PATH: "项目绝对路径"
+  PROJECT_NAME: "项目目录名"
+---
+
+请分析 `{{PROJECT_PATH}}/` 下的代码，生成项目级 CLAUDE.md。
+
+## 必须包含的章节
+
+文件开头必须是**元信息块**：逐行 `- **键**：值`（行内加粗，**不是** `### 标题`）——
+
+- **domain**：<!-- 从命名空间和类名推断 1-2 个领域标签，如：user, auth -->
+
+### 职责
+<!-- 从命名空间、类名、控制器路由归纳项目核心职责 -->
+
+### 项目类型
+<!-- Web API / Class Library / Worker Service / Blazor -->
+
+### 命名空间
+<!-- 写出根命名空间 -->
+
+### 依赖
+<!-- 从 .csproj PackageReference 和 using 语句中提取关键依赖 -->
+
+### 关键类清单
+<!-- 列出核心类，以表格形式：
+| 类名 | 类型 | 职责 |
+|------|------|------|
+从基类/接口和命名推断类型（Controller/Service/Repository/DbContext/Middleware/Model） -->
+
+### 关键约定/易错点
+<!-- 从本项目代码中归纳项目特有的约定和易错点：DI 注册方式、中间件顺序、DbContext 生命周期、异步方法命名、异常处理惯例等。只写本项目实际存在且与根 CLAUDE.md 不重复的内容 -->
+
+## 约束
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 只生成以上章节，不添加额外章节
+- 元信息块置于文件开头，键名逐字照抄（`domain`，区分大小写），供机器检索
+- 不要添加整体 CLAUDE.md 文件头

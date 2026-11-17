@@ -1,0 +1,34 @@
+---
+description: 通用 Vue 前端根 CLAUDE.md 生成指令
+target: services/{{SUB_PROJECT}}/CLAUDE.md
+---
+
+请分析 `services/{{SUB_PROJECT}}/` 下的工程结构（package.json、构建配置、目录布局），生成根级 CLAUDE.md。
+
+## 必须包含的章节
+
+### Build
+<!-- 从 package.json scripts 中提取 dev/build/lint 命令 -->
+
+### 项目概述
+<!-- 2-3 句话：技术栈（Vue 版本、UI 组件库、微前端方案如 qiankun/Module Federation）、App 数量、微前端架构简述 -->
+
+### 目录结构
+<!-- 列出顶层目录：apps/、build/、config/ 等，说明各自用途 -->
+
+### 关键框架模式
+<!-- 扫描 2-3 个 App 的代码，提取核心模式：App 扩展机制、视图行为协议、扩展钩子（beforeMount/afterMount 等）、自定义组件注册方式、状态管理（Vuex store 模式）、路由注册 -->
+
+### 关键约定
+<!-- 从代码中归纳：命名规范、多语言 i18n 使用方式、权限指令、API 调用封装 -->
+
+### 参考文档
+<!-- 必须固定列出 docs/CODE_STANDARDS.md（本次初始化同时生成的编码规范，CR 审查基准）；
+     它由 L2 步骤在你之后落盘，**不要因为此刻看不到 docs/ 目录就写「无参考文档」**。
+     随后再补充 .claude/skills/ 或 docs/ 下实际存在的文档。 -->
+
+## 约束
+- 文件总行数严禁超过 256 行
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 只生成以上章节
+- 关键框架模式必须包含实际代码片段

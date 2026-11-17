@@ -1,0 +1,40 @@
+---
+description: 通用 Java Maven 多模块模块级 CLAUDE.md 生成指令
+target: services/{{SUB_PROJECT}}/{{MODULE_NAME}}/CLAUDE.md
+variables:
+  MODULE_PATH: "模块绝对路径"
+  MODULE_NAME: "模块目录名"
+---
+
+请分析 `{{MODULE_PATH}}/src/` 下的 Java 代码，生成模块级 CLAUDE.md。
+
+## 必须包含的章节
+
+文件开头必须是**元信息块**：逐行 `- **键**：值`（行内加粗，**不是** `### 标题`）——
+
+- **路径**：<!-- 模块在仓库中的相对路径 -->
+- **domain**：<!-- 从包名和类名中推断 1-2 个领域标签，如：thing, model -->
+
+### 职责
+<!-- 从类名、注解（@Service/@Component/@RestController）和方法名归纳模块核心职责 -->
+
+### 扫描包名
+<!-- 写出 Java 包名 -->
+
+### 依赖
+<!-- 从 pom.xml <dependencies> 和 Java import 中提取关键依赖 -->
+
+### 关键类清单
+<!-- 列出核心类，以表格形式：
+| 类名 | 类型 | 职责 |
+|------|------|------|
+从注解和类名推断类型（Controller/Service/Repository/Config/Model/Util） -->
+
+### 关键约定/易错点
+<!-- 从本模块代码中归纳模块特有的约定和易错点：依赖注入的特殊规则、事务边界、连接管理、异常处理惯例、参数校验模式等。只写本模块实际存在且与根 CLAUDE.md 不重复的内容 -->
+
+## 约束
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 只生成以上章节，不添加额外章节
+- 元信息块置于文件开头，键名逐字照抄（`路径` / `domain`，区分大小写），供机器检索
+- 不要添加整体 CLAUDE.md 文件头

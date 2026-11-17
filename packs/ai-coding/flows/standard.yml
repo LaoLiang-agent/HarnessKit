@@ -1,0 +1,49 @@
+# standard 全流程：新功能开发（默认 profile）
+# 仅支持 miniyaml 子集：2 空格缩进、map、- 列表、标量。勿用锚点/块标量/流式语法。
+# phase: propose = 方案阶段（禁改源码）；apply = 实施阶段。hk-propose/hk-apply 按 phase 过滤执行。
+name: standard 全流程
+description: 新功能开发：BA → SA → RR → 审批1 → Dev → CR → TE → 审批2
+stages:
+  - name: 需求分析
+    phase: propose
+    worker: business-analyst
+    do:
+      - 派发 Business Analyst：读 proposal.md、.harness/specs/_index.md 与 codebase-guide，产出 requirements.md（GWT 需求，含 §7 Spec Delta 草稿）
+      - Worker 返回后 PM 复核：需求与 proposal 范围是否一致，不一致打回重写
+  - name: 方案设计
+    phase: propose
+    worker: solution-architect
+    do:
+      - 派发 Solution Architect：读 requirements.md 与 codebase-guide，产出 design.md（含 Blast Radius 影响面分析与必备章节、需求→技术落实对照）
+  - name: 就绪评审
+    phase: propose
+    worker: readiness-reviewer
+    do:
+      - 派发 Readiness Reviewer：审 requirements.md + design.md，产出 readiness-report.md，最后一个「## 结论」段写 PASS 或 BLOCK（附打回意见）
+      - 结论 BLOCK → 把意见带回需求分析/方案设计阶段重做，重新送审
+  - name: 审批 1
+    phase: propose
+    approval: 向人展示 requirements/design/readiness-report 要点与 RR 结论，交人审批是否进入开发。人通过后把「审批 1：通过（YYYY-MM-DD）」写入 proposal.md 末尾——写入后源码区红线自动解锁，才能进 apply 阶段
+  - name: 开发
+    phase: apply
+    worker: developer
+    do:
+      - 派发 Developer 按 design.md 以 TDD 实施；允许写范围 = kit.json sources 对应仓库内相关文件（+ e2e/，如需）
+      - 产出 dev-log.md（改动清单、自测结果）；PM 复核 diff 与方案一致性
+  - name: 代码审查
+    phase: apply
+    worker: code-reviewer
+    do:
+      - 派发 Code Reviewer 审查改动 diff，产出 code-review.md，结论 PASS 或打回（附修改说明）
+      - 打回 → 回到「开发」阶段修复后重新送审
+  - name: 测试
+    phase: apply
+    worker: test-engineer
+    do:
+      - 派发 Test Engineer 验证（standard 覆盖度：构建/单测 + 关键路径 E2E），产出 test-report.md，最后一个「## 结论」段写 PASS 或 BLOCK
+      - 实现级 bug → 回退开发；需求级问题 → 停下建议回 propose；环境阻塞 → 暂停升级给人
+  - name: 审批 2
+    phase: apply
+    approval: 向人汇报测试结论与交付摘要，交人审批。通过后把看板置 AWAITING_ARCHIVE 并记录「审批 2：通过」（链上审批2✅）——自动续接引擎会接力 /hk-archive <任务名>，无需人手动敲；若工作区关闭自动续接（kit.autoAdvance=false），则提醒人运行
+after:
+  - 回退规则：CR 不通过 → Dev 修复重审；TE 实现级 → Dev；TE 需求级 → propose；环境阻塞 → 升级给人

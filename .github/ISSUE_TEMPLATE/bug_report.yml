@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a problem with Harness Kit
+body:
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DSH version
+      description: The DeepSeek Harness version shown in About or `dsh --version`.
+      placeholder: 0.2.2-rc.2
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Harness Kit version
+      description: Shown on the plugin's page in Plugins.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.2 / Windows 11 / Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the command or panel action that triggers the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of /hk-doctor
+      description: Run `/hk-doctor` in the workspace and paste the result.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: false

@@ -1,0 +1,69 @@
+---
+description: uni-app 多端工程编码规范生成指令
+target: services/{{SUB_PROJECT}}/docs/CODE_STANDARDS.md
+---
+
+请分析 `services/{{SUB_PROJECT}}/` 下的现有代码，归纳实际编码规范，生成 CODE_STANDARDS.md。
+
+> 面向 **uni-app 多端工程**：一套代码同时编译到多个平台，规范的核心矛盾是「哪些写法跨端安全、哪些必须条件编译」。
+> 不要照搬 Web H5 SPA 的规范（`rem` 换算、`postcss-pxtorem`、`vue-router` 路由表、`window`/`document` 直用
+> 在 uni-app 里都不成立）。
+
+## 必须包含的章节
+
+### 组件与文件命名
+<!-- 从代码中归纳 .vue 文件与组件的命名模式（PascalCase / kebab-case）、页面文件的目录组织（pages/<模块>/<页面>.vue）、
+     组件存放位置与 easycom 命名约定是否匹配 -->
+
+### 目录结构与职责
+<!-- pages/、components/、static/、uni_modules/、utils/、api/、store/ 各自的职责边界；
+     说明 manifest.json / pages.json 的位置与谁在维护（根 或 src/） -->
+
+### 状态管理规范
+<!-- store 模块划分、state/getters/actions 命名与调用、是否持久化及持久化字段选择；
+     globalData 与 store 的边界（何时允许用 globalData） -->
+
+### 页面与导航
+<!-- pages.json 的维护规范：页面注册顺序、tabBar 配置、分包（subPackages）划分原则、预加载规则；
+     导航 API 选择（uni.navigateTo / redirectTo / switchTab / reLaunch 各自适用场景）；
+     页面参数传递与返回值的既有约定 -->
+
+### 多端适配与条件编译
+<!-- 从代码中归纳：rpx 的使用规范（何时用 rpx、何时必须用 px 或设备信息换算）、
+     条件编译的写法与集中位置（`// #ifdef MP-WEIXIN` / `<!-- #ifdef H5 -->` / `#ifndef`）、
+     平台差异代码的组织方式（是散落在业务里还是收敛到 utils/ 适配层——按实际归纳并给出推荐边界）、
+     安全区与刘海屏处理、不同端的状态栏/导航栏差异 -->
+
+### UI 组件库使用
+<!-- 组件库及其多端支持情况（哪些端可用、哪些端降级）、按需引入或 easycom 自动引入配置、
+     主题定制方式、二次封装组件的边界（何时封装、何时直接用） -->
+
+### API 调用封装
+<!-- 基于 uni.request 的封装层次、拦截器（token 注入、错误统一处理、loading 管理）、
+     接口定义组织方式、超时与重试约定、跨端 baseURL 的配置位置 -->
+
+### 样式约定
+<!-- 预处理器、scoped / 模块化方式、全局样式与变量组织、小程序端的样式限制（不支持的选择器、组件样式隔离）、禁止的写法 -->
+
+### 异常处理
+<!-- try/catch 使用场景、uni.xxx 的 fail 回调与 Promise 形式的统一、全局错误上报位置、
+     接口错误与业务错误的区分、小程序端 API 拒绝授权的处理 -->
+
+### 日志规范
+<!-- 日志封装方式、级别选择、生产环境是否保留 console（小程序端 console 的可见性差异）、
+     是否需要条件编译屏蔽调试输出 -->
+
+### 注入防护
+<!-- 富文本渲染（rich-text / v-html 的端差异）使用规范、URL 参数与页面参数校验、
+     动态执行代码的限制、小程序端不得使用 eval/new Function -->
+
+### 资源释放
+<!-- 页面/组件销毁时的清理：定时器与轮询、uni.$on / uni.$emit 事件总线解绑、
+     uni.createXXXContext 创建的上下文、监听器（uni.onXXX）与后台任务 -->
+
+### 禁止事项
+<!-- 不超过 5 条，每条说明原因（优先收录「在 H5 能跑、在小程序/App 直接报错」的写法） -->
+
+## 约束
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 每条规范尽量附带实际代码示例
