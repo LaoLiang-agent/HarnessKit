@@ -1639,6 +1639,34 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     ok('kit.json 落盘（分支/autoSync/models）', kit.sources[0].branch === 'release' && kit.assets.autoSync === true && kit.models.dev.model === 'k3' && kit.models.dev.provider === 'ds');
     const r2 = updateKit(ws, { models: { dev: null } });
     ok('models null 删除映射', r2.ok && JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8')).models.dev === undefined);
+    // 流程配置（原 config.json 的 apply-mode）：applyMode 并入 kit.json；mainlineBranch 已废弃
+    ok('applyMode 非法值拒绝', updateKit(ws, { applyMode: 'nope' }).error !== undefined);
+    const r3 = updateKit(ws, { applyMode: 'review' });
+    const k3 = JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8'));
+    ok('applyMode 保存进 kit.json', r3.ok === true && k3.applyMode === 'review');
+  }
+  // 旧 config.json → kit.json 迁移并在 init 时删除（2026-11-18）
+  {
+    const ws = mkws();
+    cleanups.push(ws);
+    fake(ws, '.harness/config.json', JSON.stringify({ 'apply-mode': 'review', 'mainline-branch': 'rel-9', description: 'x' }));
+    await run('hk-init', '', ws);
+    const k = JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8'));
+    ok('init 迁移 config.json 到 kit.json（仅 applyMode）', k.applyMode === 'review' && k.mainlineBranch === undefined);
+    ok('迁移后旧 config.json 已删除', !fs.existsSync(path.join(ws, '.harness/config.json')));
+  }
+  // lib.get_mainline_branch：主线 = kit.json sources[该仓].branch（build.json 覆盖优先）
+  {
+    const ws = mkws();
+    cleanups.push(ws);
+    fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, sources: [{ name: 'backend', path: 'services/backend', branch: 'rel-2.0' }] }));
+    fake(ws, '.harness/scripts/lib.py', fs.readFileSync(path.join(bundleRoot, 'packs/ai-coding/assets/scripts/lib.py'), 'utf8'));
+    fs.mkdirSync(path.join(ws, 'services/backend'), { recursive: true });
+    const out = execSync(`python3 -c "import sys; sys.path.insert(0,'.harness/scripts'); import lib; print(lib.get_mainline_branch('services/backend'))"`, { cwd: ws, encoding: 'utf8' }).trim();
+    ok('主线分支 = sources[].branch（无 mainlineBranch 字段）', out === 'rel-2.0');
+    fake(ws, 'services/backend/.harness/build.json', JSON.stringify({ 'mainline-branch': 'hotfix/9' }));
+    const out2 = execSync(`python3 -c "import sys; sys.path.insert(0,'.harness/scripts'); import lib; print(lib.get_mainline_branch('services/backend'))"`, { cwd: ws, encoding: 'utf8' }).trim();
+    ok('build.json mainline-branch 覆盖优先', out2 === 'hotfix/9');
   }
 }
 

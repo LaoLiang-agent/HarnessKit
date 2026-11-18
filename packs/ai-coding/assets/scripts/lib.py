@@ -605,11 +605,37 @@ def blocking_dirty(sp: Path, allowed=None, tracked_only: bool = False) -> list:
             if not _allowed(p)]
 
 
+def _kit_source_branch(service_path) -> str:
+    """kit.json sources 里该子工程登记的基线分支（2026-11-18：mainlineBranch 字段已废弃，
+    主线 = 每仓 sources[].branch，与开发分支基点/合入目标同源）。"""
+    try:
+        sources = read_json(ROOT / ".harness" / "kit.json").get("sources") or []
+    except Exception:
+        return ""
+    sp = Path(service_path)
+    try:
+        rel = sp.resolve().relative_to(ROOT.resolve()).as_posix()
+    except Exception:
+        rel = sp.as_posix().lstrip("./")
+    for s in sources:
+        if not isinstance(s, dict):
+            continue
+        if not s.get("branch"):
+            continue
+        if s.get("path") == rel or Path(s.get("path", "")).name == Path(rel).name:
+            return str(s["branch"]).strip()
+    return ""
+
+
 def get_mainline_branch(service_path) -> str:
     """子工程主线分支（集成/同步目标分支）。
-    优先级：子工程 .harness/build.json 的 mainline-branch > 根 .harness/config.json 的 mainline-branch > 默认 dev。
+    优先级：子工程 .harness/build.json 的 mainline-branch > kit.json sources[该仓].branch
+    > 旧 .harness/config.json 的 mainline-branch（兼容旧工作区）> 默认 dev。
     """
     b = get_build_field(service_path, "mainline-branch")
+    if b:
+        return b
+    b = _kit_source_branch(service_path)
     if b:
         return b
     b = read_json(ROOT / ".harness" / "config.json").get("mainline-branch")

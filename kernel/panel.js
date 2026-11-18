@@ -320,6 +320,11 @@ export function updateKit(ws, patch) {
     kit.assets = kit.assets ?? { mode: 'local' };
     kit.assets.autoSync = patch.autoSync;
   }
+  // 流程配置（2026-11-18 从 .harness/config.json 迁入 kit.json，面板设置页可改）
+  if (patch.applyMode !== undefined) {
+    if (!['auto', 'review'].includes(patch.applyMode)) return { error: "applyMode 必须是 'auto' 或 'review'" };
+    kit.applyMode = patch.applyMode;
+  }
   if (patch.models !== undefined) {
     if (typeof patch.models !== 'object' || patch.models === null || Array.isArray(patch.models)) {
       return { error: 'models 必须是对象' };
@@ -392,6 +397,16 @@ export function workspaceState(ws, { sync = null } = {}) {
       ? { mode: kit.assets.mode ?? 'local', url: kit.assets.url ?? null, branch: kit.assets.branch ?? null, autoSync: kit.assets.autoSync === true }
       : { mode: 'local', url: null, branch: null, autoSync: false },
   };
+}
+
+/** 旧版 .harness/config.json（仅用于设置页提示迁移；新配置一律写 kit.json）。 */
+function readLegacyConfig(ws) {
+  try {
+    const p = path.join(harnessDir(ws), 'config.json');
+    if (!fs.existsSync(p)) return null;
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+    return { applyMode: raw['apply-mode'] ?? null, mainlineBranch: raw['mainline-branch'] ?? null };
+  } catch { return null; }
 }
 
 // ---------------------------------------------------------- 初始化进度（向导动态提示）
@@ -707,7 +722,16 @@ export function registerPanelApi(ctx) {
           if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
           sendJson(res, 200, {
             ok: true,
-            kit: { pack: kit.pack ?? 'ai-coding', hosts: kit.hosts ?? [], sources: kit.sources ?? [], models: kit.models ?? {}, assets: kit.assets ?? { mode: 'local' } },
+            kit: {
+              pack: kit.pack ?? 'ai-coding',
+              hosts: kit.hosts ?? [],
+              sources: kit.sources ?? [],
+              models: kit.models ?? {},
+              assets: kit.assets ?? { mode: 'local' },
+              // 流程配置（原 .harness/config.json，2026-11-18 迁入 kit.json）
+              applyMode: kit.applyMode ?? 'auto',
+              legacyConfig: readLegacyConfig(ws.path),
+            },
             sync: syncHealth(ws.path),
             catalog: await listModelCatalog(llm),
             presetModels: logicalModelNames(kit),

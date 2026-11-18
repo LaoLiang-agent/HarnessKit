@@ -150,8 +150,6 @@ def generate_plan(root: Path) -> dict:
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     root = lib.repo_root()
-    # 初始化即安装 pre-commit 门禁（幂等）：任意分支拦子模块指针的改/删，集成分支另拦交付物
-    lib.git(["config", "core.hooksPath", str(root / ".harness" / "git-hooks")], cwd=root)
     plan = generate_plan(root)
     if mode in ("--detect", "--json"):
         payload = json.dumps(plan, ensure_ascii=False, indent=2)

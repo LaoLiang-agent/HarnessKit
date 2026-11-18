@@ -383,6 +383,26 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
     fs.appendFileSync(giPath, '# pack 管理运行时（/hk-init 每次刷新，勿手改、勿提交）\nscripts/\n', 'utf8');
     created.push('.harness/.gitignore（追加 scripts/ 排除）');
   }
+  // 存量迁移：旧 .harness/config.json（apply-mode / mainline-branch）并入 kit.json 并删除
+  // （2026-11-18：流程配置统一收进 kit.json，由面板设置页管理；旧文件只做一次性迁移）
+  {
+    const legacyPath = path.join(hd, 'config.json');
+    if (fs.existsSync(legacyPath)) {
+      try {
+        const legacy = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+        const applyMode = legacy['apply-mode'];
+        const k = readKit(ws) ?? defaultKit();
+        let changed = false;
+        if ((applyMode === 'auto' || applyMode === 'review') && k.applyMode === undefined) { k.applyMode = applyMode; changed = true; }
+        if (changed) writeKit(ws, k);
+        fs.rmSync(legacyPath, { force: true });
+        created.push('.harness/config.json 已迁入 kit.json（applyMode；主线分支改用 sources[].branch）并删除旧文件');
+      } catch (cause) {
+        warnings.push(`旧 config.json 迁移失败（${cause.message}），文件保留：请手工把 apply-mode/mainline-branch 填入 kit.json 后删除`);
+      }
+    }
+  }
+
   // 存量迁移：本机状态文件（会话绑定/续接点火/工作区分配/决策点/环境租约）不入资产库
   const LOCAL_STATE = ['tasks/sessions.json', 'tasks/auto-advance.json', 'tasks/worktrees.json', 'tasks/decisions.json', 'tasks/test-env.json'];
   if (fs.existsSync(giPath)) {

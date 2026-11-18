@@ -118,7 +118,7 @@ apply-mode 决定 CR PASS 后是否进入人工审查点：
 - **auto 模式**（默认）：CR PASS → PM 直接调度 TE
 - **review 模式**：CR PASS → PM 用 `update_board.py <任务> --status CR_REVIEW_PENDING` 更新看板，输出 code-review.md 摘要，提示人审阅 → 人运行 `/hk-apply <任务>` 续接 → PM 检测 `CR_REVIEW_PENDING` 跳过 Dev+CR 直接调度 TE
 
-**模式优先级**：proposal.md 的 `flow-mode` > `.harness/config.json` 的 `apply-mode` > 默认 auto
+**模式优先级**：proposal.md 的 `flow-mode` > `.harness/kit.json` 的 `applyMode`（面板设置页可改）> 默认 auto
 
 ## 输入（Inputs）
 
@@ -126,7 +126,6 @@ apply-mode 决定 CR PASS 后是否进入人工审查点：
 - `.harness/specs/_index.md` — 系统能力索引
 - `codebase-guide/overview.md` — 项目架构总览
 - `tasks/board.md` — 任务看板
-- `workflow/contract.json` — Agent I/O 契约（用于交叉校验）
 
 ## 产出（Outputs）
 
@@ -185,6 +184,6 @@ apply-mode 决定 CR PASS 后是否进入人工审查点：
 | TE | 测试资产 | TE 补齐 |
 | TE | 定位阻塞 | 报告写清证据 + 需人决策 |
 
-## 硬校验：contract.json 一致性
+## 硬校验：角色「必读」清单一致性
 
-`.harness/workflow/contract.json` 的 `roles.<agent>.inputs` 与对应 Worker 角色定义（由 Harness Kit 内核提供）的「必读」清单必须完全一致。PM 在每次 `/hk-propose` 执行前应快速交叉校验，发现不一致时报告给人。
+Worker 角色文件（`agents/*.md`，工作区覆写优先于内容包默认）里的「输入（Inputs）/ 必读」清单即权威契约——当前 Harness Kit 不维护额外的 contract.json，不要去找该文件。PM 在每次 `/hk-propose` 执行前核对：阶段剧本要求的产物（proposal/design/requirements…）与对应角色「必读」清单是否一致，发现矛盾时报告给人。

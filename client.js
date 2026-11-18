@@ -736,10 +736,12 @@ window.__ModuleLoader__.load({
       const [branches, setBranches] = useState(() => Object.fromEntries((k.sources ?? []).map((s) => [s.name, s.branch ?? ''])));
       const [autoSync, setAutoSync] = useState(k.assets?.autoSync === true);
       const [models, setModels] = useState(() => Object.entries(k.models ?? {}).map(([name, m]) => ({ name, provider: m.provider ?? '', model: m.model ?? '' })));
+      const [applyMode, setApplyMode] = useState(k.applyMode ?? 'auto');
       useEffect(() => {
         setBranches(Object.fromEntries((k.sources ?? []).map((s) => [s.name, s.branch ?? ''])));
         setAutoSync(k.assets?.autoSync === true);
         setModels(Object.entries(k.models ?? {}).map(([name, m]) => ({ name, provider: m.provider ?? '', model: m.model ?? '' })));
+        setApplyMode(k.applyMode ?? 'auto');
       }, [ws.id]);
       const kv = (label, value) => h('div', { style: S.kv }, h('span', { style: { color: V.sub, minWidth: 96 } }, label), h('span', null, value ?? '—'));
 
@@ -779,6 +781,23 @@ window.__ModuleLoader__.load({
             style: S.btn(busy, true), disabled: busy,
             onClick: () => saveConfig({ sources: k.sources.map((s) => ({ name: s.name, branch: branches[s.name] ?? s.branch })) }, '基线分支已保存'),
           }, '保存分支')),
+        // 流程模式（原 .harness/config.json 的 apply-mode，已并入 kit.json）
+        h('div', { style: S.section },
+          h('div', { style: S.secTitle }, '流程模式'),
+          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+            'applyMode 决定 CR 通过后是否进入人工审查点（review = CR PASS 后暂停等人工审查，auto = 直接进 TE）。'),
+          k.legacyConfig && h('div', { style: { ...S.attn('warn'), marginBottom: 8 } },
+            h('span', null, '🟠'),
+            h('span', { style: { flex: 1 } },
+              `检测到旧 .harness/config.json（apply-mode=${k.legacyConfig.applyMode ?? '—'}, mainline-branch=${k.legacyConfig.mainlineBranch ?? '—'}）：保存本区后即覆盖到 kit.json，重跑初始化会自动删除旧文件`)),
+          h('div', { style: { display: 'flex', gap: 14, alignItems: 'center', marginBottom: 8, fontSize: 12 } },
+            ['auto', 'review'].map((m) => h('label', { key: m, style: { display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' } },
+              h('input', { type: 'radio', name: 'hk-apply-mode', checked: applyMode === m, onChange: () => setApplyMode(m) }),
+              h('span', null, m === 'auto' ? 'auto（CR PASS 直接进 TE）' : 'review（CR PASS 暂停等人工审查）'))),
+          h('button', {
+            style: S.btn(busy, true), disabled: busy,
+            onClick: () => saveConfig({ applyMode }, '流程配置已保存'),
+          }, '保存'))),
         h('div', { style: S.section },
           h('div', { style: S.secTitle }, '自动同步'),
           h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },
