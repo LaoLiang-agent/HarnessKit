@@ -31,5 +31,7 @@ First public release.
   install command and documentation link for the current platform when either is missing.
 - Documentation: Chinese README (`README.zh-CN.md`), English README, and per-language plugin detail
   documents (`docs/DETAIL.md`, `docs/DETAIL.en.md`).
+- Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
+  sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
 [0.1.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.0

@@ -52,6 +52,8 @@ install command for your platform instead of failing after submission. Initializ
 background, survives a page refresh, and reports back in the panel; then **Start initialization
 orchestration** probes the repositories and generates the docs and indexes described above.
 
+![New workspace: directory, asset repository, source repositories and environment check](docs/assets/ui-onboarding.png)
+
 ### 2. Click ＋ to create a task
 
 - choose **Requirement** or **Fix**
@@ -60,6 +62,8 @@ orchestration** probes the repositories and generates the docs and indexes descr
 
 Creating the task opens a dedicated session: requirement mode starts from the proposal, fix mode
 starts from the defect document and the quality gate.
+
+![New task: requirement or fix shortcut, one sentence to start](docs/assets/ui-new-task.png)
 
 ### 3. Work from the panel
 
@@ -71,15 +75,16 @@ starts from the defect document and the quality gate.
 - 🕘 team activity shows who archived what and when
 - ⚙ configuration edits source branches, auto-sync and model mappings
 
+![War room: needs-you list, planning/implementing/to-archive lanes and history board](docs/assets/ui-war-room.png)
+
+> Screenshots use a sample workspace (`acme-platform`), not real project data.
+
 > **Approvals are written by a human; the panel only reminds.** Approval 1 is recorded in
 > `proposal.md`, the quality-gate decision in `bugfix.md`. That is deliberate: it keeps approvals
 > from becoming a button-click ritual.
 >
 > The panel covers daily work. Asset rebinding, deleting a source repository and batch operations
 > stay in the commands below.
-
-> 📷 Screenshots to add: war-room panel / new-workspace wizard / task dialog. This section is
-> text-only until they are captured.
 
 ---
 

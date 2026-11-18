@@ -20,6 +20,10 @@ Harness Kit 把方案、开发、评审、测试拆给固定角色，在关键�
 
 审批由人写下（`proposal.md` 的「审批 1：通过」、`bugfix.md` 的质量门裁决），面板只提醒、不代写。资产换绑与删除子工程仍走命令。
 
+![作战室：需要你、规划/实施/待归档三列与历史任务板](assets/ui-war-room.png)
+
+截图使用示例工作区（`acme-platform`），不是真实项目数据。
+
 ## 与个人 Vibe Coding 的区别
 
 | | 个人 Vibe Coding | Harness Kit |

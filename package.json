@@ -49,7 +49,9 @@
     "locale/*.json",
     "icon.svg",
     "docs/DETAIL.md",
-    "docs/DETAIL.en.md"
+    "docs/DETAIL.en.md",
+    "docs/assets/*.png",
+    "screenshots.json"
   ],
   "dsh": {
     "bundle": {

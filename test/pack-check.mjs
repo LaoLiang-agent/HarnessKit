@@ -64,6 +64,15 @@ try {
   }
   ok('locale metadata and detail document')
 
+  for (const file of ['docs/DETAIL.md', 'docs/DETAIL.en.md']) {
+    const document = fs.readFileSync(path.join(pkgRoot, file), 'utf8')
+    for (const match of document.matchAll(/!\[[^\]]*\]\(([^)\s]+)\)/g)) {
+      const target = path.resolve(path.dirname(path.join(pkgRoot, file)), match[1])
+      if (!fs.existsSync(target)) fail(`${file} image ${match[1]} is missing`)
+    }
+  }
+  ok('detail document images resolve inside the tarball')
+
   for (const [key, target] of Object.entries(pkg.exports)) {
     if (key.includes('*')) continue
     if (!fs.existsSync(path.join(pkgRoot, target))) fail(`export ${key} -> ${target} is missing`)

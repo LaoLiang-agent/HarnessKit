@@ -121,10 +121,8 @@ npm 的用户安装；文件命名不要带版本号也可以，但 Release 资�
 - 描述只讲功能、必须与代码一致，英文以句号结尾；含 `: ` 时加引号。
 - `category` 取自固定清单，本插件用 `workflow`。
 - 图标可选，必须是 GitHub 托管的位图；不写则回退到作者头像。
-- 截图可选，放在本仓库 `screenshots.json`（1–8 张相对路径），不要写进市场仓库。
-  当前 README / DETAIL 里是文字占位，补齐后把三张图放到 `docs/assets/`（建议：作战室面板、
-  新建工作区向导、立项弹窗），并在 `README.md`、`README.zh-CN.md` 中替换「截图位」一段，
-  同时新增 `screenshots.json` 指向同一组文件。
+- 截图已放在 `docs/assets/`，并在根目录 `screenshots.json` 声明（1–8 张相对路径），不要写进市场仓库。
+  截图使用示例工作区（`acme-platform`）渲染，不含真实项目数据；界面改动后应重新生成并覆盖同名文件。
 - 市场不会因为没发 npm 而拒绝收录，但发 npm 后能显示下载量、跳过 `allowBuilds`。
 
 ## 5. 兼容性与升级策略

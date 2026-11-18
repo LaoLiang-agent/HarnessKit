@@ -36,6 +36,10 @@ the plan before anything is written.
 Approvals are written by a human (`proposal.md` for approval 1, `bugfix.md` for the quality gate);
 the panel only reminds. Asset rebinding and removing source repositories stay in commands.
 
+![War room: needs-you list, planning/implementing/to-archive lanes and history board](assets/ui-war-room.png)
+
+The screenshot uses a sample workspace (`acme-platform`), not real project data.
+
 ## Vibe coding vs Harness Kit
 
 | | Personal vibe coding | Harness Kit |
