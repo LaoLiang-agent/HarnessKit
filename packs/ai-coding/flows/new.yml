@@ -19,7 +19,7 @@ stages:
     gate: 把「## 模糊点」段列全：所有歧义、口径不明、验收模糊之处，用 ask_user_question 逐条交人澄清；禁止 AI 自行补全。bugfix 例外：缺陷报告本身即验收标准，无歧义可跳过
   - name: 定稿
     actor: PM
-    approval: 展示 proposal 全部要点（范围/profile/验收/模糊点澄清结果）交人确认；人确认后把状态行改为「> **状态**：approved」
+    approval: 先在会话里发送一条可见消息（普通 assistant 文本，不是 reasoning）：标题「定稿 · <任务名>」，用 Markdown 链接列出 [proposal.md](.harness/deliverables/<任务名>/proposal.md)（有需求文件时一并链接），写范围/Profile/验收与模糊点澄清结果；再调用 ask_user_question，question 以「材料：[提案](链接)」开头再问是否定稿。人确认后把状态行改为「> **状态**：approved」
   - name: 交接
     actor: PM
     do:

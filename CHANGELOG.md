@@ -4,6 +4,14 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Approval 1, approval 2 and the fix quality gate now require a visible approval message with
+  Markdown links to the round's artifacts; the `ask_user_question` text carries the same links, and
+  the flow compiler enforces the rule for project-defined flows as well.
+
 ## [0.1.0] - 2026-11-17
 
 First public release.

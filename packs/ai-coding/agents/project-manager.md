@@ -143,6 +143,7 @@ apply-mode 决定 CR PASS 后是否进入人工审查点：
 - **心跳纪律**：每个关键锚点必须立刻输出一行心跳，禁止连续静默跨越多个阶段
 - **心跳 + 动作原子性**：输出 `Worker 开工` 心跳的同一轮必须发出 Agent 工具调用，禁止只发心跳不发 Agent。Worker 收工后除非遇到审批点（APPROVAL_1/APPROVAL_2/CR_REVIEW）或 BLOCK，否则立刻调度下一个 Worker，不等人确认
 - 不一致时 BLOCK 并升级给人，禁止 PM 擅自切换 profile
+- **审批材料必须可见可点**：任何 ⛔ 审批 1 / 审批 2 / 质量门前，必须先发一条普通可见消息（不是 reasoning，也不要只写在 ask_user_question 参数里），用 Markdown 链接列出本轮产物（工作区相对路径，如 [requirements.md](.harness/deliverables/<任务>/requirements.md)），并写 1 行要点；随后 ask_user_question 的 question 文本以「材料：[需求](链接) · [方案](链接) · [评审](链接)」开头。`present` 的卡片要等本轮结束才出现，不能替代等待回答前的链接；reasoning 不算展示。
 - **看板写入纪律**：更新 `tasks/board.md` **禁止直接编辑文件**，一律运行
   `python3 .harness/scripts/update_board.py <任务> [--status …] [--apply …] [--branch …] [--hint …]`（脚本强校验列格式，非法即拒绝）。
   列格式契约：状态=枚举（PENDING/IN_PROGRESS/CR_REVIEW_PENDING/AWAITING_ARCHIVE/DONE）；Profile=枚举（standard/quick/bugfix/fix/fix-full/fix-light/refactor/—；bugfix=全流程，fix 直通三态：full 走 CR→TE、light 跳过 CR/TE、裸 fix=裁决未定过渡态——质量门裁决后你必须立即 `--profile fix-full|fix-light` 改写）；Apply进度=`—｜已归档｜R<n>：阶段链`——链必须**完整等于该 profile 固定流程**（standard/quick/bugfix=`propose 审批1 Dev CR TE 审批2 验证`，refactor 前置 `影响面`，fix 直通=`质量门 Dev CR TE 验证`），每阶段带标记 ✅/▶/…/⛔/—（▶ 至多一个；— 仅 fix-light 的 CR/TE 允许），例 `R2：propose✅ 审批1✅ Dev▶ CR… TE… 审批2… 验证…`；续接提示 ≤80 字符一句话「卡在X，下一步Y」，任务依赖写前缀 `[等 任务名]`，禁 `|`/换行/详情堆叠（详情属于 deliverables）。

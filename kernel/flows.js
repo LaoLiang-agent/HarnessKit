@@ -39,6 +39,9 @@ function stageLines(flow, context) {
     if (Array.isArray(stage.do)) for (const item of stage.do) body.push(`- ${item}`);
     if (stage.gate) body.push(`- ⛔ 人工质量门：${stage.gate} —— 用 ask_user_question 工具交人裁决，禁止自行决定`);
     if (stage.approval) body.push(`- ⛔ 审批点：${stage.approval} —— 用 ask_user_question 交人审批后方可继续`);
+    if (stage.gate || stage.approval) {
+      body.push('- ⛔ 审批材料必须可见：先发普通 assistant 消息（非 reasoning），用 Markdown 链接列出本轮产物；ask_user_question 的 question 也要带链接；present 卡片本轮结束后才出现，不能替代等待回答前的链接。');
+    }
     lines.push([head, ...body].join('\n'));
   }
   return lines.join('\n\n');

@@ -1908,6 +1908,38 @@ section('env.js：向导环境预检');
   ok('未知平台回退通用指引', other.tools.find((t) => t.id === 'git').install.url === 'https://git-scm.com/downloads');
 }
 
+// ---------------------------------------------------------------- 审批材料可见性
+section('flows：审批材料必须可见且带文件链接');
+{
+  const { loadFlow, compileFlowPrompt } = await import(path.join(bundleRoot, 'kernel/flows.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const compile = (name, phase) => {
+    const loaded = loadFlow(ws, null, name);
+    return compileFlowPrompt(loaded.flow, {
+      task: 't', desc: 'd', artifacts: '.harness/deliverables/t', phase, flowFile: loaded.file,
+    });
+  };
+  for (const name of ['standard', 'quick', 'bugfix', 'refactor']) {
+    const propose = compile(name, 'propose');
+    const apply = compile(name, 'apply');
+    ok(`${name} 审批 1 要求可见消息+文件链接`, propose.includes('可见消息') && propose.includes('ask_user_question') && propose.includes('.harness/deliverables/<任务名>/'));
+    ok(`${name} 审批 2 要求可见消息+文件链接`, apply.includes('可见消息') && apply.includes('ask_user_question') && apply.includes('test-report.md'));
+  }
+  const fix = compile('fix');
+  ok('fix 质量门要求可见消息+文件链接', fix.includes('可见消息') && fix.includes('bugfix.md'));
+  const boot = compile('new');
+  ok('bootstrap 定稿要求可见消息+文件链接', boot.includes('可见消息') && boot.includes('proposal.md'));
+  const custom = compileFlowPrompt({ name: 'custom', stages: [{ name: 'gt', approval: '确认一下' }] }, {
+    task: 't', desc: 'd', artifacts: '.harness/deliverables/t', flowFile: 'custom.yml',
+  });
+  ok('自定义流程审批也强制可见材料', custom.includes('审批材料必须可见'));
+  const pm = fs.readFileSync(path.join(bundleRoot, 'packs/ai-coding/agents/project-manager.md'), 'utf8');
+  const core = fs.readFileSync(path.join(bundleRoot, 'packs/ai-coding/rules/core.md'), 'utf8');
+  ok('PM 角色包含审批材料可见规则', pm.includes('审批材料必须可见可点'));
+  ok('core 规则包含审批材料可见规则', core.includes('审批材料必须可见可点'));
+}
+
 // ---------------------------------------------------------------- report
 
 let pass = 0;
