@@ -1940,6 +1940,15 @@ section('flows：审批材料必须可见且带文件链接');
   ok('core 规则包含审批材料可见规则', core.includes('审批材料必须可见可点'));
 }
 
+// ---------------------------------------------------------------- 会话内工作区提醒
+section('client：工作区提醒');
+{
+  const clientSrc = fs.readFileSync(path.join(bundleRoot, 'client.js'), 'utf8');
+  ok('会话输入区注册工作区提醒', clientSrc.includes("conversation.input.dock") && clientSrc.includes('AttentionDock'));
+  ok('侧栏图标带提醒红点', clientSrc.includes('hk-alert-dot'));
+  ok('提醒条复用面板 attention 接口', clientSrc.includes("fetch('/harness-kit/state')"));
+}
+
 // ---------------------------------------------------------------- report
 
 let pass = 0;

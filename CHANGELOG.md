@@ -6,6 +6,12 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Session-level workspace attention dock above the composer and a sidebar alert dot, so blocking
+  workspace issues (worktree decisions, sync drift, pending archive, incomplete init) are visible
+  without opening the plugin.
+
 ### Changed
 
 - Approval 1, approval 2 and the fix quality gate now require a visible approval message with

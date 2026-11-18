@@ -142,9 +142,33 @@ window.__ModuleLoader__.load({
 
     function Icon(props) {
       const size = (props && props.size) || 20;
-      return h('svg', { viewBox: '0 0 24 24', width: size, height: size, 'aria-hidden': true, style: { display: 'block' } },
-        h('path', { d: 'M4 5h16M4 12h16M4 19h10', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', fill: 'none' }),
-        h('circle', { cx: 19, cy: 19, r: 2.4, fill: 'currentColor' }));
+      // 侧栏常驻提醒：任一工作区有「需要你」项时，在图标角上点一个红点，
+      // 用户即使不打开插件也能注意到；会话内的详细提示见 AttentionDock。
+      const [alert, setAlert] = useState(false);
+      useEffect(() => {
+        let cancelled = false;
+        const load = () => {
+          fetch('/harness-kit/state').then((r) => r.json()).then((json) => {
+            if (cancelled || !json?.ok) return;
+            setAlert((json.workspaces ?? []).some((w) => (w.attention ?? []).length > 0));
+          }).catch(() => { /* 网络抖动忽略 */ });
+        };
+        void load();
+        const timer = setInterval(load, 15000);
+        return () => { cancelled = true; clearInterval(timer); };
+      }, []);
+      return h('span', { style: { position: 'relative', display: 'inline-block', width: size, height: size, lineHeight: 0 } },
+        h('svg', { viewBox: '0 0 24 24', width: size, height: size, 'aria-hidden': true, style: { display: 'block' } },
+          h('path', { d: 'M4 5h16M4 12h16M4 19h10', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', fill: 'none' }),
+          h('circle', { cx: 19, cy: 19, r: 2.4, fill: 'currentColor' })),
+        alert && h('span', {
+          'aria-hidden': true,
+          className: 'hk-alert-dot',
+          style: {
+            position: 'absolute', top: -1, right: -1, width: 7, height: 7, borderRadius: '50%',
+            background: V.err, boxShadow: `0 0 0 1px ${V.bg}`,
+          },
+        }));
     }
 
     // 看板链词表 → 中文显示名（证据推导路径的阶段名本身即中文，原样通过）
@@ -172,6 +196,96 @@ window.__ModuleLoader__.load({
             style: s.current ? { ...base, background: V.brand } : base,
           });
         }));
+    }
+
+    // 会话内工作区提醒：与面板「需要你」同源的 attention，常驻在输入框上方；
+    // 用户不打开插件也能看到阻塞项（工作区裁决/同步落后/待归档/初始化缺件）。
+    function AttentionDock({ session, ctx }) {
+      const sessionId = session?.sessionId ?? session?.id ?? null;
+      const [data, setData] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const [note, setNote] = useState(null);
+      const [expanded, setExpanded] = useState(false);
+
+      useEffect(() => {
+        if (!sessionId) { setData(null); return undefined; }
+        let cancelled = false;
+        const load = async () => {
+          try {
+            const res = await fetch('/harness-kit/state');
+            const json = await res.json();
+            if (cancelled || !json?.ok) return;
+            const ws = (json.workspaces ?? []).find((w) => (w.sessions ?? []).some((s) => s.id === sessionId));
+            const items = ws?.attention ?? [];
+            setData(items.length > 0 ? { ws, items } : null);
+          } catch { /* 网络抖动：保留上一条提醒 */ }
+        };
+        void load();
+        const timer = setInterval(() => { void load(); }, 15000);
+        return () => { cancelled = true; clearInterval(timer); };
+      }, [sessionId]);
+
+      if (!data) return null;
+      const { ws, items } = data;
+      const level = items.some((a) => a.level === 'block') ? 'block' : 'warn';
+      const color = level === 'block' ? V.err : V.warn;
+      const shown = expanded ? items : items.slice(0, 1);
+
+      const post = async (url, body) => {
+        setBusy(true);
+        setNote(null);
+        try {
+          const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+          const json = await res.json();
+          setNote(json?.ok ? '已提交，等待执行结果…' : (json?.error || '操作失败'));
+        } catch (e) {
+          setNote(String(e?.message ?? e));
+        } finally {
+          setBusy(false);
+        }
+      };
+      const run = (line) => post('/harness-kit/command', { workspace: ws.id, line, sessionId });
+      const syncNow = () => post('/harness-kit/sync', { workspace: ws.id });
+      const openPanel = () => { try { ctx.get('layout')?.selectPanel?.('harness-kit'); } catch { /* ignore */ } };
+      const jump = (task) => {
+        const t = (ws.tasks ?? []).find((x) => x.task === task);
+        if (t?.sessionId) { try { ctx.get('uiWorkspace')?.openSession?.(t.sessionId); } catch { /* ignore */ } }
+      };
+
+      const btn = (label, onClick, primary) => h('button', {
+        style: S.btn(busy, primary), disabled: busy, title: label, onClick,
+      }, label);
+
+      return h('div', {
+        className: 'hk-attention-dock',
+        style: {
+          width: '100%', boxSizing: 'border-box', padding: '8px 12px', marginBottom: 8,
+          borderRadius: 8, fontSize: 12, lineHeight: 1.5,
+          background: `color-mix(in srgb, ${color} 10%, transparent)`,
+          border: `1px solid color-mix(in srgb, ${color} 35%, transparent)`,
+          borderLeft: `3px solid ${color}`,
+          color: V.text,
+        },
+      },
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          h('span', { style: { color, fontWeight: 600 } }, level === 'block' ? '⛔ 工作区提醒' : '⚠️ 工作区提醒'),
+          h('span', { style: { color: V.sub, fontSize: 11 } }, `${items.length} 项`),
+          h('span', { style: { flex: 1 } }),
+          items.length > 1 && btn(expanded ? '收起' : '展开全部', () => setExpanded((v) => !v), false),
+          btn('打开面板', openPanel, false)),
+        shown.map((a, i) => h('div', { key: i, style: { marginTop: 4 } },
+          h('div', {
+            style: expanded
+              ? { whiteSpace: 'pre-wrap', color: V.text }
+              : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', color: V.text },
+          }, a.text),
+          h('div', { style: { display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' } },
+            (a.options ?? []).map((o) => btn(o.label, () => run(o.line), o.primary)),
+            a.line && !(a.options ?? []).length && btn('处理', () => run(a.line), true),
+            a.sync && btn('立即同步', syncNow, true),
+            a.init && btn('运行初始化', () => run('/hk-init'), true),
+            a.jump && a.task && btn('转到会话', () => jump(a.task), false)))),
+        note && h('div', { style: { marginTop: 4, fontSize: 11, color: V.sub } }, note));
     }
 
     function Panel({ uiWorkspace }) {
@@ -1282,6 +1396,9 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist', id: 'harness-kit', order: 20,
         }, Icon));
+        ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+          name: 'conversation.input.dock', id: 'harness-kit-attention', order: 5,
+        }, (props) => h(AttentionDock, { ...props, ctx })));
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main', key: 'harness-kit', id: 'harness-kit',
         }, (props) => h(Panel, { ...props, uiWorkspace: ctx.get('uiWorkspace') })));
