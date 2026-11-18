@@ -1,6 +1,6 @@
 # 发布与维护手册（Harness Kit）
 
-本文是维护者手册，不随 npm 包发布（`files` 只包含 `docs/DETAIL.md`）。
+本文是维护者手册，不随 npm 包发布（`files` 只包含 `docs/DETAIL.md` 与 `docs/DETAIL.en.md`）。
 
 ## 1. 发布物是什么
 
@@ -36,8 +36,8 @@
 
 - `package.json` 的 `version`（语义化版本；0.x 阶段破坏性变更走 minor）。
 - `CHANGELOG.md` 增加条目，写清新增/变更/修复、DSH 兼容范围变化、用户需要做的迁移。
-- 如果改动了 DSH 兼容范围，同步更新 `engines.dsh`、README、`docs/DETAIL.md`、
-  `.github` 中的说明，以及市场条目的描述（如涉及）。
+- 如果改动了 DSH 兼容范围，同步更新 `engines.dsh`、`README.md`、`README.zh-CN.md`、
+  `docs/DETAIL.md`、`docs/DETAIL.en.md`、`.github` 中的说明，以及市场条目的描述（如涉及）。
 
 ### 3.2 本地质量门
 
@@ -48,7 +48,8 @@ git status --short         # 不应有未提交改动
 ```
 
 打包清单必须包含：`index.js`、`client.js`、`cordis.patch.yml`、`kernel/*.js`、`packs/**`、
-`locale/*.json`、`icon.svg`、`docs/DETAIL.md`；README 与 LICENSE 由 npm 自动带上。
+`locale/*.json`、`icon.svg`、`docs/DETAIL.md`、`docs/DETAIL.en.md`；
+`README.md`、`README.zh-CN.md` 与 `LICENSE` 由 npm 自动带上（`pack:check` 会断言前两类文件存在）。
 
 ### 3.3 干净环境验证（不要用 `link:` 代替）
 
@@ -121,6 +122,9 @@ npm 的用户安装；文件命名不要带版本号也可以，但 Release 资�
 - `category` 取自固定清单，本插件用 `workflow`。
 - 图标可选，必须是 GitHub 托管的位图；不写则回退到作者头像。
 - 截图可选，放在本仓库 `screenshots.json`（1–8 张相对路径），不要写进市场仓库。
+  当前 README / DETAIL 里是文字占位，补齐后把三张图放到 `docs/assets/`（建议：作战室面板、
+  新建工作区向导、立项弹窗），并在 `README.md`、`README.zh-CN.md` 中替换「截图位」一段，
+  同时新增 `screenshots.json` 指向同一组文件。
 - 市场不会因为没发 npm 而拒绝收录，但发 npm 后能显示下载量、跳过 `allowBuilds`。
 
 ## 5. 兼容性与升级策略
@@ -153,7 +157,7 @@ dsh plugin --profile desktop add /Users/leo/Server/workspace/HarnessKit
 
 - Issue 模板要求：DSH 版本、插件版本、OS、`/hk-doctor` 输出、复现步骤。
 - 日志关键字：`harness-kit:`；面板端点：`/harness-kit/state`、`/harness-kit/config`、
-  `/harness-kit/activity`、`/harness-kit/sync`、`/harness-kit/command`。
+  `/harness-kit/activity`、`/harness-kit/sync`、`/harness-kit/command`、`/harness-kit/env`。
 - 常见问题：
   - 面板一直加载中 / 端点 404 → 冷启动路由未挂载或路由被旧 fiber 占用；完全重启 DSH。
   - 命令不可用 → 插件行被禁用或包未启用；检查 Plugins 页面。

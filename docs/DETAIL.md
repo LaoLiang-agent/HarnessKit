@@ -1,74 +1,69 @@
 # Harness Kit
 
-Multi-agent engineering workflow for DeepSeek Harness: seven roles, four flow profiles, human
-approval gates, tool guards, a team-shareable workspace asset repository, and a Web task panel.
+**把 AI 编程从个人手感，变成团队流程。**
 
-## What it does
+Harness Kit 把方案、开发、评审、测试拆给固定角色，在关键节点让人做审批，并把每一轮产物沉淀进你自己的 git 资产仓库。AI 负责执行，人负责把关，资产持续沉淀。
 
-- Adds ten `/hk-*` slash commands that drive a full engineering loop:
-  setup → init → new → propose → apply → archive, plus fix, sync, test-environment lease and doctor.
-- Registers seven roles from the bundled `ai-coding` pack. A project can override any role or flow
-  file under `.harness/agents/` and `.harness/flows/` without changing plugin code.
-- Enforces the workflow with tool guards: destructive git commands are blocked, and source writes are
-  blocked while a task has no recorded human quality-gate verdict.
-- Keeps project assets outside the plugin: `.harness/` holds deliverables, specs, memory, the task
-  board, templates and rules, and can be bound to a team git repository.
-- Routes logical model names (`reasoning`, `coding`, `fast` or a role name) to concrete
-  provider/model pairs in `.harness/kit.json`.
-- Adds a sidebar panel with task lanes, pending approvals and sync problems, team activity, and a
-  configuration view.
+一个人用，它是你的项目记忆和第二双眼睛；一个团队用，它是共享的流程和资产。
 
-## Requirements
+> Harness 是"挽具"：模型越强，越需要一套约束让它稳定输出。
 
-- DeepSeek Harness 0.2.x with the Web client (the Desktop app or `dsh web`).
-- `git` and `python3` on `PATH` (the workspace scripts are Python).
-- A workspace directory opened as the DSH session working directory.
+## 它还会补齐项目上下文
 
-## Install
+创建完成后点「启动初始化编排」，它会探测已登记的子工程，生成/补齐根 `AGENTS.md`、子工程 `CLAUDE.md`、`docs/CODE_STANDARDS.md`、`<子工程>/.harness/build.json`（构建/启动/测试命令）、`codebase-guide/` 模块文档与 `.codegraph/` 索引；已有文件跳过，生成前先给计划确认。
 
-In DeepSeek Harness: **Plugins → Add plugin**, enter `dsh-harness-kit@0.1.0`, install, then enable
-the bundle. From a terminal with DSH Desktop fully quit:
+## 三步上手（界面）
 
-```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.1.0
-```
+1. **新建工作区**：侧栏 Harness Kit →「＋ 工作区」→「新建工作区」，选目录、资产仓库、子工程，点「创建并初始化」。向导先检查 `git` / `Python 3`，缺失时直接给出安装命令；初始化在后台执行，刷新页面不中断，完成后可启动初始化编排生成文档与索引。
+2. **立项**：顶部「＋」→「需求」或「fix 直通」→ 一句话描述（任务名可留空）→ 自动打开专属会话。
+3. **推进**：任务卡片在「规划中 / 实施中 / 待归档」之间移动；「需要你」提醒审批、归档、同步；点「继续会话」处理。归档后进历史任务板；🕘 团队动态；⚙ 配置分支、自动同步与模型映射。
 
-Restart is only needed when replacing an already-installed version; a first installation normally
-activates through hot reload.
+审批由人写下（`proposal.md` 的「审批 1：通过」、`bugfix.md` 的质量门裁决），面板只提醒、不代写。资产换绑与删除子工程仍走命令。
 
-## First run
+## 与个人 Vibe Coding 的区别
 
-1. `/hk-setup` — register the source repositories in `.harness/kit.json`, cloning any missing ones.
-2. `/hk-init` — create the `.harness/` skeleton, materialize scripts/templates/rules, and optionally
-   bind an asset repository (`--assets <url>`, `--assets init`, or `--assets local`).
-3. `/hk-new <task> <description>` — bootstrap a task; then `/hk-propose`, `/hk-apply`,
-   `/hk-archive` as the gates pass. For a small fix use `/hk-fix <task> <description>` instead.
+| | 个人 Vibe Coding | Harness Kit |
+|---|---|---|
+| 上下文 | 留在会话里，关掉就散 | 落进 `.harness/`，可 diff、可交接 |
+| 质量 | 靠个人当场审查 | 固定角色 + 审批点 + 工具护栏 |
+| 协作 | 各开各的会话 | 任务认领、并行 worktree、测试环境租约 |
+| 模型 | 一个模型全程 | 角色/阶段路由 |
+| 审计 | 聊天记录 | 产物 + 审批标记 + git 历史 |
 
-Approval markers are written by a human. With `autoAdvance` enabled (default), the Host advances to
-the next command after an approval is recorded and the task has a bound session.
+单文件小改会更慢；需要反复迭代、跨模块、隔一段时间再回来接手的活更快。
 
-## Compatibility and limits
+## 七个角色
 
-- DSH `>=0.2.0 <0.3.0`; a DSH 0.3 release needs a new Harness Kit version.
-- Web-only panel; the commands and guards work in any profile with the Host plugin loaded.
-- The bundled `ai-coding` content pack is written in Chinese; role prompts and flows are plain files,
-  so a project can override them.
-- No MCP host support yet: this release targets DSH.
-- No runtime npm dependencies and no install scripts.
+Project Manager（当前会话 Lead，编排与看板）、Business Analyst（`requirements.md`）、Solution Architect（`design.md`）、Readiness Reviewer（`readiness-report.md`）、Developer（代码 + `dev-log.md`）、Code Reviewer（`code-review.md`）、Test Engineer（`test-report.md`）。
 
-## 中文
+## 四档流程
 
-Harness Kit 是一个 DeepSeek Harness 插件，把多 Agent 工程流程装进 DSH：7 个角色、四档流程
-（standard / quick / bugfix / refactor）、人工审批点、工具护栏、可共享的工作区资产仓库，以及一个
-Web 任务面板。
+- `standard`：BA → SA → RR → 审批 1 → Dev → CR → TE → 审批 2
+- `quick`：小改动，SA 做就绪自评
+- `bugfix`：缺陷修复全流程
+- `refactor`：SA 先做影响面分析
+- `fix` 直通：质量门 → Dev →（`--full` 含 CR/TE，`--light` 只验证）→ 归档
 
-命令：`/hk-setup` 登记代码仓库，`/hk-init` 初始化 `.harness/` 骨架与资产仓库绑定，
-`/hk-new → /hk-propose → /hk-apply → /hk-archive` 走完整流程，`/hk-fix` 走轻量修复，
-`/hk-sync` 同步团队资产，`/hk-te` 串行租用测试环境，`/hk-doctor` 体检。
+质量门未裁决时禁止写源码区；`reset --hard`、`clean -f`、`push --force` 直接拦截。
 
-要求：DSH 0.2.x（带 Web 客户端）、`git` 与 `python3`。项目资产保存在工作区 `.harness/` 下，
-角色与流程可在 `.harness/agents/`、`.harness/flows/` 中按项目覆写，无需改插件代码。
+## 资产沉淀
 
-安装：Plugins → Add plugin 输入 `dsh-harness-kit@0.1.0`；或退出 Desktop 后执行
-`dsh plugin --profile desktop add dsh-harness-kit@0.1.0`。
-兼容范围 `>=0.2.0 <0.3.0`，DSH 0.3 发布后需要新的插件版本。
+`.harness/` 是资产仓库的工作副本：`kit.json`、`deliverables/`、`specs/`、`memory/`、`tasks/`、项目级 `agents/ flows/`。每跑完一轮，规格与踩坑记忆都会沉淀下来；一个人用尤其明显：用得越久，资产越厚，下一次从零解释的成本越低。模板和规则也在 `.harness/` 里，可按团队习惯改写并提交。
+
+## 要求
+
+- DeepSeek Harness 0.2.x，带 Web 客户端
+- `git` 与 `Python 3`（向导会检查并给出安装命令）
+- 一个 DSH 会话工作目录作为 Harness 工作区
+
+## 兼容与限制
+
+- DSH 范围 `>=0.2.0 <0.3.0`，0.3 需要新版本
+- 面板为 Web 端功能；命令与护栏在加载 Host 插件的 profile 中可用
+- 内置内容包与面板文案以中文为主，角色/流程可按项目覆写
+- 暂不支持 MCP 宿主
+- 面板不代写审批、不做资产换绑
+
+## 数据
+
+插件本地运行，零运行时依赖、无安装脚本、不收集遥测；项目资产在团队自己的 git 仓库；模型请求只发往你配置的 provider。

@@ -2,7 +2,7 @@
   "meta": {
     "title": "Harness Kit",
     "description": "Multi-agent engineering workflow: roles, flows, guards and workspace assets.",
-    "detail": "docs/DETAIL.md"
+    "detail": "docs/DETAIL.en.md"
   },
   "commands": {
     "hk-setup": "Collect source repositories into kit.json",

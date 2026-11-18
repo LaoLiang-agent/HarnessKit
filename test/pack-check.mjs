@@ -51,7 +51,7 @@ try {
   if (id !== pkg.name) fail(`client module id ${id} does not match ${pkg.name}`)
   ok('client module id matches the package name')
 
-  for (const file of ['index.js', 'client.js', 'icon.svg', pkg.dsh.bundle.patch]) {
+  for (const file of ['index.js', 'client.js', 'icon.svg', 'README.md', 'README.zh-CN.md', pkg.dsh.bundle.patch]) {
     if (!fs.existsSync(path.join(pkgRoot, file))) fail(`missing ${file}`)
   }
   for (const file of fs.readdirSync(path.join(pkgRoot, 'locale'))) {

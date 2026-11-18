@@ -27,5 +27,9 @@ First public release.
   navigation.
 - Auto-advance of the deterministic gates, task-to-session binding, task claims, pooled git
   worktrees and a serial test-environment lease.
+- Environment preflight in the new-workspace wizard: checks `git` and `Python 3`, and shows the
+  install command and documentation link for the current platform when either is missing.
+- Documentation: Chinese README (`README.zh-CN.md`), English README, and per-language plugin detail
+  documents (`docs/DETAIL.md`, `docs/DETAIL.en.md`).
 
 [0.1.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.0

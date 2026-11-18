@@ -48,7 +48,8 @@
     "packs/**",
     "locale/*.json",
     "icon.svg",
-    "docs/DETAIL.md"
+    "docs/DETAIL.md",
+    "docs/DETAIL.en.md"
   ],
   "dsh": {
     "bundle": {
