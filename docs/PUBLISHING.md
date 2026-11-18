@@ -27,8 +27,8 @@
    git push -u origin main
    ```
 
-4. （可选）在 GitHub 仓库设置 `NPM_TOKEN` secret，启用 `.github/workflows/release.yml` 自动发布；
-   或在 npmjs.com 配置 Trusted Publishing 后删除 workflow 里的 `NODE_AUTH_TOKEN`。
+4. （推荐）在 npmjs.com 配置 **Trusted Publishing**（GitHub Actions），之后 tag 发布不再需要任何
+   token；具体步骤见 §3.6。`release.yml` 已按该模式写好，不再读取 `NPM_TOKEN`。
 
 ## 3. 每次发版清单
 
@@ -95,7 +95,60 @@ git push origin main --tags
 GitHub Release 中附上 `npm pack` 生成的 tarball（`dsh-harness-kit-0.1.0.tgz`），供无法访问
 npm 的用户安装；文件命名不要带版本号也可以，但 Release 资产名带版本时，市场条目要钉住 tag。
 
-### 3.6 用户侧升级
+### 3.6 Trusted Publishing：彻底免 token
+
+npm 的 Trusted Publishing 用 GitHub Actions 的 OIDC 短期凭据换取一次性发布权限，仓库里不再保存
+长期 npm token。
+
+前置条件：
+
+- 包已经存在于 npm（本包 0.1.0 已发布，满足）
+- npm CLI ≥ 11.5.1、Node ≥ 22.14（workflow 用 Node 24）
+- 公开仓库（provenance 需要），`package.json` 的 `repository` 指向本仓库
+- 使用 GitHub 托管的 `ubuntu-latest`，不支持 self-hosted runner
+
+npm 侧配置：
+
+1. 打开 `https://www.npmjs.com/package/dsh-harness-kit` → **Settings** → **Trusted Publishing**
+2. 选择 **GitHub Actions**，填写：
+   - Organization or user：`LaoLiang-agent`
+   - Repository：`HarnessKit`
+   - Workflow filename：`release.yml`（必须与实际文件名完全一致）
+   - Environment：留空（除非 workflow 里用了 GitHub Environment，则两边必须一致）
+   - Allowed actions：选 **npm publish**（界面若提供）
+3. 保存；可能需要一次 OTP 确认
+
+仓库侧（已就绪）：
+
+- workflow 顶层 `permissions` 必须有 `id-token: write`，`contents: read`
+- **不要**在 `setup-node` 里设置 `registry-url`，也**不要**设置 `NODE_AUTH_TOKEN`：
+  空的 token 配置会让 npm 走 token 认证并挡住 OIDC
+- 发布步骤直接 `npm publish --provenance --access public` 即可；公开仓库的 provenance 会自动生成
+- 不再需要 `NPM_TOKEN` secret；确认一次发布成功后可以删除它
+
+验证方式：把 `package.json` 升到新版本（如 `0.1.1`），更新 CHANGELOG，提交后打 tag：
+
+```sh
+git tag -a v0.1.1 -m "dsh-harness-kit 0.1.1"
+git push origin main --tags
+```
+
+在 Actions 里确认 Release workflow 的 Publish 步骤成功，再 `npm view dsh-harness-kit@0.1.1`。
+
+常见报错：
+
+| 现象 | 原因 |
+|---|---|
+| `ENEEDAUTH` / `404 Not Found - PUT` | 缺 `id-token: write`，或 npm 侧 workflow 文件名/仓库不匹配 |
+| `EOTP` | 仍在用 token 路径（`NODE_AUTH_TOKEN`/`registry-url` 未删） |
+| `E422 repository.url` | `package.json` 的 `repository` 与 GitHub 仓库不一致 |
+| `403 not authorized` | Trusted Publisher 的 owner/repo/workflow/environment 与实际不符 |
+| npm 警告 "tokens that bypass 2FA are being restricted" | 正常提示，OIDC 不经过该路径 |
+
+新建另一个包时，Trusted Publishing 只能在包首次发布之后配置：首个版本先用 token 或人工 OTP 发布，
+再切到 OIDC。
+
+### 3.7 用户侧升级
 
 注册表安装的 bundle 会在插件详情页出现 **Versions** 区，用户显式点 Update。DSH 安装时按精确版本
 保存（`saveExact`），不会自动升级。发布后不需要做别的动作；如果版本是破坏性的，在 Release Notes
