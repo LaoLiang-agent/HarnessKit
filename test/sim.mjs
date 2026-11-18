@@ -752,6 +752,40 @@ section('池化工作区（主树优先 + slot 池）');
   ok('主树空闲 + --slot → 也进 slot（主动隔离）', forcedFree.assigned[0].placement === 'slot-1');
 }
 {
+  // 选了开发基线 + 干净主树在注册基线：apply 分配时应从所选基线切任务分支，而不是卡在 dev 裁决点
+  const { ensureTaskWorkspaces, renderWorkspaceNotice, clearTaskWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  fs.mkdirSync(repo, { recursive: true });
+  git('init -b dev', repo);
+  fake(ws, 'services/backend/app.txt', 'v1');
+  git('add .', repo);
+  git('commit -m init', repo);
+  git('checkout -b feature/x', repo);
+  fake(ws, 'services/backend/feat.txt', 'feature');
+  git('add .', repo);
+  git('commit -m feature', repo);
+  const featSha = git('rev-parse feature/x', repo).trim();
+  git('checkout dev', repo);
+  const kit = { sources: [{ name: 'backend', path: 'services/backend', branch: 'dev' }] };
+  fake(ws, '.harness/deliverables/task-base/analysis-base.json', JSON.stringify({ backend: 'feature/x' }));
+  const r = await ensureTaskWorkspaces(ws, kit, 'task-base');
+  ok('选了开发基线 + 主树在 dev → 自动切任务分支', r.assigned[0]?.placement === 'main' && git('branch --show-current', repo).trim() === 'feat/harness-task-base');
+  ok('任务分支从所选基线创建', git('rev-parse HEAD', repo).trim() === featSha && fs.existsSync(path.join(repo, 'feat.txt')));
+  ok('分配摘要标注已切好并给出提示', r.assigned[0]?.ready === true && r.notes.some((n) => n.includes('切到任务分支')) && renderWorkspaceNotice(r, 'task-base').includes('内核已切好'));
+  let upstream = null;
+  try { upstream = git('rev-parse --abbrev-ref "feat/harness-task-base@{upstream}"', repo).trim(); } catch { /* no upstream */ }
+  ok('任务分支不跟踪所选基线（防误 push）', !upstream);
+  // 主树在外来分支时仍拒绝，不静默切别人的分支（先清掉主树 ledger 占用，模拟无台账占用的外来分支）
+  await clearTaskWorkspaces(ws, kit, 'task-base');
+  git('checkout dev', repo);
+  git('checkout -b random', repo);
+  const r2 = await ensureTaskWorkspaces(ws, kit, 'task-foreign');
+  ok('主树在外来分支 → 仍拒绝并给 --slot', r2.refused.length === 1 && r2.refused[0].reason.includes('非本工作区台账任务') && r2.refused[0].reason.includes('--slot'));
+  git('checkout dev', repo);
+}
+{
   // M2 面板透出：workspaceState 行内工作区分配 + slot 池概览 + stale 注意力项
   const { workspaceState, attentionItems } = await import(path.join(bundleRoot, 'kernel/panel.js'));
   const { ensureTaskWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));

@@ -12,6 +12,15 @@ All notable changes to Harness Kit are documented here. The format follows
   workspace issues (worktree decisions, sync drift, pending archive, incomplete init) are visible
   without opening the plugin.
 
+### Fixed
+
+- Apply now creates and checks out the task branch from the selected development baseline when the
+  main worktree is clean on the registered baseline, instead of stopping with a "still on dev"
+  workspace decision. Foreign branches and dirty worktrees still require a human decision.
+  Task branches are created with `--no-track`, so a push cannot land on the base branch by accident.
+  The task dialog now labels the selector **开发基线** and explains that it creates
+  `feat/harness-<task>` and is the archive merge target.
+
 ### Changed
 
 - Approval 1, approval 2 and the fix quality gate now require a visible approval message with

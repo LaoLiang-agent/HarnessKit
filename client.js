@@ -806,18 +806,20 @@ window.__ModuleLoader__.load({
                       },
                     }, `${e.kind === 'dir' ? '📁' : '📄'} ${e.name}`))
                   : h('div', { style: { color: V.sub, padding: '4px 2px' } }, '（空目录）')))),
-            // 分析基点（可选）：各仓分支选择 → /hk-new --base，BA/SA/RR 基于所选分支读码
+            // 开发基线（可选）：各仓分支选择 → /hk-new --base；既是开发分支基点，也是分析基点与归档合入目标
             Object.keys(ws?.gitBranches ?? {}).length > 0 && h('div', { style: S.field },
-              h('label', { style: S.label }, '分析基点（可选，留空 = 共享基线镜像）'),
+              h('label', { style: S.label }, '开发基线（可选，留空 = 仓库默认基线）'),
               Object.entries(ws.gitBranches).map(([repo, branches]) => h('div', { key: repo, style: { display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 } },
                 h('span', { style: { minWidth: 90, fontSize: 12, color: V.sub } }, repo),
                 h(Combobox, {
                   style: { flex: 1 },
                   value: (modal.base ?? {})[repo] ?? '',
-                  placeholder: '默认（基线镜像）',
+                  placeholder: '默认（仓库基线）',
                   options: branches ?? [],
                   onChange: (v) => setModal({ ...modal, base: { ...(modal.base ?? {}), [repo]: v } }),
-                })))),
+                }))),
+              h('div', { style: { fontSize: 11, color: V.sub, marginTop: 2 } },
+                '内核会从所选基线新建 feat/harness-<任务> 开发分支；归档默认合回该基线，同时作为 BA/SA/RR 的分析基点。')),
             h('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
               h('button', { style: S.btn(false), onClick: () => { setModal(null); setBrowse(null); } }, '取消'),
               h('button', {

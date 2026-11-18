@@ -388,7 +388,7 @@ async function hkNew({ agent, rawInput }) {
     .replaceAll('{{source}}', reqFile === '（无）' ? '描述' : '描述+文件')
     .replaceAll('{{file}}', reqFile);
   fs.writeFileSync(path.join(taskDir, 'proposal.md'), doc, 'utf8');
-  // --base 分析基点（面板新建任务的分支选择）：落盘 spec + 立即建任务专属分析工作区（propose 时幂等复用）
+  // --base 开发基线（同时是分析基点与归档合入目标）：落盘 spec + 立即建任务专属分析工作区（propose 时幂等复用）
   let baseNote = '';
   if (typeof flags.base === 'string') {
     const spec = parseBaseSpec(flags.base);
@@ -397,7 +397,7 @@ async function hkNew({ agent, rawInput }) {
       const parts = [];
       if (ta.created.length > 0) parts.push(`新建专属分析区：${ta.created.map((w) => `${w.source}@${w.branch}`).join('、')}`);
       if (ta.reused.length + ta.switched.length > 0) parts.push(`复用/切换专属分析区：${[...ta.reused, ...ta.switched].map((w) => w.source).join('、')}`);
-      if (ta.worktrees.length > 0) parts.push(`分析基点：${ta.worktrees.map((w) => `${w.source}→${w.branch}(${w.sha})`).join('；')}`);
+      if (ta.worktrees.length > 0) parts.push(`开发基线（分析基点）：${ta.worktrees.map((w) => `${w.source}→${w.branch}(${w.sha})`).join('；')}`);
       parts.push(...ta.notes);
       baseNote = `\n- ${parts.join('\n- ')}`;
     }
@@ -436,7 +436,7 @@ async function hkPropose({ agent, rawInput }) {
   const kit = readKit(ws);
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
   const { flags, positional } = parseArgs(rawInput);
-  const inferred = inferTask(ws, positional, '用法：/hk-propose [任务名] [--base <仓:分支,…>]（省略任务名时要求唯一活跃任务；--base=按仓指定分析基点，如 backend:release/1.2）');
+  const inferred = inferTask(ws, positional, '用法：/hk-propose [任务名] [--base <仓:分支,…>]（省略任务名时要求唯一活跃任务；--base=按仓指定开发基线，同时作为分析基点与归档合入目标，如 backend:release/1.2）');
   if (inferred.error) return err(inferred.error);
   const task = inferred.task;
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);

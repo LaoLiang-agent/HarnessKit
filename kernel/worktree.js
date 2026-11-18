@@ -118,6 +118,28 @@ async function currentBranch(repoDir) {
   return r.code === 0 ? r.stdout.trim() : '';
 }
 
+/** 归档释放时切回基线：远端基线优先落成本地同名分支，避免 detached HEAD。 */
+async function checkoutBaseBranch(repoDir, base) {
+  const fallback = base ?? 'dev';
+  const local = fallback.startsWith('origin/') ? fallback.slice('origin/'.length) : fallback;
+  const exists = await runGit(['rev-parse', '--verify', '--quiet', `refs/heads/${local}`], { cwd: repoDir });
+  if (exists.code === 0) return runGit(['checkout', local], { cwd: repoDir });
+  return runGit(['checkout', '--no-track', '-B', local, fallback], { cwd: repoDir });
+}
+
+/** 把主工作树切到任务分支：已存在则 checkout，否则从基点新建。 */
+async function checkoutTaskBranch(repoDir, branch, base) {
+  const exists = await runGit(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: repoDir });
+  // 从远端基线拉任务分支时不能自动跟踪基线，否则 git push 可能误推到基线分支
+  const args = exists.code === 0 ? ['checkout', branch] : ['checkout', '--no-track', '-b', branch, base];
+  const r = await runGit(args, { cwd: repoDir });
+  if (r.code !== 0) {
+    const line = (r.stderr || r.stdout).trim().split('\n')[0];
+    return { error: `主工作树切到任务分支 ${branch} 失败：${line}` };
+  }
+  return {};
+}
+
 async function isDirty(dir) {
   const r = await runGit(['status', '--porcelain'], { cwd: dir });
   return r.code !== 0 || r.stdout.trim() !== '';
@@ -377,7 +399,7 @@ async function acquireSlot(ws, repoDir, repoName, task, branch, base, slots) {
     const branchExists = (await runGit(['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repoDir })).code === 0;
     const r = branchExists
       ? await runGit(['checkout', branch], { cwd: dir })
-      : await runGit(['checkout', '-b', branch, base], { cwd: dir });
+      : await runGit(['checkout', '--no-track', '-b', branch, base], { cwd: dir });
     if (r.code !== 0) return { error: `slot ${name} 切分支失败：${(r.stderr || '').trim().split('\n')[0]}` };
     return { placement: name, path: dir, notes };
   }
@@ -451,13 +473,16 @@ export async function ensureTaskWorkspaces(ws, kit, task, { branchPrefix = 'feat
     }
     // 开发分支基点：任务创建时指定的基线（--base）优先，否则 kit.json 基线（2026-11-17 定）
     const taskSpec = readTaskBaseSpec(ws, task);
-    let base = await resolveBase(repoDir, source) ?? 'HEAD';
+    const baseline = await resolveBase(repoDir, source) ?? 'HEAD';
+    let base = baseline;
+    let selectedBase = false;
     if (taskSpec[source.name]) {
       const resolved = await resolveTaskBase(repoDir, taskSpec[source.name]);
       if (resolved) {
         base = resolved;
+        selectedBase = true;
       } else {
-        result.notes.push(`${source.name}：创建时指定的基线 ${taskSpec[source.name]} 不存在（本地/远端均无），已回退默认基线 ${base}`);
+        result.notes.push(`${source.name}：创建时指定的基线 ${taskSpec[source.name]} 不存在（本地/远端均无），已回退默认基线 ${baseline}`);
       }
     }
     const branch = `${branchPrefix}/harness-${task}`;
@@ -466,7 +491,14 @@ export async function ensureTaskWorkspaces(ws, kit, task, { branchPrefix = 'feat
     const existing = tEntry.repos[source.name];
     if (existing) {
       if (existing.placement === 'main') {
-        result.assigned.push({ source: source.name, placement: 'main', path: repoDir, branch, base, reused: true });
+        const current = await currentBranch(repoDir);
+        // 选了开发基线但主树还停在别的分支（常见是 dev）：删掉旧分配，让下面的
+        // selectedBase 规则决定是否从基线切到任务分支；否则保持原有复用行为。
+        if (!selectedBase || current === branch) {
+          result.assigned.push({ source: source.name, placement: 'main', path: repoDir, branch, base, reused: true, ready: current === branch });
+        } else {
+          delete tEntry.repos[source.name];
+        }
       } else {
         const dir = path.join(worktreeRoot(ws, source.name), existing.placement);
         if (fs.existsSync(dir)) {
@@ -484,10 +516,24 @@ export async function ensureTaskWorkspaces(ws, kit, task, { branchPrefix = 'feat
     // 台账已本地化（keepLedgerLocal），里面的占用者必然是本机自己的任务。
     const main = forceSlot ? { occupied: true, branch, dirty: false, reason: '--slot 强制隔离' } : await mainWorktreeState(repoDir, base);
     const owner = Object.entries(ledger.tasks).find(([t, e]) => t !== task && e?.repos?.[source.name]?.placement === 'main');
-    if (!main.occupied && !owner) {
+    // 选了开发基线时，干净的主工作树只要停在「注册基线 / 所选基线 / 本任务分支」上，
+    // 就允许在分配时切到任务分支（否则主树停在 dev 会被当成外来分支，apply 卡在裁决点）。
+    const mainOnAcceptedBranch = !forceSlot && !main.dirty
+      && (main.branch === baseline || main.branch === base || main.branch === branch);
+    if ((!main.occupied || mainOnAcceptedBranch) && !owner) {
+      let switched = false;
+      if (selectedBase && main.branch !== branch) {
+        const co = await checkoutTaskBranch(repoDir, branch, base);
+        if (co.error) {
+          result.refused.push({ source: source.name, reason: co.error });
+          continue;
+        }
+        switched = true;
+        result.notes.push(`${source.name}：主工作树已从 \`${main.branch}\` 切到任务分支 \`${branch}\`（基点 \`${base}\`）`);
+      }
       tEntry.repos[source.name] = { placement: 'main', branch, base };
       ledger.slots[source.name] ??= {};
-      result.assigned.push({ source: source.name, placement: 'main', path: repoDir, branch, base, reused: false });
+      result.assigned.push({ source: source.name, placement: 'main', path: repoDir, branch, base, reused: false, ready: main.branch === branch || switched, switched });
       continue;
     }
     if (!owner && !forceSlot) {
@@ -560,9 +606,14 @@ export async function releaseTaskWorkspaces(ws, kit, task) {
         if (cur === info.branch) {
           if (await mergedStatus(repoDir, info.branch, info.base ?? 'dev')) {
             if (!(await isDirty(repoDir))) {
-              await runGit(['checkout', info.base ?? 'dev'], { cwd: repoDir });
-              await runGit(['branch', '-d', info.branch], { cwd: repoDir });
-              out.released.push({ source: name, placement: 'main', note: '主工作树已切回基线并删已合入分支' });
+              const co = await checkoutBaseBranch(repoDir, info.base ?? 'dev');
+              if (co.code !== 0) {
+                out.stale.push({ source: name, reason: `主工作树切回基线失败：${(co.stderr || '').trim().split('\n')[0]}` });
+                remaining[name] = info;
+              } else {
+                await runGit(['branch', '-d', info.branch], { cwd: repoDir });
+                out.released.push({ source: name, placement: 'main', note: '主工作树已切回基线并删已合入分支' });
+              }
             } else {
               out.stale.push({ source: name, reason: `主工作树分支 ${info.branch} 已合入但有未提交改动，未切回基线（请人工处理）` });
               remaining[name] = info;
@@ -850,7 +901,9 @@ export function renderWorkspaceNotice(res, task) {
   lines.push('- 各仓工作区分配：**developer 写源码只进分配给自己的目录，其余目录（主工作树/其他 slot/其他仓）一律只读**：');
   for (const w of assigned) {
     const where = w.placement === 'main'
-      ? (w.branch ? `主工作树 \`${w.path}\`（当前只有本任务在该仓开发；开工前从基线 \`${w.base}\` 新建分支 \`${w.branch}\`）` : `主工作树 \`${w.path}\`（非 git 仓，直接工作）`)
+      ? (w.branch
+          ? `主工作树 \`${w.path}\`（分支 \`${w.branch}\`，基点 \`${w.base}\`${w.ready ? '；内核已切好' : '；开工前从该基点新建分支'}）`
+          : `主工作树 \`${w.path}\`（非 git 仓，直接工作）`)
       : `池化 worktree \`${w.path}\`（分支 \`${w.branch}\`，内核已切好；slot 常驻复用，不要删目录）`;
     lines.push(`  - ${w.source} → ${where}`);
   }
