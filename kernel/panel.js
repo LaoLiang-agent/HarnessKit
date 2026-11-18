@@ -10,6 +10,7 @@
 // - POST /harness-kit/workspace/create  {path, title?} 注册任意已存在目录为 DSH 工作区
 // - POST /harness-kit/workspace/open    {path, title?} 打开已有 Harness 工作区（须含 .harness/kit.json）
 // - POST /harness-kit/workspace/init    {workspace, assets?, sources?} 面板初始化向导（/hk-init + /hk-setup --add 等价，幂等）
+// - GET  /harness-kit/env       向导环境预检（git / Python 3 + 对应平台安装指引，不自动安装）
 // 纯函数（parseBoard / taskProgress / nextAction / laneOf / parseClaims /
 // attentionItems / parseGitLog / updateKit）与 HTTP 接线分离，供 sim 测试。
 import fs from 'node:fs';
@@ -17,6 +18,7 @@ import path from 'node:path';
 import { harnessDir, readKit, writeKit, defaultKit } from './paths.js';
 import { loadFlow } from './flows.js';
 import { runGit } from './exec.js';
+import { checkEnvironment } from './env.js';
 import { assetsLayout, syncAssets } from './sync.js';
 import { runInit, formatInitReport, inspectDir } from './setup.js';
 import { readTaskSessions, recordTaskSession } from './bindings.js';
@@ -747,6 +749,21 @@ export function registerPanelApi(ctx) {
         if (r.error) return sendJson(res, 400, { ok: false, error: r.error });
         sendJson(res, 200, r);
       } catch (cause) {
+        sendJson(res, 500, { ok: false, error: cause.message });
+      }
+    },
+  });
+
+  // 环境预检：向导打开时检查 git / Python 3，缺失项返回对应平台的安装命令。
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/env',
+    async handler(req, res) {
+      if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      try {
+        sendJson(res, 200, { ok: true, ...(await checkEnvironment()) });
+      } catch (cause) {
+        logger?.warn?.(`harness-kit env check failed: ${cause.message}`);
         sendJson(res, 500, { ok: false, error: cause.message });
       }
     },

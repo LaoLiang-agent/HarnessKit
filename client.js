@@ -945,6 +945,21 @@ window.__ModuleLoader__.load({
       const [result, setResult] = useState(null); // {report, wsId, sources, sourceErrors}
       const [progress, setProgress] = useState(null); // 初始化进度 {stage, detail, startedAt, done}
       const pollRef = useRef(null);
+      // 环境预检：提交前暴露 git / Python 3 缺失项，并给出对应平台的安装命令。
+      const [env, setEnv] = useState(null);
+      const [envBusy, setEnvBusy] = useState(false);
+      const checkEnv = useCallback(async () => {
+        setEnvBusy(true);
+        try {
+          const j = await fetch('/harness-kit/env').then((r) => r.json());
+          setEnv(j.ok ? j : { error: j.error || '检查失败' });
+        } catch (e) {
+          setEnv({ error: String(e?.message || e) });
+        } finally {
+          setEnvBusy(false);
+        }
+      }, []);
+      useEffect(() => { void checkEnv(); }, [checkEnv]);
 
       const doInspect = useCallback((p) => {
         if (!p || !p.trim()) { setInfo(null); return; }
@@ -1071,7 +1086,27 @@ window.__ModuleLoader__.load({
         // 角色强制确认（2026-11-17 定）：登记的每个仓库必须显式选角色，不再静默自动推断
         || sources.some((s) => s.url.trim() && !s.role.trim());
 
+      // 环境检查卡片：缺失项直接给安装命令，安装后点「重新检查」
+      const envCard = h('div', { style: S.section },
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 } },
+          h('div', { style: { ...S.secTitle, marginBottom: 0 } }, '环境检查'),
+          h('span', { style: { flex: 1 } }),
+          h('button', { style: S.btn(envBusy), disabled: envBusy, onClick: checkEnv }, envBusy ? '检查中…' : '重新检查')),
+        !env && h('div', { style: { fontSize: 12, color: V.sub } }, '正在检查 git / Python 3…'),
+        env?.error && h('div', { style: { fontSize: 12, color: V.err, whiteSpace: 'pre-wrap' } }, `检查失败：${env.error}`),
+        env?.tools && env.tools.map((t) => h('div', { key: t.id, style: { padding: '4px 0', fontSize: 12 } },
+          h('div', { style: { display: 'flex', gap: 8, alignItems: 'baseline' } },
+            h('span', { style: { color: t.ok ? V.ok : V.warn, fontWeight: 600 } }, `${t.ok ? '✓' : '✗'} ${t.name}`),
+            h('span', { style: { color: V.sub } }, t.ok ? (t.version || '可用') : t.purpose)),
+          !t.ok && h('div', { style: { marginTop: 3, paddingLeft: 18, color: V.sub } },
+            h('div', null, '安装：',
+              h('code', { style: { fontSize: 11, padding: '1px 6px', borderRadius: 4, background: V.fieldBg } }, t.install.command)),
+            h('a', { href: t.install.url, target: '_blank', rel: 'noreferrer', style: { color: V.brand, fontSize: 11 } }, '查看安装说明')))),
+        env?.tools && !env.allOk && h('div', { style: { fontSize: 11, color: V.warn, marginTop: 4 } },
+          '缺失项不会阻止创建，但用到对应功能时会失败；安装后点「重新检查」。'));
+
       return h('div', null,
+        envCard,
         // ① 目录
         h('div', { style: S.section },
           h('div', { style: S.secTitle }, '① 工作区目录'),

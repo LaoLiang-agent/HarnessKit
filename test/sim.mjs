@@ -1837,6 +1837,40 @@ section('panel.js：browseDir 工作区内文件浏览');
   ok('斜杠归一', browseDir(ws, '/docs/').dir === 'docs');
 }
 
+// ---------------------------------------------------------------- 环境预检
+section('env.js：向导环境预检');
+{
+  const { checkEnvironment } = await import(path.join(bundleRoot, 'kernel/env.js'));
+  const probe = (versions, platform = 'darwin') => checkEnvironment({
+    platform,
+    runCommand: async (command) => versions[command] ?? { code: 127, stdout: '', stderr: 'command not found' },
+  });
+
+  const all = await probe({
+    git: { code: 0, stdout: 'git version 2.44.0\n' },
+    python3: { code: 0, stdout: 'Python 3.12.4\n' },
+  });
+  ok('全部可用 → allOk', all.allOk === true && all.tools.length === 2);
+  ok('版本取首行', all.tools.find((t) => t.id === 'git').version === 'git version 2.44.0');
+  ok('可用项不带安装指引', !('install' in all.tools.find((t) => t.id === 'git')));
+
+  const missing = await probe({
+    git: { code: 0, stdout: 'git version 2.44.0' },
+    python3: { code: 127, stdout: '', stderr: 'python3: command not found' },
+  });
+  const py = missing.tools.find((t) => t.id === 'python3');
+  ok('缺失项 → allOk false', missing.allOk === false && py.ok === false);
+  ok('macOS 安装提示', py.install.command.includes('brew') && py.install.url.startsWith('https://'));
+  ok('缺失原因透出', py.error.includes('command not found'));
+
+  const win = await probe({ git: { code: 127, stdout: '' }, python3: { code: 0, stdout: 'Python 3.12' } }, 'win32');
+  ok('Windows 安装提示', win.tools.find((t) => t.id === 'git').install.command.includes('winget'));
+  const linux = await probe({ git: { code: 127, stdout: '' }, python3: { code: 0, stdout: 'Python 3.12' } }, 'linux');
+  ok('Linux 安装提示', linux.tools.find((t) => t.id === 'git').install.command.includes('apt'));
+  const other = await probe({ git: { code: 127, stdout: '' }, python3: { code: 0, stdout: 'Python 3.12' } }, 'aix');
+  ok('未知平台回退通用指引', other.tools.find((t) => t.id === 'git').install.url === 'https://git-scm.com/downloads');
+}
+
 // ---------------------------------------------------------------- report
 
 let pass = 0;
