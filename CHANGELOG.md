@@ -4,10 +4,13 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-11-18
 
 ### Added
 
+- Workflow mode (`applyMode`: auto / review) in the config view, stored in `kit.json`; `/hk-init`
+  migrates the old `.harness/config.json`, and the mainline branch is derived per repository from
+  `build.json` > `kit.sources[].branch` > `dev`.
 - Session-level workspace attention dock above the composer and a sidebar alert dot, so blocking
   workspace issues (worktree decisions, sync drift, pending archive, incomplete init) are visible
   without opening the plugin.
@@ -20,6 +23,8 @@ All notable changes to Harness Kit are documented here. The format follows
   Task branches are created with `--no-track`, so a push cannot land on the base branch by accident.
   The task dialog now labels the selector **开发基线** and explains that it creates
   `feat/harness-<task>` and is the archive merge target.
+- Archive release returns the main worktree to a local base branch instead of a detached HEAD when
+  the task base is a remote-tracking branch.
 
 ### Changed
 
@@ -57,4 +62,5 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.1.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.1
 [0.1.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.0
