@@ -6,6 +6,15 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+// 插件内部会自己 spawn `git commit`（资产仓库初始化/同步）。CI 与干净机器没有全局
+// git 身份，会让这些子进程提交失败；给整套测试一个固定身份，让子进程继承。
+Object.assign(process.env, {
+  GIT_AUTHOR_NAME: 'harness-kit-test',
+  GIT_AUTHOR_EMAIL: 'test@harness-kit.invalid',
+  GIT_COMMITTER_NAME: 'harness-kit-test',
+  GIT_COMMITTER_EMAIL: 'test@harness-kit.invalid',
+});
+
 const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { registerCommands } = await import(path.join(bundleRoot, 'kernel/commands.js'));
 const { installGuards } = await import(path.join(bundleRoot, 'kernel/guards.js'));
