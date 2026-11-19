@@ -471,26 +471,7 @@ export async function listModelCatalog(llm) {
           : null;
         resolved.push({ id: m.id, name: m.name ?? m.id, reasoning });
       }
-      out.push({ provider: p.id, name: p.name ?? p.id, models: resolved, active: true });
-    }
-    // listProviders 只返回“已注册适配器”的 provider；设置页还需要列出插件已声明但
-    // 尚未启用/配置的 provider，否则用户看不到可选项。未启用的 provider 没有模型清单，
-    // 由用户手填 model；派发前仍需在 DSH 里完成 provider 配置。
-    let configurable = [];
-    if (typeof llm.listConfigurableProviders === 'function') {
-      try { configurable = (await llm.listConfigurableProviders()) ?? []; } catch { /* 目录失败不拖垮已注册项 */ }
-    }
-    if (!Array.isArray(configurable)) configurable = [];
-    for (const c of configurable) {
-      if (!c?.provider || out.some((o) => o.provider === c.provider)) continue;
-      out.push({
-        provider: c.provider,
-        name: c.displayName ?? c.provider,
-        models: [],
-        active: false,
-        declared: c.declared !== false,
-        error: c.error ?? null,
-      });
+      out.push({ provider: p.id, name: p.name ?? p.id, models: resolved });
     }
     return out;
   } catch { return []; }

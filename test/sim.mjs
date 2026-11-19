@@ -1726,7 +1726,7 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
       const m = cat[0].models.find((x) => x.id === 'deepseek-reasoner');
       return m?.reasoning?.defaultEffort === 'high' && m.reasoning.efforts.map((e) => e.id).join(',') === 'off,low,high,max' && cat[0].models.find((x) => x.id === 'deepseek-chat')?.reasoning === null;
     })());
-    const catalogWithDormant = await listModelCatalog({
+    const catalogActiveOnly = await listModelCatalog({
       listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }],
       listModels: async () => [{ id: 'deepseek-flash', name: 'Flash' }],
       listConfigurableProviders: () => [
@@ -1734,10 +1734,9 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
         { provider: 'anthropic', displayName: 'Anthropic', declared: true },
       ],
     });
-    ok('provider 目录包含已声明未启用项', catalogWithDormant.length === 2
-      && catalogWithDormant.find((c) => c.provider === 'deepseek')?.active === true
-      && catalogWithDormant.find((c) => c.provider === 'anthropic')?.active === false
-      && catalogWithDormant.find((c) => c.provider === 'anthropic')?.name === 'Anthropic');
+    ok('provider 下拉只列已注册项（不列未启用）', catalogActiveOnly.length === 1
+      && catalogActiveOnly[0].provider === 'deepseek'
+      && !catalogActiveOnly.some((c) => c.provider === 'anthropic'));
     ok('listModelCatalog 无服务返回 []', (await listModelCatalog(null)).length === 0 && (await listModelCatalog(undefined)).length === 0);
     ok('listModelCatalog 坏 listProviders 容忍为 []', (await listModelCatalog({ listProviders: () => { throw new Error('x'); } })).length === 0);
     // modelSuggest：provider 过滤 + 全部模型 id
@@ -2091,7 +2090,8 @@ section('client：工作区提醒');
   ok('侧栏图标带提醒红点', clientSrc.includes('hk-alert-dot'));
   ok('提醒条复用面板 attention 接口', clientSrc.includes("fetch('/harness-kit/state')"));
   ok('模型映射含推理等级选择（默认 low 逻辑）', clientSrc.includes('reasoning_effort') && clientSrc.includes('推理等级') && clientSrc.includes("e.id === 'low'"));
-  ok('provider 下拉标注未启用项', clientSrc.includes('（未启用）') && clientSrc.includes('已声明但未启用'));
+  ok('provider 下拉不显示未启用项', !clientSrc.includes('（未启用）') && !clientSrc.includes('已声明但未启用'));
+  ok('模型映射文案已精简', clientSrc.includes('未配置的角色走会话默认') && clientSrc.includes('推理等级随模型能力变化'));
 }
 
 // ---------------------------------------------------------------- report
