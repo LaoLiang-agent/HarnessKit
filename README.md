@@ -137,7 +137,7 @@ environment.
 ### Model cost: spend where it matters
 
 Use strong models for design and difficult review, fast models for routine work. The mapping lives
-in `.harness/kit.json` and is not tied to one provider.
+in `.harness/kit.json`, includes an optional reasoning effort per binding, and is not tied to one provider.
 
 ### Assets compound, especially solo
 

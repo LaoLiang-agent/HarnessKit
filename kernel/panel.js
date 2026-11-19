@@ -304,7 +304,7 @@ export function parseGitLog(text) {
 
 /**
  * 受控更新 kit.json（M4b 配置视图第 2 层）。
- * patch: { sources?: [{name, branch}], autoSync?: boolean, models?: {logical: {provider?, model}} }
+ * patch: { sources?: [{name, branch}], autoSync?: boolean, models?: {logical: {provider?, model, reasoning_effort?}} }
  * 返回 { ok: true, kit } 或 { error }。
  */
 export function updateKit(ws, patch) {
@@ -340,13 +340,25 @@ export function updateKit(ws, patch) {
     for (const [k, v] of Object.entries(patch.models)) {
       if (v == null) continue; // null = 删除映射
       if (typeof v !== 'object' || typeof v.model !== 'string' || !v.model.trim()) {
-        return { error: `models.${k} 需为 {provider?, model}` };
+        return { error: `models.${k} 需为 {provider?, model, reasoning_effort?}` };
+      }
+      if (v.reasoning_effort !== undefined && v.reasoning_effort !== null
+        && (typeof v.reasoning_effort !== 'string' || !v.reasoning_effort.trim())) {
+        return { error: `models.${k}.reasoning_effort 必须是非空字符串` };
       }
     }
     kit.models = kit.models ?? {};
     for (const [k, v] of Object.entries(patch.models)) {
       if (v == null) delete kit.models[k];
-      else kit.models[k] = { ...(v.provider ? { provider: v.provider } : {}), model: v.model.trim() };
+      else {
+        const previous = kit.models[k] ?? {};
+        const next = { ...(v.provider ? { provider: v.provider } : {}), model: v.model.trim() };
+        const effort = v.reasoning_effort !== undefined
+          ? (v.reasoning_effort == null ? '' : v.reasoning_effort.trim())
+          : (previous.reasoning_effort ?? '');
+        if (effort) next.reasoning_effort = effort;
+        kit.models[k] = next;
+      }
     }
   }
   writeKit(ws, kit);
@@ -438,7 +450,28 @@ export async function listModelCatalog(llm) {
     for (const p of providers) {
       let models = [];
       try { models = (await llm.listModels?.(p.id)) ?? []; } catch { /* 单 provider 失败不拖垮整体 */ }
-      out.push({ provider: p.id, name: p.name ?? p.id, models: models.map((m) => ({ id: m.id, name: m.name ?? m.id })) });
+      const resolved = [];
+      for (const m of models) {
+        let info = null;
+        // 推理等级是模型能力，不是全局枚举：DeepSeek 是 off/low/high/max，
+        // 其他厂商可能是 minimal/low/medium/high 或没有推理等级。只透传宿主
+        // resolveModelInfo 返回的 efforts，不在前端硬编码一个“通用”列表。
+        if (typeof llm.resolveModelInfo === 'function') {
+          try { info = await llm.resolveModelInfo(p.id, m.id); } catch { /* 单模型探测失败不拖垮整体 */ }
+        }
+        const reasoning = info?.reasoning && Array.isArray(info.reasoning.efforts) && info.reasoning.efforts.length > 0
+          ? {
+              defaultEffort: info.reasoning.defaultEffort ?? null,
+              efforts: info.reasoning.efforts.map((e) => ({
+                id: e.id,
+                name: e.name ?? e.id,
+                description: e.description ?? '',
+              })),
+            }
+          : null;
+        resolved.push({ id: m.id, name: m.name ?? m.id, reasoning });
+      }
+      out.push({ provider: p.id, name: p.name ?? p.id, models: resolved });
     }
     return out;
   } catch { return []; }

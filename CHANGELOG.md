@@ -4,6 +4,22 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - Unreleased
+
+### Added
+
+- Worker model bindings in the settings page now include a reasoning-effort selector. Options come from
+  the selected model's DSH capability metadata (`resolveModelInfo`), not a hard-coded universal list:
+  DeepSeek exposes `off/low/high/max`, other providers may expose `minimal/low/medium/high` or none.
+  New bindings default to `low` when the model supports it; otherwise they fall back to the model's own
+  default. Models with no reasoning metadata show only "默认".
+
+### Changed
+
+- Reduced orchestration noise: `update_board.py` is written only at stage boundaries, related
+  `git status`/`log`/`branch`/`ls` commands are merged into one bash call, and logs are read as failure
+  summaries. PM heartbeat frequency is unchanged.
+
 ## [0.1.4] - 2026-11-19
 
 ### Changed
@@ -99,6 +115,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.1.5]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.5
 [0.1.4]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.4
 [0.1.3]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.2

@@ -1716,9 +1716,16 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     const fakeLlm = {
       listProviders: () => [{ id: 'deepseek', name: 'DeepSeek' }, { id: 'pi-ai', name: 'Pi AI' }],
       listModels: async (id) => id === 'deepseek' ? [{ id: 'deepseek-chat', name: 'Chat' }, { id: 'deepseek-reasoner' }] : Promise.reject(new Error('down')),
+      resolveModelInfo: async (provider, model) => provider === 'deepseek' && model === 'deepseek-reasoner'
+        ? { reasoning: { defaultEffort: 'high', efforts: [{ id: 'off', name: 'Off' }, { id: 'low', name: 'Low' }, { id: 'high', name: 'High' }, { id: 'max', name: 'Max' }] } }
+        : { reasoning: null },
     };
     const cat = await listModelCatalog(fakeLlm);
     ok('listModelCatalog 聚合 provider+模型', cat.length === 2 && cat[0].provider === 'deepseek' && cat[0].models.length === 2 && cat[1].models.length === 0);
+    ok('listModelCatalog 透传模型推理等级', (() => {
+      const m = cat[0].models.find((x) => x.id === 'deepseek-reasoner');
+      return m?.reasoning?.defaultEffort === 'high' && m.reasoning.efforts.map((e) => e.id).join(',') === 'off,low,high,max' && cat[0].models.find((x) => x.id === 'deepseek-chat')?.reasoning === null;
+    })());
     ok('listModelCatalog 无服务返回 []', (await listModelCatalog(null)).length === 0 && (await listModelCatalog(undefined)).length === 0);
     ok('listModelCatalog 坏 listProviders 容忍为 []', (await listModelCatalog({ listProviders: () => { throw new Error('x'); } })).length === 0);
     // modelSuggest：provider 过滤 + 全部模型 id
@@ -1748,11 +1755,12 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     }), 'utf8');
     ok('未知子工程报错', updateKit(ws, { sources: [{ name: 'ghost', branch: 'x' }] }).error?.includes('ghost'));
     ok('坏 model 映射报错', updateKit(ws, { models: { dev: { provider: 'p' } } }).error !== undefined);
+    ok('坏 reasoning_effort 报错', updateKit(ws, { models: { dev: { provider: 'p', model: 'm', reasoning_effort: 3 } } }).error !== undefined);
     ok('非布尔 autoSync 报错', updateKit(ws, { autoSync: 'yes' }).error !== undefined);
-    const r = updateKit(ws, { sources: [{ name: 'backend', branch: 'release' }], autoSync: true, models: { dev: { provider: 'ds', model: 'k3' } } });
+    const r = updateKit(ws, { sources: [{ name: 'backend', branch: 'release' }], autoSync: true, models: { dev: { provider: 'ds', model: 'k3', reasoning_effort: 'low' } } });
     ok('合法 patch 保存成功', r.ok === true);
     const kit = JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8'));
-    ok('kit.json 落盘（分支/autoSync/models）', kit.sources[0].branch === 'release' && kit.assets.autoSync === true && kit.models.dev.model === 'k3' && kit.models.dev.provider === 'ds');
+    ok('kit.json 落盘（分支/autoSync/models/reasoning）', kit.sources[0].branch === 'release' && kit.assets.autoSync === true && kit.models.dev.model === 'k3' && kit.models.dev.provider === 'ds' && kit.models.dev.reasoning_effort === 'low');
     const r2 = updateKit(ws, { models: { dev: null } });
     ok('models null 删除映射', r2.ok && JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8')).models.dev === undefined);
     // 流程配置（原 config.json 的 apply-mode）：applyMode 并入 kit.json；mainlineBranch 已废弃
@@ -2056,9 +2064,11 @@ section('flows：审批材料必须可见且带文件链接');
   ok('core 规则包含审批材料可见规则', core.includes('审批材料必须可见可点'));
   ok('PM 角色包含 handoff/等待纪律', pm.includes('handoff.md') && pm.includes('不要 5 分钟轮询') && pm.includes('3600000'));
   ok('core 规则包含等待/读取纪律', core.includes('子代理等待纪律') && core.includes('上下文读取纪律') && core.includes('不整份重读'));
+  ok('PM/core 包含看板与命令批处理纪律', pm.includes('看板与命令批处理纪律') && core.includes('编排噪音纪律') && core.includes('阶段边界') && core.includes('合并'));
   const { dispatchSection } = await import(path.join(bundleRoot, 'kernel/models.js'));
   const dispatch = dispatchSection({}, [{ role: 'business-analyst', logical: 'fast' }]);
   ok('派发附录注入 handoff/等待纪律', dispatch.includes('handoff.md') && dispatch.includes('wait_agent') && dispatch.includes('3600000') && dispatch.includes('不整份重读'));
+  ok('派发附录注入编排噪音纪律', dispatch.includes('看板只在阶段边界') && dispatch.includes('合并成一条 bash') && dispatch.includes('失败摘要'));
 }
 
 // ---------------------------------------------------------------- 会话内工作区提醒
@@ -2068,6 +2078,7 @@ section('client：工作区提醒');
   ok('会话输入区注册工作区提醒', clientSrc.includes("conversation.input.dock") && clientSrc.includes('AttentionDock'));
   ok('侧栏图标带提醒红点', clientSrc.includes('hk-alert-dot'));
   ok('提醒条复用面板 attention 接口', clientSrc.includes("fetch('/harness-kit/state')"));
+  ok('模型映射含推理等级选择（默认 low 逻辑）', clientSrc.includes('reasoning_effort') && clientSrc.includes('推理等级') && clientSrc.includes("e.id === 'low'"));
 }
 
 // ---------------------------------------------------------------- report

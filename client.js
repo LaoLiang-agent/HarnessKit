@@ -849,14 +849,30 @@ window.__ModuleLoader__.load({
     function ConfigView({ config, syncMeta, ws, busy, saveConfig, runInit, onOrchestrate, catalog, toast }) {
       const k = config.kit;
       const initGap = (ws?.attention ?? []).find((a) => a.kind === 'init-incomplete') ?? null;
+      const modelEntry = (provider, model) => (catalog ?? [])
+        .find((c) => c.provider === (provider || ''))?.models?.find((mo) => mo.id === model);
+      const reasoningEfforts = (provider, model) => modelEntry(provider, model)?.reasoning?.efforts ?? [];
+      // 默认 low：模型声明支持 low 时用它；不支持时回退该模型自己的默认（不硬塞一个
+      // 它不认识的等级，DSH 会在派发前拒绝 unsupported explicit effort）。
+      const defaultEffort = (provider, model) => {
+        const efforts = reasoningEfforts(provider, model);
+        if (efforts.some((e) => e.id === 'low')) return 'low';
+        return modelEntry(provider, model)?.reasoning?.defaultEffort ?? '';
+      };
+      const toModelRow = (name, m) => ({
+        name,
+        provider: m.provider ?? '',
+        model: m.model ?? '',
+        reasoning_effort: m.reasoning_effort ?? defaultEffort(m.provider ?? '', m.model ?? ''),
+      });
       const [branches, setBranches] = useState(() => Object.fromEntries((k.sources ?? []).map((s) => [s.name, s.branch ?? ''])));
       const [autoSync, setAutoSync] = useState(k.assets?.autoSync === true);
-      const [models, setModels] = useState(() => Object.entries(k.models ?? {}).map(([name, m]) => ({ name, provider: m.provider ?? '', model: m.model ?? '' })));
+      const [models, setModels] = useState(() => Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
       const [applyMode, setApplyMode] = useState(k.applyMode ?? 'auto');
       useEffect(() => {
         setBranches(Object.fromEntries((k.sources ?? []).map((s) => [s.name, s.branch ?? ''])));
         setAutoSync(k.assets?.autoSync === true);
-        setModels(Object.entries(k.models ?? {}).map(([name, m]) => ({ name, provider: m.provider ?? '', model: m.model ?? '' })));
+        setModels(Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
         setApplyMode(k.applyMode ?? 'auto');
       }, [ws.id]);
       const kv = (label, value) => h('div', { style: S.kv }, h('span', { style: { color: V.sub, minWidth: 96 } }, label), h('span', null, value ?? '—'));
@@ -924,6 +940,8 @@ window.__ModuleLoader__.load({
           h('div', { style: S.secTitle }, 'Worker 模型映射'),
           h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
             '键支持两级：角色名（business-analyst / solution-architect / developer / code-reviewer / test-engineer 等流程角色，优先）或逻辑模型名（fast / coding / reasoning）。命中即按映射派发 Worker；都未命中走会话默认。已映射且 provider/model 成对的路由会自动授权为该工作区会话的子智能体可用模型（跨 provider 派发不再降级）。'),
+          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+            '推理等级来自当前模型能力（DSH resolveModelInfo）：DeepSeek 常见 off/low/high/max，其他模型可能是 minimal/low/medium/high 或没有。新增映射默认 low；模型不支持 low 时回退该模型默认，不强行映射不支持的等级。'),
           models.length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } }, '尚未配置，全部角色走默认模型'),
           models.map((m, i) => h('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' } },
             // 角色名下拉：流程角色（BA/SA/Dev/CR/TE 等，宿主扫 agents/ 目录）+ 已映射的逻辑模型名 + 自由输入
@@ -940,7 +958,7 @@ window.__ModuleLoader__.load({
             h('select', {
               style: { ...S.select, width: 110 },
               value: m.provider ?? '',
-              onChange: (e) => setModels(models.map((x, j) => j === i ? { ...x, provider: e.target.value, model: '' } : x)),
+              onChange: (e) => setModels(models.map((x, j) => j === i ? { ...x, provider: e.target.value, model: '', reasoning_effort: '' } : x)),
             }, [
               h('option', { key: '', value: '' }, '（会话默认）'),
               ...(m.provider && !(catalog ?? []).some((c) => c.provider === m.provider)
@@ -952,16 +970,33 @@ window.__ModuleLoader__.load({
               style: { flex: 1 },
               value: m.model, placeholder: 'model',
               options: (catalog ?? []).find((c) => c.provider === (m.provider || ''))?.models?.map((mo) => mo.id) ?? [],
-              onChange: (v) => setModels(models.map((x, j) => j === i ? { ...x, model: v } : x)),
+              onChange: (v) => setModels(models.map((x, j) => j === i ? { ...x, model: v, reasoning_effort: defaultEffort(x.provider, v) } : x)),
             }),
+            // 推理等级：选项来自当前模型能力；不同厂商不是同一套枚举（DeepSeek off/low/high/max，
+            // 其他模型可能 minimal/low/medium/high 或没有），不在这里硬编码“通用等级”。
+            h('select', {
+              style: { ...S.select, width: 100 },
+              title: m.reasoning_effort ? `reasoning_effort=${m.reasoning_effort}` : '该模型未声明推理等级，使用默认',
+              value: m.reasoning_effort ?? '',
+              onChange: (e) => setModels(models.map((x, j) => j === i ? { ...x, reasoning_effort: e.target.value } : x)),
+            }, [
+              h('option', { key: '', value: '' }, '默认'),
+              ...reasoningEfforts(m.provider, m.model).map((e) => h('option', { key: e.id, value: e.id }, e.name || e.id)),
+              ...(m.reasoning_effort && !reasoningEfforts(m.provider, m.model).some((e) => e.id === m.reasoning_effort)
+                ? [h('option', { key: '__missing', value: m.reasoning_effort }, `⚠ ${m.reasoning_effort}`)] : []),
+            ]),
             h('button', { style: S.iconBtn, title: '删除', onClick: () => setModels(models.filter((_, j) => j !== i)) }, '×'))),
           (catalog ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } }, '未发现可用模型清单（宿主未注册 LLM 或接口不可用），仍可手动输入'),
           h('div', { style: { display: 'flex', gap: 8, marginTop: 8 } },
-            h('button', { style: S.btn(false), onClick: () => setModels([...models, { name: '', provider: '', model: '' }]) }, '＋ 添加映射'),
+            h('button', { style: S.btn(false), onClick: () => setModels([...models, { name: '', provider: '', model: '', reasoning_effort: '' }]) }, '＋ 添加映射'),
             h('button', {
               style: S.btn(busy || models.some((m) => !m.name.trim() || !m.model.trim()), true),
               disabled: busy || models.some((m) => !m.name.trim() || !m.model.trim()),
-              onClick: () => saveConfig({ models: Object.fromEntries(models.map((m) => [m.name.trim(), { ...(m.provider.trim() ? { provider: m.provider.trim() } : {}), model: m.model.trim() }])) }, '模型映射已保存'),
+              onClick: () => saveConfig({ models: Object.fromEntries(models.map((m) => [m.name.trim(), {
+                ...(m.provider.trim() ? { provider: m.provider.trim() } : {}),
+                model: m.model.trim(),
+                ...(m.reasoning_effort ? { reasoning_effort: m.reasoning_effort } : {}),
+              }])) }, '模型映射已保存'),
             }, '保存'))),
         // ③ 初始化与子工程（面板化的 /hk-init、/hk-setup --add）
         h('div', { style: S.section },
