@@ -13,7 +13,7 @@ import { activeTasks, taskIsPlanning } from './state.js';
 import { assetsLayout, syncAssets } from './sync.js';
 import { claimTask } from './panel.js';
 import { clearAdvanceMarks } from './advance.js';
-import { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, ensureBaselineMirrors, renderAnalysisNotice, ensureTaskAnalysisWorktrees, removeTaskAnalysisWorktrees, parseBaseSpec, describeMainWorktree, recordDecision, clearDecision, readWorkspaces, mergeTaskBranches } from './worktree.js';
+import { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, ensureBaselineMirrors, renderAnalysisNotice, ensureTaskAnalysisWorktrees, removeTaskAnalysisWorktrees, parseBaseSpec, describeMainWorktree, recordDecision, clearDecision, readWorkspaces, mergeTaskBranches, reconcileArchivedWorktrees } from './worktree.js';
 import { acquireTestEnv, releaseTestEnv, describeTestEnv } from './te.js';
 import { recordTaskSession } from './bindings.js';
 import { addSource, runInit, formatInitReport, guessRole, boardTemplate } from './setup.js';
@@ -30,6 +30,11 @@ function bindCurrentSession(ws, task, agent) {
   const sid = agent?.session?.id ?? agent?.id;
   if (typeof sid !== 'string' || sid.length === 0) return;
   try { recordTaskSession(ws, task, sid); } catch { /* 绑定失败不阻断命令 */ }
+}
+
+/** 归档台账对账失败不阻断命令；下一次命令/doctor 会再试。 */
+async function reconcileArchivedQuiet(ws, kit) {
+  try { return await reconcileArchivedWorktrees(ws, kit); } catch { return null; }
 }
 
 function parseArgs(raw) {
@@ -248,6 +253,7 @@ async function hkFix({ agent, rawInput }) {
   const ws = wsRoot(agent);
   const kit = readKit(ws);
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
+  await reconcileArchivedQuiet(ws, kit);
   const { flags, positional } = parseArgs(rawInput);
   // parseArgs 会把 --auto 后首个词吞为旗标值；先还原完整词序再解构
   const words = typeof flags.auto === 'string' ? [flags.auto, ...positional] : positional;
@@ -341,6 +347,7 @@ async function hkNew({ agent, rawInput }) {
   const ws = wsRoot(agent);
   const kit = readKit(ws);
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
+  await reconcileArchivedQuiet(ws, kit);
   const { flags, positional } = parseArgs(rawInput);
   // parseArgs 会把 --auto 后首个词吞为旗标值；先还原完整词序再解构
   const words = typeof flags.auto === 'string' ? [flags.auto, ...positional] : positional;
@@ -494,6 +501,7 @@ async function hkApply({ agent, rawInput }) {
   const ws = wsRoot(agent);
   const kit = readKit(ws);
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
+  await reconcileArchivedQuiet(ws, kit);
   const { flags, positional } = parseArgs(rawInput);
   const inferred = inferTask(ws, positional, '用法：/hk-apply [任务名] [反馈] [--slot]（省略任务名时要求唯一活跃任务；--slot=主树有未处理改动时强制隔离到 slot 开发）');
   if (inferred.error) return err(inferred.error);
@@ -588,6 +596,9 @@ async function hkArchive({ agent, rawInput }) {
   const mergeOverrides = mergeAsked && typeof flags.merge === 'string' ? parseBaseSpec(flags.merge) : {};
 
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);
+  // 活跃任务归档前先清理其他已归档残留；残留收尾（taskDir 不存在）不能先清理，
+  // 否则 releaseTaskWorkspaces 的 ledger 入口会被提前删掉。
+  if (fs.existsSync(taskDir)) await reconcileArchivedQuiet(ws, kit);
   if (!fs.existsSync(taskDir)) {
     // 已归档任务的残留收尾（2026-11-17 新增）：文档已归档但工作区 slot 因分支未合入而保留
     // （stale-unmerged），注意力条提示「远端 MR 合入后重跑 /hk-archive 释放槽位」——
@@ -803,6 +814,7 @@ async function hkSync({ agent }) {
   const ws = wsRoot(agent);
   const kit = readKit(ws);
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
+  await reconcileArchivedQuiet(ws, kit);
   return syncAssets(ws, kit);
 }
 
@@ -817,6 +829,20 @@ async function hkDoctor({ agent }) {
   if (!kit) {
     lines.push('- kit.json：❌ 不存在 → 运行 `/hk-init`');
     return ok(lines.join('\n'));
+  }
+  const reconcile = await reconcileArchivedQuiet(ws, kit);
+  if (reconcile) {
+    const released = reconcile.released.length;
+    const stale = reconcile.stale.length;
+    lines.push(
+      `- 归档工作区台账：${
+        released === 0 && stale === 0
+          ? '✅ 无残留'
+          : `${released > 0 ? `已释放 ${released} 项` : ''}${released > 0 && stale > 0 ? '，' : ''}${stale > 0 ? `保留 ${stale} 项待合入` : ''}`
+      }${reconcile.tasks.length > 0 ? `（任务：${reconcile.tasks.map((t) => `\`${t}\``).join('、')}）` : ''}`,
+    );
+  } else {
+    lines.push('- 归档工作区台账：⚠️ 对账失败（下一次命令或重跑 /hk-doctor 再试）');
   }
   lines.push(`- kit.json：✅（pack: ${kit.pack ?? 'ai-coding'}，sources: ${kit.sources.length} 个）`);
   for (const s of kit.sources) {

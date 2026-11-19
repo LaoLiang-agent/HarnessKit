@@ -225,7 +225,7 @@ export function initGaps(ws, kit) {
  * 「需要你」注意力项（M4b）：审批/待归档/同步阻塞·落后/初始化缺口。
  * 返回 [{level: block|warn, kind, task?, text, line?, jump?}]，block 在前。
  */
-export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = null, decisions = {}) {
+export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = null, decisions = {}, archivedLedger = []) {
   const items = [];
   for (const t of tasks) {
     if (t.status === 'DONE') continue;
@@ -247,6 +247,14 @@ export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = 
     if (t.status === 'AWAITING_ARCHIVE') {
       items.push({ level: 'warn', kind: 'archive', task: t.task, text: `${t.task} · 已完成待归档`, line: `/hk-archive ${t.task}` });
     }
+  }
+  for (const a of archivedLedger) {
+    const reps = a.repos?.length ? a.repos.join('、') : '无仓记录';
+    items.push({
+      level: 'warn', kind: 'worktree-archived', task: a.task,
+      text: `${a.task} · 已归档，但工作区台账仍绑定（${reps}）；点处理或运行 /hk-archive ${a.task} 释放`,
+      line: `/hk-archive ${a.task}`,
+    });
   }
   for (const t of tasks) {
     if (t.status !== 'DONE' && t.progress?.outOfOrder) {
@@ -376,6 +384,10 @@ export function workspaceState(ws, { sync = null } = {}) {
   const slots = Object.fromEntries(Object.entries(ledger.slots).map(([repo, m]) => [repo,
     Object.entries(m).map(([slot, b]) => ({ slot, task: b.task, branch: b.branch, state: b.state ?? 'bound' }))]));
   const staleSlots = Object.entries(slots).flatMap(([repo, arr]) => arr.filter((s) => s.state === 'stale-unmerged').map((s) => ({ repo, ...s })));
+  // 已归档任务仍占着主工作树台账（典型：归档后才合入并切分支；没有后续归档触发释放）
+  const archivedLedger = Object.entries(ledger.tasks ?? {})
+    .filter(([task]) => !fs.existsSync(path.join(harnessDir(ws), 'deliverables', task)))
+    .map(([task, entry]) => ({ task, repos: Object.keys(entry?.repos ?? {}) }));
   return {
     path: ws,
     board,
@@ -385,7 +397,7 @@ export function workspaceState(ws, { sync = null } = {}) {
     slots,
     te: ledgerTe,
     attention: (() => {
-      const items = attentionItems(tasks, sync, initGaps(ws, kit), staleSlots, ledgerTe, readDecisions(ws));
+      const items = attentionItems(tasks, sync, initGaps(ws, kit), staleSlots, ledgerTe, readDecisions(ws), archivedLedger);
       // 初始化失败 → block 级常驻提示（页面重开仍可见；成功后自动消失）
       const initJob = initProgress.get(ws);
       if (initJob?.done && initJob.error) {

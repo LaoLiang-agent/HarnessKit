@@ -4,6 +4,18 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-11-19
+
+### Fixed
+
+- Archived tasks no longer leave a permanent worktree-ledger entry when their task branch is merged
+  after archive, or when the main worktree is switched to `dev`/`test` before the next archive. The
+  ledger is reconciled on `apply` / `new` / `fix` / `archive` / `sync` / `doctor`: merged or missing
+  task branches release the entry without changing the current branch; unmerged or dirty worktrees
+  stay bound and are reported as stale.
+- The panel now surfaces an archived task whose worktree ledger is still bound, with a one-click
+  `/hk-archive <task>` action.
+
 ## [0.1.2] - 2026-11-19
 
 ### Fixed
@@ -74,6 +86,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.1.3]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.1
 [0.1.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.0

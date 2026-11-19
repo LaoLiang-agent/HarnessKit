@@ -148,7 +148,49 @@ async function isDirty(dir) {
 /** 本地合入判定。 */
 async function mergedLocally(repoDir, branch, base) {
   const r = await runGit(['branch', '--merged', base, '--list', branch], { cwd: repoDir });
-  return r.code === 0 && r.stdout.includes(branch);
+  if (r.code !== 0) return false;
+  return r.stdout
+    .split('\n')
+    .map((line) => line.replace(/^[*+ ]+/, '').trim())
+    .filter(Boolean)
+    .includes(branch);
+}
+
+/** 本地分支是否存在（不 fetch）。 */
+async function localBranchExists(repoDir, branch) {
+  return (await runGit(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: repoDir })).code === 0;
+}
+
+/** 任意 ref 是否存在（本地分支或 origin/<branch>）。 */
+async function refExists(repoDir, ref) {
+  return (await runGit(['rev-parse', '--verify', '--quiet', ref], { cwd: repoDir })).code === 0;
+}
+
+/** 归档对账的候选基线：任务创建时基线、当前注册基线、当前分支和常见主线。 */
+function candidateBases(info, source, current) {
+  const seen = new Set();
+  for (const base of [info?.base, source?.branch, current, 'dev', 'test', 'main', 'master']) {
+    if (typeof base === 'string' && base.trim() && base !== 'HEAD') seen.add(base.trim());
+  }
+  return [...seen];
+}
+
+/**
+ * 任务分支是否已合入任一候选基线。先查本地（快），再对真正可能是远端的
+ * 基线做一次 fetch 复查（合入常发生在 GitLab MR，本地主线可能滞后）。
+ * 返回命中的基线名，未合入返回 null。
+ */
+async function mergedIntoAny(repoDir, branch, bases) {
+  for (const base of bases) {
+    if (await mergedLocally(repoDir, branch, base)) return base;
+  }
+  // 本地主线可能滞后：一次 fetch 后复查 origin/<base>，避免每个候选基线各 fetch 一次。
+  await runGit(['fetch', 'origin'], { cwd: repoDir, timeoutMs: 30_000 });
+  for (const base of bases) {
+    const target = base.startsWith('origin/') ? base : `origin/${base}`;
+    if (await refExists(repoDir, target) && await mergedLocally(repoDir, branch, target)) return base;
+  }
+  return null;
 }
 
 /**
@@ -586,48 +628,68 @@ export async function ensureTaskWorkspaces(ws, kit, task, { branchPrefix = 'feat
 }
 
 /**
- * 归档释放：main 不动（合入确认归人）；slot 已合入 → 切回基线释放；
- * 未合入 → stale 标记保留。返回 { released, stale: [{source, reason}], missing }。
+ * 释放一个任务台账条目（不写盘，由调用方统一写）。
+ * 关键：主工作树不在任务分支时，也要检查任务分支是否已合入候选基线——
+ * 人合并后切到 dev/test 是常态，不能因此把台账永久留在“占用”状态。
  */
-export async function releaseTaskWorkspaces(ws, kit, task) {
-  const out = { released: [], stale: [], missing: false };
-  const ledger = readWorkspaces(ws);
-  const entry = ledger.tasks[task];
-  if (!entry) { out.missing = true; return out; }
+async function releaseEntry(ws, kit, task, entry, ledger) {
+  const out = { released: [], stale: [] };
   const remaining = {};
   for (const [name, info] of Object.entries(entry.repos ?? {})) {
     const source = (kit?.sources ?? []).find((s) => s.name === name);
     const repoDir = source ? path.join(ws, source.path) : null;
     if (info.placement === 'main') {
-      // 已合入 → 把主工作树切回基线、删分支（回到干净空闲态，下个任务可直接用）；
-      // 未合入 → 保持占用（保护性：代码未合入时不让新任务踩主工作树）
-      if (repoDir && fs.existsSync(repoDir) && await isGitRepo(repoDir) && info.branch) {
-        const cur = await currentBranch(repoDir);
-        if (cur === info.branch) {
-          if (await mergedStatus(repoDir, info.branch, info.base ?? 'dev')) {
-            if (!(await isDirty(repoDir))) {
-              const co = await checkoutBaseBranch(repoDir, info.base ?? 'dev');
-              if (co.code !== 0) {
-                out.stale.push({ source: name, reason: `主工作树切回基线失败：${(co.stderr || '').trim().split('\n')[0]}` });
-                remaining[name] = info;
-              } else {
-                await runGit(['branch', '-d', info.branch], { cwd: repoDir });
-                out.released.push({ source: name, placement: 'main', note: '主工作树已切回基线并删已合入分支' });
-              }
-            } else {
-              out.stale.push({ source: name, reason: `主工作树分支 ${info.branch} 已合入但有未提交改动，未切回基线（请人工处理）` });
-              remaining[name] = info;
-            }
-          } else {
-            out.stale.push({ source: name, reason: `分支 ${info.branch} 未合入 ${info.base}：主工作树保持占用（保护性），人确认合入后重跑 /hk-archive 释放` });
-            remaining[name] = info;
-          }
+      if (!info.branch) {
+        out.released.push({ source: name, placement: 'main', note: '无 git 分支记录，释放台账' });
+        continue;
+      }
+      if (!repoDir || !fs.existsSync(repoDir) || !(await isGitRepo(repoDir))) {
+        out.released.push({ source: name, placement: 'main', note: '仓不可用，释放台账' });
+        continue;
+      }
+      const cur = await currentBranch(repoDir);
+      if (!(await localBranchExists(repoDir, info.branch))) {
+        out.released.push({ source: name, placement: 'main', note: `任务分支 ${info.branch} 已不存在，释放台账` });
+        continue;
+      }
+      const bases = candidateBases(info, source, cur).filter((b) => b !== info.branch);
+      const mergedBase = await mergedIntoAny(repoDir, info.branch, bases);
+      if (!mergedBase) {
+        out.stale.push({
+          source: name,
+          reason: cur === info.branch
+            ? `分支 ${info.branch} 未合入 ${info.base ?? '候选基线'}：主工作树保持占用（保护性），人确认合入后重跑 /hk-archive 释放`
+            : `主工作树当前在 ${cur || '(detached)'}，任务分支 ${info.branch} 未合入候选基线：台账保留，合入后重跑 /hk-archive 释放`,
+        });
+        remaining[name] = info;
+        continue;
+      }
+      if (cur === info.branch) {
+        if (await isDirty(repoDir)) {
+          out.stale.push({ source: name, reason: `主工作树分支 ${info.branch} 已合入但有未提交改动，未切回基线（请人工处理）` });
+          remaining[name] = info;
           continue;
         }
+        const co = await checkoutBaseBranch(repoDir, mergedBase);
+        if (co.code !== 0) {
+          out.stale.push({ source: name, reason: `主工作树切回基线失败：${(co.stderr || '').trim().split('\n')[0]}` });
+          remaining[name] = info;
+          continue;
+        }
+        await runGit(['branch', '-d', info.branch], { cwd: repoDir });
+        out.released.push({ source: name, placement: 'main', note: `主工作树已切回 ${mergedBase} 并删已合入分支` });
+      } else {
+        // 当前在别的分支：只释放台账，不改用户当前分支，也不删分支——
+        // 分支清理交给人在确认后处理，避免自动对账产生额外副作用。
+        out.released.push({
+          source: name,
+          placement: 'main',
+          note: `主工作树当前在 ${cur || '(detached)'}；任务分支已合入 ${mergedBase}，仅释放台账`,
+        });
       }
-      out.released.push({ source: name, placement: 'main', note: '主工作树（无内核动作）' });
       continue;
     }
+
     const dir = path.join(worktreeRoot(ws, name), info.placement);
     ledger.slots[name] ??= {};
     if (!repoDir || !fs.existsSync(repoDir) || !(await isGitRepo(repoDir))) {
@@ -647,9 +709,55 @@ export async function releaseTaskWorkspaces(ws, kit, task) {
       remaining[name] = info;
     }
   }
+  return { ...out, remaining };
+}
+
+/**
+ * 归档释放：main 不在任务分支时也检查合入；slot 已合入 → 切回基线释放；
+ * 未合入 → stale 标记保留。返回 { released, stale: [{source, reason}], missing }。
+ */
+export async function releaseTaskWorkspaces(ws, kit, task) {
+  const ledger = readWorkspaces(ws);
+  const entry = ledger.tasks[task];
+  if (!entry) return { released: [], stale: [], missing: true };
+  const { released, stale, remaining } = await releaseEntry(ws, kit, task, entry, ledger);
   if (Object.keys(remaining).length === 0) delete ledger.tasks[task];
   else ledger.tasks[task] = { ...entry, repos: remaining };
   writeWorkspaces(ws, ledger);
+  return { released, stale, missing: false };
+}
+
+/**
+ * 已归档任务的工作区台账对账（幂等，可反复执行）。
+ *
+ * 台账是缓存、git 是事实源：任务文档已进入 `_archive` 且活目录不存在时，
+ * 若任务分支已合入（本地或 origin）或分支已删除，就释放台账；未合入则保留
+ * 并标记 stale，等下一次命令/归档再对账。这样合并在归档之后发生也不会留下
+ * 永久占用。
+ *
+ * 返回 { tasks, released, stale }。只改本机 worktrees.json：不合并代码、不推送；
+ * 当前不在任务分支时不切换分支、不删分支；任务分支被检出时按既有释放逻辑切回基线。
+ */
+export async function reconcileArchivedWorktrees(ws, kit) {
+  const ledger = readWorkspaces(ws);
+  const deliverables = path.join(harnessDir(ws), 'deliverables');
+  const archiveRoot = path.join(deliverables, '_archive');
+  const out = { tasks: [], released: [], stale: [] };
+  let changed = false;
+  for (const [task, entry] of Object.entries(ledger.tasks ?? {})) {
+    // 活目录还在：任务可能已重开，不能按“已归档”清理。
+    if (fs.existsSync(path.join(deliverables, task))) continue;
+    // 没有归档记录：可能是手工删除，保留台账让人判断，不静默清理。
+    if (!fs.existsSync(path.join(archiveRoot, task))) continue;
+    const r = await releaseEntry(ws, kit, task, entry, ledger);
+    out.tasks.push(task);
+    out.released.push(...r.released.map((x) => ({ ...x, task })));
+    out.stale.push(...r.stale.map((x) => ({ ...x, task })));
+    if (Object.keys(r.remaining).length === 0) delete ledger.tasks[task];
+    else ledger.tasks[task] = { ...entry, repos: r.remaining };
+    changed = true;
+  }
+  if (changed) writeWorkspaces(ws, ledger);
   return out;
 }
 

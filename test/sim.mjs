@@ -620,7 +620,7 @@ section('池化工作区（主树优先 + slot 池）');
   ok('单任务不建 slot（仅有分析镜像目录）', !fs.existsSync(path.join(ws, '.worktrees/backend/slot-1')));
 }
 
-  const { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, readWorkspaces, reconcileArchivedWorktrees } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
   const ws = mkws();
   cleanups.push(ws);
   const repo = path.join(ws, 'services/backend');
@@ -708,6 +708,57 @@ section('池化工作区（主树优先 + slot 池）');
   git('checkout feat/harness-task-m', repo);
   const relM = await releaseTaskWorkspaces(ws, kit, 'task-m');
   ok('主树任务合入后释放：切回基线并删分支', relM.released.some((r) => r.placement === 'main') && currentBranchOf(repo) === 'dev' && !git('branch --list feat/harness-task-m', repo).includes('feat/harness-task-m') && !readWorkspaces(ws).tasks['task-m']);
+
+  // 场景9b：归档时未合入、之后才合并并切到 test → 对账释放台账
+  git('checkout dev', repo);
+  await ensureTaskWorkspaces(ws, kit, 'task-r');
+  git('checkout -b feat/harness-task-r', repo);
+  fake(ws, 'services/backend/r-work.txt', 'r-work');
+  git('add .', repo);
+  git('commit -m r-work', repo);
+  const relR1 = await releaseTaskWorkspaces(ws, kit, 'task-r');
+  ok('归档时未合入 → 主树台账保留', relR1.stale.some((s) => s.reason.includes('主工作树保持占用')) && !!readWorkspaces(ws).tasks['task-r']);
+  fs.mkdirSync(path.join(ws, '.harness/deliverables/_archive/task-r'), { recursive: true });
+  git('checkout dev', repo);
+  git('merge feat/harness-task-r', repo);
+  git('checkout -b test dev', repo);
+  const recR = await reconcileArchivedWorktrees(ws, kit);
+  ok('归档后合入并切 test → 对账释放台账、不改当前分支', recR.released.some((r) => r.task === 'task-r') && !readWorkspaces(ws).tasks['task-r'] && currentBranchOf(repo) === 'test');
+
+  // 场景9c：归档任务分支一直未合入 → 台账保留；合入后下一次对账释放
+  git('checkout dev', repo);
+  await ensureTaskWorkspaces(ws, kit, 'task-u');
+  git('checkout -b feat/harness-task-u', repo);
+  fake(ws, 'services/backend/u-work.txt', 'u-work');
+  git('add .', repo);
+  git('commit -m u-work', repo);
+  await releaseTaskWorkspaces(ws, kit, 'task-u');
+  git('checkout dev', repo);
+  fs.mkdirSync(path.join(ws, '.harness/deliverables/_archive/task-u'), { recursive: true });
+  const recU1 = await reconcileArchivedWorktrees(ws, kit);
+  ok('归档后仍未合入 → 台账保留并标 stale', recU1.stale.some((r) => r.task === 'task-u') && !!readWorkspaces(ws).tasks['task-u']);
+  git('merge feat/harness-task-u', repo);
+  const recU2 = await reconcileArchivedWorktrees(ws, kit);
+  ok('合入后对账 → 释放台账', recU2.released.some((r) => r.task === 'task-u') && !readWorkspaces(ws).tasks['task-u']);
+
+  // 场景9d：任务分支已合入但主树脏 → 不释放，避免把未提交改动切走
+  git('checkout dev', repo);
+  await ensureTaskWorkspaces(ws, kit, 'task-dirty');
+  git('checkout -b feat/harness-task-dirty', repo);
+  fake(ws, 'services/backend/dirty-work.txt', 'dirty-work');
+  git('add .', repo);
+  git('commit -m dirty-work', repo);
+  git('checkout dev', repo);
+  git('merge feat/harness-task-dirty', repo);
+  git('checkout feat/harness-task-dirty', repo);
+  fake(ws, 'services/backend/uncommitted.txt', 'keep-me');
+  fs.mkdirSync(path.join(ws, '.harness/deliverables/_archive/task-dirty'), { recursive: true });
+  const recD = await reconcileArchivedWorktrees(ws, kit);
+  ok('已合入但主树脏 → 保留台账并标 stale', recD.stale.some((r) => r.task === 'task-dirty' && r.reason.includes('未提交改动')) && !!readWorkspaces(ws).tasks['task-dirty']);
+  fs.unlinkSync(path.join(repo, 'uncommitted.txt'));
+  git('checkout dev', repo);
+  const recD2 = await reconcileArchivedWorktrees(ws, kit);
+  ok('清理脏改动后对账 → 释放', recD2.released.some((r) => r.task === 'task-dirty') && !readWorkspaces(ws).tasks['task-dirty']);
 
   // 场景10：clearTaskWorkspaces 清残留（不阻塞）
   ok('clearTaskWorkspaces 幂等（无绑定）', (await clearTaskWorkspaces(ws, kit, 'task-none')).cleared === 0);
@@ -1609,6 +1660,8 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     const oooTask = [{ task: 'ooo', status: 'IN_PROGRESS', progress: { outOfOrder: true, stages: [] } }];
     ok('链越序入注意力（warn+jump）', attentionItems(oooTask, null).some((i) => i.kind === 'chain-out-of-order' && i.level === 'warn'));
     ok('DONE 的 ⛔/越序不进注意力', !attentionItems([{ task: 'd', status: 'DONE', progress: { outOfOrder: true, stages: [{ name: 'CR', blocked: true }] } }], null).length);
+    const arch = attentionItems([], null, [], [], null, {}, [{ task: 'old', repos: ['backend', 'frontend'] }]);
+    ok('已归档但台账未释放入注意力（warn + 归档命令）', arch.some((i) => i.kind === 'worktree-archived' && i.level === 'warn' && i.task === 'old' && i.line === '/hk-archive old' && i.text.includes('backend')));
   }
   // 面板 HTTP 路由的 DSH Connection 访问检查：任意网页不能调用 owner-private 路由
   {
