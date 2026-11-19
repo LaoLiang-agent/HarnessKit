@@ -4,6 +4,19 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-11-19
+
+### Changed
+
+- Added a stage handoff (`handoff.md`) as the primary context passed between roles. `/hk-new` scaffolds
+  it, `/hk-init` materializes the template, and every worker reads the handoff plus only the sections it
+  lists instead of re-reading whole requirements/design/spec files.
+- Added a sub-agent wait discipline to the PM role and every compiled dispatch appendix: prefer the
+  completion notice, wait at most once with a long timeout, and never poll every five minutes or ask
+  for progress with `send_message`.
+- Added a context-read budget: locate sections with `grep` before reading, use `read` offsets for large
+  files, read each file once per round, and keep only failure summaries from tool output.
+
 ## [0.1.3] - 2026-11-19
 
 ### Fixed
@@ -86,6 +99,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.1.4]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.4
 [0.1.3]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.1

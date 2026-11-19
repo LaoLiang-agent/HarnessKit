@@ -62,6 +62,7 @@ section('hk-init 骨架/物化/幂等/编排');
   ok('specs/spec-template.md 物化（frontmatter 契约）', fs.readFileSync(path.join(ws, '.harness/specs/spec-template.md'), 'utf8').includes('id_max_r'));
   ok('memory/index.md 预置骨架（含命名约定/写不写/流程优先）', (() => { const t = fs.readFileSync(path.join(ws, '.harness/memory/index.md'), 'utf8'); return t.includes('命名约定') && t.includes('何时写') && t.includes('流程优先'); })());
   ok('memory/templates/entry.md 物化（含流程优化排除节）', fs.readFileSync(path.join(ws, '.harness/memory/templates/entry.md'), 'utf8').includes('流程优化排除'));
+  ok('handoff 模板物化（含读取清单）', fs.readFileSync(path.join(ws, '.harness/templates/handoff.md'), 'utf8').includes('读取清单'));
   ok('verify.py 物化（非子模块布局可跳过阶段1/2）', (() => { const p = path.join(ws, '.harness/scripts/verify.py'); return fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes('非子模块布局'); })());
   ok('rules/code-standards.md 物化（跨端编码底线）', (() => { const p = path.join(ws, '.harness/rules/code-standards.md'); return fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes('注入防护'); })());
   ok('spec_lint.py 物化（扁平/目录双布局）', (() => { const p = path.join(ws, '.harness/scripts/spec_lint.py'); return fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes('specs/<domain>.md'); })());
@@ -267,6 +268,7 @@ section('hk-new Bootstrap 脚手架');
     fs.existsSync(path.join(taskDir, 'req.md')));
   const proposal = fs.readFileSync(path.join(taskDir, 'proposal.md'), 'utf8');
   ok('提案含任务名/描述/状态 draft', proposal.includes('device-onboard') && proposal.includes('新增设备接入') && /\*\*状态\*\*：draft/.test(proposal));
+  ok('立项即生成 handoff（含任务名/读取清单）', (() => { const t = fs.readFileSync(path.join(taskDir, 'handoff.md'), 'utf8'); return t.includes('Handoff — device-onboard') && t.includes('读取清单'); })());
   ok('看板登记 PENDING（7 列契约）', (() => { const t = fs.readFileSync(path.join(ws, '.harness/tasks/board.md'), 'utf8'); return t.includes('| device-onboard | PENDING |') && t.includes('| 任务名 | 状态 | Profile | Apply进度 | 分支 | 上次活动 | 续接提示 |') && t.includes('状态机'); })());
   ok('steer bootstrap 剧本（路由表/反问/定稿）', steered.length === 1 && steered[0].includes('路由表') && steered[0].includes('ask_user_question'));
   const dup = await run('hk-new', 'device-onboard 重复', ws, []);
@@ -276,6 +278,7 @@ section('hk-new Bootstrap 脚手架');
   // 空目录残留（上次中断/手动清理后只剩空壳）→ 复用重建而不是报撞名
   fs.rmSync(path.join(taskDir, 'proposal.md'));
   fs.rmSync(path.join(taskDir, 'req.md'));
+  fs.rmSync(path.join(taskDir, 'handoff.md'));
   const retry = await run('hk-new', 'device-onboard 清理残留后重试', ws, []);
   ok('空目录残留 → 复用重建成功', retry.kind === 'success' && fs.existsSync(path.join(taskDir, 'proposal.md')));
 }
@@ -2051,6 +2054,11 @@ section('flows：审批材料必须可见且带文件链接');
   const core = fs.readFileSync(path.join(bundleRoot, 'packs/ai-coding/rules/core.md'), 'utf8');
   ok('PM 角色包含审批材料可见规则', pm.includes('审批材料必须可见可点'));
   ok('core 规则包含审批材料可见规则', core.includes('审批材料必须可见可点'));
+  ok('PM 角色包含 handoff/等待纪律', pm.includes('handoff.md') && pm.includes('不要 5 分钟轮询') && pm.includes('3600000'));
+  ok('core 规则包含等待/读取纪律', core.includes('子代理等待纪律') && core.includes('上下文读取纪律') && core.includes('不整份重读'));
+  const { dispatchSection } = await import(path.join(bundleRoot, 'kernel/models.js'));
+  const dispatch = dispatchSection({}, [{ role: 'business-analyst', logical: 'fast' }]);
+  ok('派发附录注入 handoff/等待纪律', dispatch.includes('handoff.md') && dispatch.includes('wait_agent') && dispatch.includes('3600000') && dispatch.includes('不整份重读'));
 }
 
 // ---------------------------------------------------------------- 会话内工作区提醒

@@ -32,6 +32,8 @@ standard 档不适用此约束。
 RR 是纯评审角色——无对应 Skill。Agent 契约即是完整操作定义。
 
 ## 输入（Inputs）
+
+- `deliverables/<任务名>/handoff.md`（存在时先读；只按「读取清单」取章节，不整份重读 requirements/design/spec）
 - deliverables/<任务名>/requirements.md                  # BA 产出的需求
 - deliverables/<任务名>/design.md                        # SA 产出的技术方案
 - deliverables/<任务名>/impact-analysis.md（仅 refactor）  # SA 预阶段影响分析

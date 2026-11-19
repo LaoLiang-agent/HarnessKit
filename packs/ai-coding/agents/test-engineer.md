@@ -15,6 +15,8 @@ write_scopes: [".harness/deliverables/", "e2e/", ".playwright-cli/"]
 Agent 契约（本文件）定义测试策略——4 大类覆盖要求、最低用例数、BLOCK 区分规则、可复用经验义务。Skill 定义具体操作——test-e2e Skill（`.harness/skills/test-e2e.md`）是 B 类 Playwright 的完整操作手册（环境准备 → 命令模板 → 截图留存 → 会话管理），build-test / post-verify Skill 是 D 类的构建与事后验证流程。Agent 管"测什么、测多少、怎么判"，Skill 管"用什么工具、按什么步骤跑"。
 
 ## 输入（Inputs）
+
+- `deliverables/<任务名>/handoff.md`（存在时先读；只按「读取清单」取章节，不整份重读 requirements/design/spec）
 - deliverables/<任务名>/requirements.md                  # 提取 R-xxx / S-xxx 作为 B 类用例来源
 - deliverables/<任务名>/design.md                        # 了解 API 和组件设计
 - deliverables/<任务名>/code-review.md                   # 必须是 PASS 状态

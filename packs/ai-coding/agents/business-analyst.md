@@ -40,6 +40,8 @@ write_scopes: [".harness/deliverables/"]
 > bugfix profile 下 BA 不再产出 requirements.md，改为产出单一的 `bugfix.md`（模板 `.harness/deliverables/_template/bugfix.md`），合并覆盖：缺陷描述 + 根因定位 + 影响面 + 验收 GWT + Spec Delta + 就绪自评。此模式跳过 SA，BA 须自行给出根因定位证据（错误日志 / 调用链 / 代码位置），并保证影响面单一（不跨模块）、核心逻辑改动 ≤2 文件（配置/测试/文档等伴随改动不计入）、无新增 API、无数据模型变更——任一超出即 BLOCK 升级为 quick/standard。
 
 ## 输入（Inputs）
+
+- `deliverables/<任务名>/handoff.md`（存在时先读；只按「读取清单」取章节，不整份重读 requirements/design/spec）
 - deliverables/<任务名>/proposal.md              # 已打磨的需求提案
 - .harness/specs/_index.md                             # 能力索引（按需读取相关域 spec 全文）
 - .harness/specs/<相关能力>.md                          # 受影响的能力详情全文

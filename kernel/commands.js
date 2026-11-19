@@ -395,6 +395,16 @@ async function hkNew({ agent, rawInput }) {
     .replaceAll('{{source}}', reqFile === '（无）' ? '描述' : '描述+文件')
     .replaceAll('{{file}}', reqFile);
   fs.writeFileSync(path.join(taskDir, 'proposal.md'), doc, 'utf8');
+  // 交接摘要模板：PM 在每次派发前更新，Worker 只读 handoff + 指定章节，不整份重读上游文档。
+  const handoffTplPath = path.join(packDir(kit), 'assets', 'templates', 'handoff.md');
+  if (fs.existsSync(handoffTplPath)) {
+    const handoff = fs.readFileSync(handoffTplPath, 'utf8')
+      .replaceAll('{{task}}', task)
+      .replaceAll('{{desc}}', desc)
+      .replaceAll('{{profile}}', '待判定')
+      .replaceAll('{{round}}', '1');
+    fs.writeFileSync(path.join(taskDir, 'handoff.md'), handoff, 'utf8');
+  }
   // --base 开发基线（同时是分析基点与归档合入目标）：落盘 spec + 立即建任务专属分析工作区（propose 时幂等复用）
   let baseNote = '';
   if (typeof flags.base === 'string') {

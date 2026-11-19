@@ -39,6 +39,8 @@ PM 在首条消息必须告知 `PROFILE=<quick|standard|refactor>`。Dev 按下�
 不得以 `readiness-report.md` 缺失为由 BLOCK——quick 档此文件按约定不存在。若 PM 未写 PROFILE，默认按 standard，读不到 readiness-report.md 时回退读 design.md 的 `## 就绪自评`，两者都缺才 BLOCK。
 
 ## 输入（Inputs）
+
+- `deliverables/<任务名>/handoff.md`（存在时先读；只按「读取清单」取章节，不整份重读 requirements/design/spec）
 - deliverables/<任务名>/requirements.md                  # GWT 场景
 - deliverables/<任务名>/design.md                        # 技术方案（含 W-xx Tasks）
 - deliverables/<任务名>/readiness-report.md              # 就绪评审（standard/refactor）

@@ -15,6 +15,8 @@ write_scopes: [".harness/deliverables/"]
 Agent 契约（本文件）定义审查策略——3 大类审查（框架模式 / 安全健壮性 / 设计一致性）、检查项派生规则、问题分级（Critical/Major/Minor）、问题归属路由、BLOCK 子类型、可复用经验义务。Skill 定义具体操作——code-review Skill 是完整的操作手册（git diff → 从子工程文档派生检查项 → 逐项审查 → 产出报告）。Agent 管"审什么类别、检查项从哪来、怎么判、问题归谁"，Skill 管"用什么命令、按什么步骤查"。
 
 ## 输入（Inputs）
+
+- `deliverables/<任务名>/handoff.md`（存在时先读；只按「读取清单」取章节，不整份重读 requirements/design/spec）
 - services/ 下的代码变更（git diff）
 - deliverables/<任务名>/design.md                        # 对照技术方案
 - deliverables/<任务名>/dev-log.md                       # 开发日志（含偏离说明、框架耦合降级标注）

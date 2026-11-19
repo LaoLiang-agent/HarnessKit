@@ -73,6 +73,7 @@ LOG_FILE=<仓库根绝对路径>/.harness/.logs/<TASK_NAME>/worker-<role>.log
 你的角色定义由 Harness Kit 内核提供（business-analyst），请按其中规定的输入/产出/约束执行。
 
 必读：
+- .harness/deliverables/<TASK_NAME>/handoff.md（存在时；只按其中「读取清单」取章节）
 - .harness/deliverables/<TASK_NAME>/proposal.md
 - .harness/specs/_index.md（扫描后按需读相关域 spec 全文）
 - .harness/codebase-guide/overview.md
@@ -104,11 +105,29 @@ LOG_FILE=<仓库根绝对路径>/.harness/.logs/<TASK_NAME>/worker-<role>.log
 >    Worker 会去做无界全量重扫并**卡死被看门狗终止**（实测 CR 首轮 stall 600s 无产出）。
 >    下发时须写明：禁止全量重扫、按批次抽样 N 个文件、按阶段写进度日志。
 
+## 阶段交接 handoff（控制 Token 的核心）
+
+每个任务在 `deliverables/<TASK_NAME>/handoff.md` 维护一份阶段交接摘要，不是需求全文：
+
+- 审批 1 前创建/更新：本轮目标、已确认决策、AC、读取清单（文档 + 章节/行号）、未决风险。
+- 每次派发 Worker 前更新「读取清单」；Worker 只读 handoff + 清单中的章节，**不整份重读** requirements/design/spec。
+- Dev 完成后更新「改动文件 / 验证命令 / 已知风险」，CR/TE 以 handoff + 实际 diff 为输入。
+- 归档时 handoff 作为本轮材料一并归档；下一轮重开时先读 handoff，不重讲背景。
+
+模板见 `.harness/templates/handoff.md`（`/hk-init` 物化到工作区）。
+
+## 子代理等待纪律（2026-11-19 定）
+
+- 派发后优先结束当前回合，靠子代理完成通知继续；只有串行依赖必须阻塞时才等待。
+- 必须等待时只调用一次 `wait_agent`，`timeout_ms` 取足够长（≤ 3600000），不要 5 分钟轮询；同一批只等一次。
+- 禁止用 `send_message` 问「进度如何/完成了吗」；完成会自动通知。只有补充信息才发消息。
+- 超时后先做独立工作或向人汇报，不得连续重新 poll；等待期间不重复更新看板。
+
 ## Propose 与 Apply 调度模式
 
 | 阶段 | 模式 | 理由 |
 |------|------|------|
-| Propose (BA/SA/RR) | **同步**（等待返回） | 每步 1-3 分钟，开发者在等审批 1，实时输出最自然；BA→SA→RR 串行依赖 |
+| Propose (BA/SA/RR) | **串行，等待一次** | BA→SA→RR 串行依赖；派发后等一次完成通知，不做 5 分钟轮询 |
 | Apply (Dev/CR/TE) | **异步 + 进度日志**（后台运行） | Dev 可能 10-15 分钟，PM 不应被阻塞；开发者通过日志文件 `tail -f` 跟踪进度 |
 
 ## Apply 模式（auto / review）

@@ -79,7 +79,9 @@ export function dispatchSection(kit, workers) {
   const lines = [
     '## 派发方式',
     '- 你自己承担 PM 职责：拆解、派发、汇总、向人汇报。',
-    '- Worker/subagent 一律用 subagent 工具派发：prompt 自包含（任务背景 + 产出路径 + 写范围约束；阶段指定 Worker 角色时另需先读角色文件并内嵌定义全文），等待其返回结果后再进下一阶段。',
+    '- Worker/subagent 一律用 subagent 工具派发：prompt 自包含（任务背景 + handoff 路径 + 产出路径 + 读写范围约束；阶段指定 Worker 角色时另需先读角色文件并内嵌定义全文）。',
+    '- 派发前更新 `handoff.md` 的「读取清单」；Worker 只读 handoff + 清单中的章节，不整份重读 requirements/design/spec。',
+    '- 等待纪律：优先结束当前回合，靠子代理完成通知继续；必须阻塞时只调用一次 `wait_agent`（timeout_ms ≤ 3600000），禁止 5 分钟轮询，禁止用 send_message 问进度。',
     '- Worker 产物写入活目录对应文件；Worker 只能写其 write_scopes 声明的范围。',
     '- 任何时候信息不足或口径模糊：先向人反问，不要自行补全。',
     '',
