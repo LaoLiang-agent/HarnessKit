@@ -754,11 +754,13 @@ async function hkArchive({ agent, rawInput }) {
       '',
       '## 2. Memory Merge',
       `- 从 \`_archive/${task}/\` 本轮各文档（dev-log / test-report / code-review）提取可复用踩坑与经验，并入 \`.harness/memory/\``,
-      '- **每条新条目必须遵循 \`.harness/memory/templates/entry.md\`**：文件名 \`YYYY-MM-DD_<scope>_<slug>.md\`（scope 六选一：backend/frontend/mobile/tooling/infra/shared），frontmatter 含 id/date/scope/tags，正文含症状/根因/修复/防复发/复发检测；tooling/infra/shared 类必须含「流程优化排除」节',
-      '- 每条在 \`memory/index.md\` 条目索引表追加一行（只追加）；命名约定与写/不写纪律见该文件头',
+      '- **每条新条目必须遵循 `.harness/memory/templates/entry.md`**：文件名 `YYYY-MM-DD_<scope>_<slug>.md`，frontmatter 含 id/date/scope/tags（建议补 areas/symptoms/pinned），正文含症状/根因/修复/防复发/复发检测；tooling/infra/shared 类必须含「流程优化排除」节',
+      '- 不再手写 `memory/index.md`：新增/修改 entry 后运行 `python3 .harness/scripts/memory_index.py sync` 重建 hot/cold 索引；默认 hot 只读，cold 仅在 hot 无匹配时搜索',
+      '- 归档时执行一次自动降温：`python3 .harness/scripts/memory_index.py cool --days 60 --max-hot 30 --apply`，再运行 `check`；cold 只移出默认上下文，不删除条目',
+      '- 本轮实际读取并起作用的 memory，运行 `python3 .harness/scripts/memory_index.py touch <id>` 提升/保活；高风险条目在 frontmatter 标 `pinned: true`',
       '- 流程优先决策门：若经验属于 tooling/infra/shared 级，应改 harness 资产本身（模板/角色/流程定义），而不是只写记忆',
       '',
-      '完成后向人汇报两个合并的结果清单。',
+      '完成后向人汇报两个合并的结果清单（含 hot/cold 数量）。',
     ].join('\n');
     steer(agent, mergePrompt);
     mergeNote = 'Spec/Memory Merge 收尾剧本已提交 PM（基于归档段执行）；';
@@ -898,8 +900,9 @@ async function hkDoctor({ agent }) {
     'scripts/harness_init.py', 'scripts/harness.py', 'scripts/lib.py',
     'scripts/verify.py', 'scripts/spec_lint.py', 'scripts/env_auto.py',
     'scripts/check_codegraph.py', 'scripts/run_field.py', 'scripts/codebase_guide_init.py',
-    'scripts/update_board.py',
+    'scripts/update_board.py', 'scripts/memory_index.py',
     'rules/code-standards.md', 'specs/spec-template.md', 'memory/templates/entry.md',
+    'memory/README.md', 'memory/cold.md',
   ];
   const missing = assetChecks.filter((rel) => !fs.existsSync(path.join(harnessDir(ws), rel)));
   const templatesOk = fs.existsSync(path.join(harnessDir(ws), 'templates')) && fs.readdirSync(path.join(harnessDir(ws), 'templates')).length > 0;
@@ -919,6 +922,17 @@ async function hkDoctor({ agent }) {
       lines.push(`- 看板体检：${chk.code === 0 ? '✅ 全行合规' : `❌ 列格式违规 → python3 .harness/scripts/update_board.py --repair --write 修复\n${(chk.stdout || '').trim().split('\n').map((l) => `  ${l}`).join('\n')}`}`);
     }
   }
+  // memory hot/cold 索引体检（脚本存在时；老工作区尚未迁移时给出明确提示）
+  const memIndex = path.join(harnessDir(ws), 'scripts', 'memory_index.py');
+  if (fs.existsSync(memIndex)) {
+    if (fs.existsSync(path.join(harnessDir(ws), 'memory', 'index.md')) && fs.existsSync(path.join(harnessDir(ws), 'memory', 'cold.md'))) {
+      const mc = await run('python3', [memIndex, 'check'], { cwd: ws, timeoutMs: 15_000 });
+      lines.push(`- 记忆 hot/cold 索引：${mc.code === 0 ? `✅ ${(mc.stdout || '').trim()}` : `❌ ${(mc.stdout || mc.stderr || '').trim()}`}`);
+    } else {
+      lines.push('- 记忆 hot/cold 索引：⚠️ 尚未迁移（缺 memory/index.md 或 cold.md），运行 `/hk-init` 后执行 `python3 .harness/scripts/memory_index.py sync`');
+    }
+  }
+
   // pack 管理运行时漂移：scripts 内容与 pack 不一致 → 重跑 /hk-init 刷新（scripts 不入库，漂移只来自手改或 pack 升级后未刷新）
   const packScripts = path.join(packDir(kit), 'assets', 'scripts');
   const wsScripts = path.join(harnessDir(ws), 'scripts');

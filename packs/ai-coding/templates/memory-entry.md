@@ -3,6 +3,12 @@ id: M-YYYYMMDD-scope-slug               # 稳定 id，不随文件名改
 date: YYYY-MM-DD
 scope: backend|frontend|mobile|tooling|infra|shared
 tags: [keyword1, keyword2]              # 3-5 个关键词，检索辅助
+areas: []                               # 可选：模块/路径 glob，如 [phm/**, kafka-common/**]
+symptoms: []                            # 可选：错误文本/方法名/配置键
+pinned: false                           # 高风险条目置 true，不自动降温
+last_used:                              # 由 memory_index.py touch 维护
+use_count: 0
+status: hot                             # hot | cold | retired
 ---
 
 # <标题：一句话描述根因机制>

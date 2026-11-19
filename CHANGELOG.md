@@ -13,6 +13,10 @@ All notable changes to Harness Kit are documented here. The format follows
   DeepSeek exposes `off/low/high/max`, other providers may expose `minimal/low/medium/high` or none.
   New bindings default to `low` when the model supports it; otherwise they fall back to the model's own
   default. Models with no reasoning metadata show only "默认".
+- Memory assets now use hot/cold routing indexes. `memory/index.md` is the default hot index;
+  `memory/cold.md` is searchable on demand and is never auto-deleted. `memory_index.py` regenerates
+  both from entry frontmatter, records use with `touch`, promotes entries back to hot, and supports
+  `cool --days N --apply` plus `check`. Archive instructions run sync/cool/check after Memory Merge.
 
 ### Fixed
 

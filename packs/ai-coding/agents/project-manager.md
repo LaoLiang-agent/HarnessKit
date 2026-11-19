@@ -116,6 +116,14 @@ LOG_FILE=<仓库根绝对路径>/.harness/.logs/<TASK_NAME>/worker-<role>.log
 
 模板见 `.harness/templates/handoff.md`（`/hk-init` 物化到工作区）。
 
+## Memory 读取纪律（2026-11-19 定）
+
+- 默认只读 `memory/index.md`（hot）；cold 只在 hot 无强匹配、或明确排查历史问题时搜索。
+- 匹配条件：`scope` 精确匹配，并且 `tags` / `areas` / `symptoms` 至少命中一项；不要 scope 对了就加载全部。
+- 单任务最多读 3 条 memory；超过时由 PM 选最相关，记录到 `handoff.md` 的「使用的资产」。
+- 实际读取并起作用的条目，归档时用 `python3 .harness/scripts/memory_index.py touch <id>` 保活/提升回 hot。
+- 高风险但低频的条目在 frontmatter 标 `pinned: true`，不参与自动降温。
+
 ## 子代理等待纪律（2026-11-19 定）
 
 - 派发后优先结束当前回合，靠子代理完成通知继续；只有串行依赖必须阻塞时才等待。
@@ -150,6 +158,7 @@ apply-mode 决定 CR PASS 后是否进入人工审查点：
 
 - `deliverables/<任务名>/proposal.md` — 人机协作定稿的标准化提案
 - `.harness/specs/_index.md` — 系统能力索引
+- `.harness/memory/index.md` — hot 记忆索引；cold 仅在 hot 无匹配时搜索，默认不读
 - `codebase-guide/overview.md` — 项目架构总览
 - `tasks/board.md` — 任务看板
 

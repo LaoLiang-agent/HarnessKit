@@ -60,7 +60,9 @@ section('hk-init 骨架/物化/幂等/编排');
   ok('codebase-guide/overview.md 预置骨架', fs.readFileSync(path.join(ws, '.harness/codebase-guide/overview.md'), 'utf8').includes('项目架构总览'));
   ok('specs/_index.md 预置骨架（含跨域流程节）', (() => { const t = fs.readFileSync(path.join(ws, '.harness/specs/_index.md'), 'utf8'); return t.includes('系统能力索引') && t.includes('跨域流程'); })());
   ok('specs/spec-template.md 物化（frontmatter 契约）', fs.readFileSync(path.join(ws, '.harness/specs/spec-template.md'), 'utf8').includes('id_max_r'));
-  ok('memory/index.md 预置骨架（含命名约定/写不写/流程优先）', (() => { const t = fs.readFileSync(path.join(ws, '.harness/memory/index.md'), 'utf8'); return t.includes('命名约定') && t.includes('何时写') && t.includes('流程优先'); })());
+  ok('memory/index.md 预置 hot 索引（scope/tags/症状/entry）', (() => { const t = fs.readFileSync(path.join(ws, '.harness/memory/index.md'), 'utf8'); return t.includes('hot') && t.includes('scope') && t.includes('症状') && t.includes('entry'); })());
+  ok('memory/cold.md 与 README 预置', fs.existsSync(path.join(ws, '.harness/memory/cold.md')) && fs.readFileSync(path.join(ws, '.harness/memory/README.md'), 'utf8').includes('hot / cold'));
+  ok('memory_index.py 物化', fs.existsSync(path.join(ws, '.harness/scripts/memory_index.py')));
   ok('memory/templates/entry.md 物化（含流程优化排除节）', fs.readFileSync(path.join(ws, '.harness/memory/templates/entry.md'), 'utf8').includes('流程优化排除'));
   ok('handoff 模板物化（含读取清单）', fs.readFileSync(path.join(ws, '.harness/templates/handoff.md'), 'utf8').includes('读取清单'));
   ok('verify.py 物化（非子模块布局可跳过阶段1/2）', (() => { const p = path.join(ws, '.harness/scripts/verify.py'); return fs.existsSync(p) && fs.readFileSync(p, 'utf8').includes('非子模块布局'); })());
@@ -281,6 +283,43 @@ section('hk-new Bootstrap 脚手架');
   fs.rmSync(path.join(taskDir, 'handoff.md'));
   const retry = await run('hk-new', 'device-onboard 清理残留后重试', ws, []);
   ok('空目录残留 → 复用重建成功', retry.kind === 'success' && fs.existsSync(path.join(taskDir, 'proposal.md')));
+}
+
+// ---------------------------------------------------------------- memory hot/cold
+section('memory hot/cold 索引与自动降温');
+{
+  const ws = mkws();
+  cleanups.push(ws);
+  fake(ws, 'services/backend/.git/HEAD', 'x');
+  await run('hk-init', '', ws);
+  const memory = path.join(ws, '.harness/memory');
+  const script = path.join(ws, '.harness/scripts/memory_index.py');
+  fake(ws, '.harness/memory/entries/2026-08-01_backend_old.md', [
+    '---', 'id: M-20260801-backend-old', 'date: 2026-08-01', 'scope: backend',
+    'tags: [RecordSet, old]', 'pinned: false', '---', '', '# 旧条目：RecordSet 空集', '',
+  ].join('\n'));
+  fake(ws, '.harness/memory/entries/2026-08-01_backend_pinned.md', [
+    '---', 'id: M-20260801-backend-pinned', 'date: 2026-08-01', 'scope: backend',
+    'tags: [Kafka, pinned]', 'pinned: true', '---', '', '# 高风险旧条目：Kafka 认证', '',
+  ].join('\n'));
+  fake(ws, '.harness/memory/entries/2026-11-01_frontend_new.md', [
+    '---', 'id: M-20261101-frontend-new', 'date: 2026-11-01', 'scope: frontend',
+    'tags: [Vue, new]', 'pinned: false', '---', '', '# 新条目：Vue 响应式', '',
+  ].join('\n'));
+  const py = (args) => execSync(`python3 ${script} ${args}`, { cwd: ws, encoding: 'utf8' });
+  py('sync');
+  const hot1 = fs.readFileSync(path.join(memory, 'index.md'), 'utf8');
+  const cold1 = fs.readFileSync(path.join(memory, 'cold.md'), 'utf8');
+  ok('memory sync：三条均在 hot', hot1.includes('M-20260801-backend-old') === false && hot1.includes('entries/2026-08-01_backend_old.md') && hot1.includes('entries/2026-11-01_frontend_new.md') && !cold1.includes('entries/2026-08-01_backend_old.md'));
+  const cool = py('cool --days 60 --apply');
+  const hot2 = fs.readFileSync(path.join(memory, 'index.md'), 'utf8');
+  const cold2 = fs.readFileSync(path.join(memory, 'cold.md'), 'utf8');
+  ok('自动降温：未 pin 旧条目进 cold', cool.includes('applied') && !hot2.includes('entries/2026-08-01_backend_old.md') && cold2.includes('entries/2026-08-01_backend_old.md'));
+  ok('自动降温：pinned 旧条目保持 hot', hot2.includes('entries/2026-08-01_backend_pinned.md') && !cold2.includes('entries/2026-08-01_backend_pinned.md'));
+  const touch = py('touch M-20260801-backend-old');
+  const hot3 = fs.readFileSync(path.join(memory, 'index.md'), 'utf8');
+  ok('touch：cold 条目提升回 hot', touch.includes('touched') && hot3.includes('entries/2026-08-01_backend_old.md'));
+  ok('memory check 通过', py('check').includes('PASS'));
 }
 
 // ---------------------------------------------------------------- 任务名：ASCII / --auto
