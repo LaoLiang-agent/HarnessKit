@@ -575,6 +575,29 @@ function readBody(req) {
   });
 }
 
+/**
+ * Guard one panel HTTP handler with DSH Connection's Host/Origin and browser
+ * authentication check. Every route is owner-private (workspace paths,
+ * commands, filesystem browsing, git operations), so a route that skips this
+ * can be called by any web page open in the same browser.
+ *
+ * Exported for the regression suite. `connection` must expose
+ * `requestRejection(req)`; the caller decides whether a missing service is a
+ * mount-time error. Here a missing service fails closed.
+ */
+export function guardPanelHandler(handler, connection) {
+  return async function guardedPanelHandler(req, res) {
+    if (!connection || typeof connection.requestRejection !== 'function') {
+      return sendJson(res, 500, { ok: false, error: 'connection-unavailable' });
+    }
+    const refused = connection.requestRejection(req);
+    if (refused !== undefined) {
+      return sendJson(res, refused, { ok: false, error: refused === 401 ? 'unauthorized' : 'forbidden' });
+    }
+    return handler(req, res);
+  };
+}
+
 const findWs = (registry, ref) => registry.list().find((w) => w.id === ref || w.path === ref);
 
 /**
@@ -589,18 +612,26 @@ export function registerPanelApi(ctx) {
   const commands = ctx.get('commands');
   const sessionTitle = ctx.get('sessionTitle');
   const llm = ctx.get('llm');
+  const connection = ctx.get('connection');
   const logger = ctx.get('logger');
+  if (!connection) {
+    logger?.warn?.('harness-kit: connection service unavailable; panel API not mounted');
+    return [];
+  }
 
   const disposers = [];
   const mount = (route) => {
     try {
-      const rawDispose = webServer.register(route);
+      const guarded = typeof route.handler === 'function'
+        ? { ...route, handler: guardPanelHandler(route.handler, connection) }
+        : route;
+      const rawDispose = webServer.register(guarded);
       // webServer 的 disposer 按 key 删除（table.delete(path)）：旧 fiber 的处置
       // 若晚于新 fiber 注册执行，会误删新注册。挂 identity 守卫——仅当表中
       // 当前条目确为本 fiber 注册的 route 对象时才真正摘除。
-      const table = route.kind === 'exact' ? webServer.exact : webServer.prefixes;
+      const table = guarded.kind === 'exact' ? webServer.exact : webServer.prefixes;
       disposers.push(() => {
-        if (table?.get?.(route.path) === route) rawDispose();
+        if (table?.get?.(guarded.path) === guarded) rawDispose();
       });
     } catch (cause) {
       // 热重载残留的史前注册无法在进程内摘除；容忍复用，重启 Host 后由新代码接管。

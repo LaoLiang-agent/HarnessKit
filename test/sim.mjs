@@ -1555,7 +1555,7 @@ section('自动续接引擎：定稿→propose、审批1→apply 扫描与一次
 // ------------------------------------------------------------- M4b 面板 v2
 section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
 {
-  const { laneOf, parseClaims, claimTask, attentionItems, parseGitLog, updateKit } = await import(path.join(bundleRoot, 'kernel/panel.js'));
+  const { laneOf, parseClaims, claimTask, attentionItems, parseGitLog, updateKit, guardPanelHandler } = await import(path.join(bundleRoot, 'kernel/panel.js'));
   // lane 派生
   ok('DONE → done 泳道', laneOf({ status: 'DONE' }, {}) === 'done');
   ok('AWAITING_ARCHIVE → archive 泳道', laneOf({ status: 'AWAITING_ARCHIVE' }, {}) === 'archive');
@@ -1609,6 +1609,32 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     const oooTask = [{ task: 'ooo', status: 'IN_PROGRESS', progress: { outOfOrder: true, stages: [] } }];
     ok('链越序入注意力（warn+jump）', attentionItems(oooTask, null).some((i) => i.kind === 'chain-out-of-order' && i.level === 'warn'));
     ok('DONE 的 ⛔/越序不进注意力', !attentionItems([{ task: 'd', status: 'DONE', progress: { outOfOrder: true, stages: [{ name: 'CR', blocked: true }] } }], null).length);
+  }
+  // 面板 HTTP 路由的 DSH Connection 访问检查：任意网页不能调用 owner-private 路由
+  {
+    const fakeRes = () => {
+      const out = { code: null, body: null };
+      return { out, writeHead: (code) => { out.code = code; }, end: (body) => { out.body = body; } };
+    };
+    const req = { method: 'GET', url: '/harness-kit/state', headers: { host: '127.0.0.1' } };
+    let called = 0;
+    const handler = async () => { called += 1; };
+    const r401 = fakeRes();
+    await guardPanelHandler(handler, { requestRejection: () => 401 })(req, r401);
+    ok('connection 拒绝 401 时不执行 handler', r401.out.code === 401 && called === 0 && String(r401.out.body).includes('unauthorized'));
+    const r403 = fakeRes();
+    await guardPanelHandler(handler, { requestRejection: () => 403 })(req, r403);
+    ok('connection 拒绝 403 时不执行 handler', r403.out.code === 403 && called === 0 && String(r403.out.body).includes('forbidden'));
+    const rOk = fakeRes();
+    await guardPanelHandler(handler, { requestRejection: () => undefined })(req, rOk);
+    ok('connection 放行时执行 handler', called === 1 && rOk.out.code === null);
+    const rMissing = fakeRes();
+    await guardPanelHandler(handler, null)(req, rMissing);
+    ok('connection 缺失时 fail closed', rMissing.out.code === 500 && called === 1);
+    const indexSrc = fs.readFileSync(path.join(bundleRoot, 'index.js'), 'utf8');
+    ok('Host 注入 connection 后才挂面板路由', indexSrc.includes("'webServer', 'workspaceRegistry', 'connection'"));
+    const panelSrc = fs.readFileSync(path.join(bundleRoot, 'kernel/panel.js'), 'utf8');
+    ok('所有面板路由统一经 guardPanelHandler', panelSrc.includes('handler: guardPanelHandler(route.handler, connection)'));
   }
   // initGaps：根 AGENTS.md + 子工程 build.json / CLAUDE.md
   {

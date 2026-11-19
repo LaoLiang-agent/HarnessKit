@@ -414,6 +414,7 @@ harness-kit/
 ## 10. 安全与沙箱
 
 - 插件代码只在 `install_bundle` 时经审批进入 profile；运行时文件操作限于 workspace-write 沙箱。
+- 面板 HTTP 路由全部是 owner-private（工作区路径、命令执行、文件浏览、git 操作）：每个 handler 前调用 `ctx.connection.requestRejection(req)`，命中即返回 401/403；`connection` 不可用时路由不挂载（fail closed），不允许裸 `webServer.register`。
 - 脚本子进程继承 bash 工具的审批策略；git push 等写远端操作每次弹确认（可在 profile 中配置白名单）。
 - 内容包来自插件市场/第三方时，角色提示词属于"不可信指令源"：内核在激活第三方内容包时向用户明示其包含的角色与流程清单。
 
@@ -507,7 +508,7 @@ harness-kit/
 - **机械截断的善后**：`--repair` 对超长提示是硬截断（80 字符断句）。18 条受影响提示已按原文（备份）手工改写为 ≤80 字完整句，全部经写入门禁落盘。
 - **iot-harness 本地 PM 覆盖**（`.harness/agents/project-manager.md`，系 `.claude/agents/` 的符号链接）已同步看板写入纪律与 `update_board.py` 用法。
 - **Profile 枚举更正**：`update_board.py` 初版误写 `full|standard|quick|fix`——`full` 其实是 fix 直通的质量门裁决词（`--full`）而非 profile；真正的内核四档是 **standard / quick / bugfix / refactor**（router/readProfile/refactor.yml 本就支持 refactor，看板列用短名 fix 对应 proposal 的 bugfix，lib.py 认 fix）。已更正为 `standard|quick|fix|refactor|待裁决…|—`，iot-harness 三行历史 `refactor`（kafka-forward-sasl、fix_dataservice_threads、create-data-optimize）经门禁恢复。
-- **冷启动 404（已修）**：`registerPanelApi` 依赖的 `webServer`/`workspaceRegistry` 是异步启动的 cordis 服务。插件若随会话**中途启用**（服务已就绪）一切正常；但**冷启动**时 `apply` 先于服务就绪，`ctx.get` 返回 undefined，路由静默不挂载 → 面板「一直加载中」、端点 404。修复：`index.js` 改用 `ctx.inject(['webServer','workspaceRegistry'], cb)` 依赖注入回调挂载路由（cordis 源码确认：依赖就绪后才执行回调，回调返回值作为该 fiber 的 disposer）。
+- **冷启动 404（已修）**：`registerPanelApi` 依赖的 `webServer`/`workspaceRegistry` 是异步启动的 cordis 服务。插件若随会话**中途启用**（服务已就绪）一切正常；但**冷启动**时 `apply` 先于服务就绪，`ctx.get` 返回 undefined，路由静默不挂载 → 面板「一直加载中」、端点 404。修复：`index.js` 改用 `ctx.inject(['webServer','workspaceRegistry','connection'], cb)` 依赖注入回调挂载路由（cordis 源码确认：依赖就绪后才执行回调，回调返回值作为该 fiber 的 disposer）。
 - **`--at` 回填**：`update_board.py` 新增 `--at YYYY-MM-DD[ HH:mm]`（仅日期补 `00:00`）覆盖活动时间戳——用于一次性回填被误刷的「上次活动」，iot-harness 36 行历史日期已按备份恢复。
 - **已知限制**：DSH 宿主进程对插件模块有 ESM 缓存，`set_plugin` 开关不会重新 import——kernel 代码改动需**重启 App** 生效（搬仓后出现过 PACK_ROOT 悬空导致 loadFlow 恒 null、面板进度点全空，重启即恢复）。
 

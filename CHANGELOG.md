@@ -4,6 +4,18 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-11-19
+
+### Fixed
+
+- Panel HTTP routes now apply DSH Connection's Host/Origin and browser-session check through
+  `ctx.connection.requestRejection(req)` before any handler runs. Requests from another web page
+  receive `401` / `403` instead of reaching workspace state, filesystem browsing, git operations or
+  `/hk-*` command execution.
+- The Host now hard-depends on the `connection` service for the panel routes. If a composition has a
+  web server but no Connection, the routes are not mounted (fail closed) instead of serving
+  owner-private data unauthenticated.
+
 ## [0.1.1] - 2026-11-18
 
 ### Added
@@ -62,5 +74,6 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.1.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.1
 [0.1.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.0

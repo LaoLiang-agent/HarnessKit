@@ -40,7 +40,7 @@ export function apply(ctx) {
   // 可能先于它们就绪（ctx.get 返回 undefined，路由静默不挂载——2026-11-12
   // 事故：插件随会话中途启用时服务已就绪所以能用，重启后 404）。用 ctx.inject
   // 依赖注入回调，服务就绪后才注册路由；回调返回值作为该注入作用域的 disposer。
-  ctx.inject(['webServer', 'workspaceRegistry'], (webCtx) => {
+  ctx.inject(['webServer', 'workspaceRegistry', 'connection'], (webCtx) => {
     const disposers = registerPanelApi(webCtx);
     webCtx.get('logger')?.info?.('harness-kit: panel api mounted');
     return () => disposers.forEach((d) => d());
