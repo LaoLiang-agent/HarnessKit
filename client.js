@@ -859,6 +859,7 @@ window.__ModuleLoader__.load({
         if (efforts.some((e) => e.id === 'low')) return 'low';
         return modelEntry(provider, model)?.reasoning?.defaultEffort ?? '';
       };
+      const providerMissing = (m) => !!m.provider && (catalog ?? []).length > 0 && !(catalog ?? []).some((c) => c.provider === m.provider);
       const toModelRow = (name, m) => ({
         name,
         provider: m.provider ?? '',
@@ -961,10 +962,9 @@ window.__ModuleLoader__.load({
               onChange: (e) => setModels(models.map((x, j) => j === i ? { ...x, provider: e.target.value, model: '', reasoning_effort: '' } : x)),
             }, [
               h('option', { key: '', value: '' }, '（会话默认）'),
-              ...(m.provider && !(catalog ?? []).some((c) => c.provider === m.provider)
-                ? [h('option', { key: '__missing', value: m.provider }, `⚠ ${m.provider}（不可用）`)] : []),
               ...(catalog ?? []).map((c) => h('option', { key: c.provider, value: c.provider }, c.provider)),
             ]),
+            providerMissing(m) && h('span', { style: { fontSize: 11, color: V.warn } }, '原 provider 不可用，请重选'),
             // model 下拉：所选 provider 的模型清单 + 自由输入
             h(Combobox, {
               style: { flex: 1 },
@@ -990,8 +990,8 @@ window.__ModuleLoader__.load({
           h('div', { style: { display: 'flex', gap: 8, marginTop: 8 } },
             h('button', { style: S.btn(false), onClick: () => setModels([...models, { name: '', provider: '', model: '', reasoning_effort: '' }]) }, '＋ 添加映射'),
             h('button', {
-              style: S.btn(busy || models.some((m) => !m.name.trim() || !m.model.trim()), true),
-              disabled: busy || models.some((m) => !m.name.trim() || !m.model.trim()),
+              style: S.btn(busy || models.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)), true),
+              disabled: busy || models.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)),
               onClick: () => saveConfig({ models: Object.fromEntries(models.map((m) => [m.name.trim(), {
                 ...(m.provider.trim() ? { provider: m.provider.trim() } : {}),
                 model: m.model.trim(),

@@ -14,6 +14,12 @@ All notable changes to Harness Kit are documented here. The format follows
   New bindings default to `low` when the model supports it; otherwise they fall back to the model's own
   default. Models with no reasoning metadata show only "默认".
 
+### Fixed
+
+- The Worker model-mapping provider dropdown lists only currently registered providers. A mapping that
+  points at a provider no longer available shows an inline warning and blocks saving instead of adding a
+  fake option to the dropdown.
+
 ### Changed
 
 - Reduced orchestration noise: `update_board.py` is written only at stage boundaries, related
