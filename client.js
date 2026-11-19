@@ -942,6 +942,8 @@ window.__ModuleLoader__.load({
             '键支持两级：角色名（business-analyst / solution-architect / developer / code-reviewer / test-engineer 等流程角色，优先）或逻辑模型名（fast / coding / reasoning）。命中即按映射派发 Worker；都未命中走会话默认。已映射且 provider/model 成对的路由会自动授权为该工作区会话的子智能体可用模型（跨 provider 派发不再降级）。'),
           h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
             '推理等级来自当前模型能力（DSH resolveModelInfo）：DeepSeek 常见 off/low/high/max，其他模型可能是 minimal/low/medium/high 或没有。新增映射默认 low；模型不支持 low 时回退该模型默认，不强行映射不支持的等级。'),
+          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+            'provider 下拉包含已注册和已声明但未启用的 provider；未启用项需要先在 DSH 中配置凭据并启用，模型名可手动输入。'),
           models.length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } }, '尚未配置，全部角色走默认模型'),
           models.map((m, i) => h('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' } },
             // 角色名下拉：流程角色（BA/SA/Dev/CR/TE 等，宿主扫 agents/ 目录）+ 已映射的逻辑模型名 + 自由输入
@@ -963,7 +965,10 @@ window.__ModuleLoader__.load({
               h('option', { key: '', value: '' }, '（会话默认）'),
               ...(m.provider && !(catalog ?? []).some((c) => c.provider === m.provider)
                 ? [h('option', { key: '__missing', value: m.provider }, `⚠ ${m.provider}（不可用）`)] : []),
-              ...(catalog ?? []).map((c) => h('option', { key: c.provider, value: c.provider }, c.provider)),
+              ...(catalog ?? []).map((c) => h('option', {
+                key: c.provider, value: c.provider,
+                title: c.active === false ? '该 provider 已声明但尚未启用/配置，派发前需先在 DSH 中配置凭据' : (c.error ?? undefined),
+              }, c.active === false ? `${c.provider}（未启用）` : c.provider)),
             ]),
             // model 下拉：所选 provider 的模型清单 + 自由输入
             h(Combobox, {

@@ -14,6 +14,12 @@ All notable changes to Harness Kit are documented here. The format follows
   New bindings default to `low` when the model supports it; otherwise they fall back to the model's own
   default. Models with no reasoning metadata show only "默认".
 
+### Fixed
+
+- The Worker model-mapping provider dropdown now merges DSH's registered providers with declared but
+  not-yet-enabled configurable providers, so it no longer shows only providers already used by a
+  mapping. Dormant providers are labeled `（未启用）` and require provider configuration before dispatch.
+
 ### Changed
 
 - Reduced orchestration noise: `update_board.py` is written only at stage boundaries, related
