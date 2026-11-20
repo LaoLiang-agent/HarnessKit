@@ -15,6 +15,7 @@ import { claimTask } from './panel.js';
 import { clearAdvanceMarks } from './advance.js';
 import { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, ensureBaselineMirrors, renderAnalysisNotice, ensureTaskAnalysisWorktrees, removeTaskAnalysisWorktrees, parseBaseSpec, describeMainWorktree, recordDecision, clearDecision, readWorkspaces, mergeTaskBranches, reconcileArchivedWorktrees } from './worktree.js';
 import { acquireTestEnv, releaseTestEnv, describeTestEnv } from './te.js';
+import { discoverAll, discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
 import { recordTaskSession } from './bindings.js';
 import { addSource, runInit, formatInitReport, guessRole, boardTemplate } from './setup.js';
 import { dispatchSection, describeWorkerModel } from './models.js';
@@ -833,6 +834,105 @@ async function hkSync({ agent }) {
   return syncAssets(ws, kit);
 }
 
+// ---------------------------------------------------------------- /hk-local
+// 本地配置（git-ignored）发现/确认/复制：确认一次写本机 manifest，后续 slot 自动补。
+function localEntry(manifest, name) {
+  const entry = manifest.sources?.[name];
+  return entry && typeof entry === 'object' ? entry : {};
+}
+function localUpdate(ws, name, patch) {
+  const manifest = readLocalFiles(ws);
+  const prev = localEntry(manifest, name);
+  manifest.sources[name] = {
+    ...prev,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  writeLocalFiles(ws, manifest);
+  return manifest.sources[name];
+}
+function localSources(ws, kit, repo) {
+  const sources = Array.isArray(kit?.sources) ? kit.sources : [];
+  return repo ? sources.filter((s) => s.name === repo) : sources;
+}
+function fmtSize(n) {
+  if (n < 1024) return `${n} B`;
+  return `${(n / 1024).toFixed(1)} KB`;
+}
+
+async function hkLocal({ agent, rawInput }) {
+  const ws = wsRoot(agent);
+  const kit = readKit(ws);
+  if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
+  const { flags, positional } = parseArgs(rawInput);
+  const sub = positional[0] ?? 'scan';
+  const sources = localSources(ws, kit, flags.repo);
+  if (sources.length === 0) return err(`未找到仓库${flags.repo ? `：${flags.repo}` : ''}。`);
+
+  if (sub === 'scan' || sub === 'status') {
+    const lines = [`## 本地配置（${sources.map((s) => s.name).join('、')}）`, ''];
+    for (const source of sources) {
+      const manifest = readLocalFiles(ws);
+      const entry = localEntry(manifest, source.name);
+      const baseline = Array.isArray(source.localFiles) ? source.localFiles : [];
+      const approved = [...new Set([...baseline, ...(Array.isArray(entry.approved) ? entry.approved : [])])];
+      const skipped = new Set(Array.isArray(entry.skipped) ? entry.skipped : []);
+      const candidates = await discoverSource(ws, source);
+      const pending = candidates.filter((c) => !approved.includes(c.path) && !skipped.has(c.path));
+      lines.push(`### ${source.name}（${source.path}）`);
+      lines.push(`- 模式：${entry.mode === 'symlink' ? 'symlink' : 'copy'}；已确认 ${approved.length} 个；候选 ${pending.length} 个`);
+      if (pending.length > 0) {
+        lines.push('', '| 置信 | 来源 | 大小 | 路径 |', '|---|---|---:|---|');
+        for (const c of pending) lines.push(`| ${c.reason === 'high' ? '高' : '配置'} | ${c.kind} | ${fmtSize(c.size)} | \`${c.path}\` |`);
+        lines.push('', `确认：\`/hk-local approve all --repo ${source.name}\`，或按路径：\`/hk-local approve <path> --repo ${source.name}\``);
+      } else {
+        lines.push('- 没有未确认候选。');
+      }
+      lines.push('');
+    }
+    return ok(lines.join('\n'));
+  }
+
+  if (sub === 'approve' || sub === 'skip') {
+    const target = positional[1];
+    if (!target) return err(`用法：/hk-local ${sub} all|path... --repo <仓库>`);
+    const out = [];
+    for (const source of sources) {
+      const candidates = await discoverSource(ws, source);
+      const paths = target === 'all' ? candidates.map((c) => c.path) : positional.slice(1);
+      if (paths.length === 0) {
+        out.push(`${source.name}：没有候选`);
+        continue;
+      }
+      const manifest = readLocalFiles(ws);
+      const entry = localEntry(manifest, source.name);
+      const approved = new Set([...(Array.isArray(entry.approved) ? entry.approved : []), ...(sub === 'approve' ? paths : [])]);
+      const skipped = new Set(Array.isArray(entry.skipped) ? entry.skipped : []);
+      for (const p of paths) {
+        if (sub === 'approve') { skipped.delete(p); } else { skipped.add(p); approved.delete(p); }
+      }
+      localUpdate(ws, source.name, { approved: [...approved], skipped: [...skipped] });
+      out.push(`${source.name}：${sub === 'approve' ? '确认' : '跳过'} ${paths.length} 个`);
+    }
+    out.push('', '运行 `/hk-local apply` 补齐当前已绑定的 slot。');
+    return ok(out.join('\n'));
+  }
+
+  if (sub === 'mode') {
+    const mode = flags.mode ?? positional[1];
+    if (!['copy', 'symlink'].includes(mode)) return err('用法：/hk-local mode copy|symlink --repo <仓库>');
+    for (const source of sources) localUpdate(ws, source.name, { mode });
+    return ok(`已设置 ${sources.map((s) => s.name).join('、')} 为 ${mode}。`);
+  }
+
+  if (sub === 'apply') {
+    const notes = await provisionAllSlots(ws, sources);
+    return ok(notes.length ? notes.join('\n') : '没有需要补齐的已绑定 slot。');
+  }
+
+  return err('用法：/hk-local [scan|status|approve all|path... | skip path... | mode copy|symlink | apply] [--repo <仓库>]');
+}
+
 // ---------------------------------------------------------------- /hk-doctor
 async function hkDoctor({ agent }) {
   const ws = wsRoot(agent);
@@ -966,6 +1066,7 @@ export function registerCommands(ctx) {
     { name: 'hk-apply', description: '执行 apply 实施阶段（Dev→CR→TE→审批2；含就绪预检与续接）', hint: '[任务名] [反馈]', handler: hkApply },
     { name: 'hk-archive', description: '归档任务本轮产物到 _archive 并清空活目录（全流程附带 Spec/Memory Merge 收尾）', hint: '<任务名>', handler: hkArchive },
     { name: 'hk-te', description: 'TE 环境串行租约（测试环境全局唯一）：acquire 授权/排队、release 释放/退队、status 查看', hint: '[acquire|release <任务名> | status]', handler: hkTe },
+    { name: 'hk-local', description: '本地配置（git-ignored）发现/确认/复制：首次确认后新 slot 自动补齐', hint: '[scan|status|approve all|path... | skip path... | mode copy|symlink | apply] [--repo <仓库>]', handler: hkLocal },
     { name: 'hk-sync', description: '资产仓库 git 同步：自动提交 → pull --rebase → 纯追加文件自动三路合并 → push（其余冲突中止回滚转人工）', handler: hkSync },
     { name: 'hk-doctor', description: '检查 harness 工作区健康度（kit/角色/红线/流程）', hint: '', handler: hkDoctor },
   ];

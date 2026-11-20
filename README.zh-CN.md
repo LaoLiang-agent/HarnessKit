@@ -188,6 +188,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 | `/hk-archive <任务>` | 归档本轮产物，执行 Spec/Memory Merge |
 | `/hk-fix [<任务>] <描述> [--full\|--light]` | 轻量修复直通 |
 | `/hk-te [acquire\|release <任务> \| status]` | 测试环境串行租约 |
+| `/hk-local [scan\|status\|approve all\|path… \| skip path… \| mode copy\|symlink \| apply]` | 发现/确认 git-ignored 本地配置，并补到 worktree slot |
 | `/hk-sync` | 资产仓库同步（提交 → rebase → 追加合并 → push） |
 | `/hk-doctor` | 工作区体检：kit、角色、规则、流程、脚本、看板、模型映射 |
 

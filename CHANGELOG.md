@@ -8,10 +8,11 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ### Fixed
 
-- Slot allocation now copies source-declared local files (`kit.json` `sources[].localFiles`) from the
-  main worktree into a new or reused slot when the target is missing. This covers git-ignored files
-  such as `application-local.properties` and `dbcp-local.properties` without overwriting slot-local
-  edits.
+- Slot allocation can discover git-ignored local config candidates from the main worktree and copy
+  or symlink only human-approved files into new/reused slots. Approvals live in the local
+  `tasks/local-files.json` manifest; new candidates only prompt via `/hk-local`, with no hardcoded
+  project filenames. Existing target files are never overwritten. `sources[].localFiles` remains a
+  simple team baseline.
 - Added `.harness/scripts/te_lease.py`: the PM can acquire/release the TE lease through bash, using
   the same `tasks/test-env.json` as `/hk-te`, so the TE gate no longer requires a human to run a
   slash command. The lease remains a serial resource lock, not an approval.

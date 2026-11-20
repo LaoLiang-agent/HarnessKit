@@ -356,7 +356,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       '',
     ].join('\n')],
     // transient logs + pack 管理运行时 stay out of the assets repo (independent-repo layout)
-    ['.gitignore', '.logs/**/*\n!.logs/**/\n!.logs/**/.gitkeep\n# pack 管理运行时（/hk-init 每次刷新，勿手改、勿提交）\nscripts/\n# 本机状态（各机独立，勿提交：会话绑定/续接点火/工作区分配/决策点/环境租约）\ntasks/sessions.json\ntasks/auto-advance.json\ntasks/worktrees.json\ntasks/decisions.json\ntasks/test-env.json\n'],
+    ['.gitignore', '.logs/**/*\n!.logs/**/\n!.logs/**/.gitkeep\n# pack 管理运行时（/hk-init 每次刷新，勿手改、勿提交）\nscripts/\n# 本机状态（各机独立，勿提交：会话绑定/续接点火/工作区分配/决策点/环境租约）\ntasks/sessions.json\ntasks/auto-advance.json\ntasks/worktrees.json\ntasks/decisions.json\ntasks/test-env.json\ntasks/local-files.json\n'],
   ]) {
     const abs = path.join(hd, file);
     if (!fs.existsSync(abs)) {

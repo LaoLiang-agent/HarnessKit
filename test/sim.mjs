@@ -848,6 +848,32 @@ section('池化工作区（主树优先 + slot 池）');
 // ---------------------------------------------------------------- slot 本地配置
 section('slot 本地配置复制');
 {
+  const { discoverSource, writeLocalFiles, readLocalFiles } = await import(path.join(bundleRoot, 'kernel/local-files.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  fs.mkdirSync(repo, { recursive: true });
+  git('init -b dev', repo);
+  fake(ws, 'services/backend/.gitignore', 'target/\napplication-local.properties\ndbcp-local.properties\nconfig/local.yml\n');
+  fake(ws, 'services/backend/app.txt', 'v1');
+  git('add .', repo);
+  git('commit -m init', repo);
+  fake(ws, 'services/backend/application-local.properties', 'local');
+  fake(ws, 'services/backend/dbcp-local.properties', 'dbcp');
+  fake(ws, 'services/backend/config/local.yml', 'local: true');
+  fake(ws, 'services/backend/target/classes/application-local.properties', 'build-output');
+  fake(ws, 'services/backend/notes.txt', 'not-config');
+  const source = { name: 'backend', path: 'services/backend' };
+  const found = await discoverSource(ws, source);
+  ok('发现 ignored 本地配置候选', found.some((f) => f.path === 'application-local.properties') && found.some((f) => f.path === 'dbcp-local.properties') && found.some((f) => f.path === 'config/local.yml'));
+  ok('过滤 build/target 与非配置文本', !found.some((f) => f.path.includes('target/')) && !found.some((f) => f.path === 'notes.txt'));
+  writeLocalFiles(ws, { sources: { backend: { approved: ['application-local.properties'] } } });
+  const slot = path.join(ws, '.worktrees/backend/slot-1');
+  const notes = await (await import(path.join(bundleRoot, 'kernel/local-files.js'))).provisionLocalFiles(ws, source, slot);
+  ok('确认项复制、未确认项只提示', fs.readFileSync(path.join(slot, 'application-local.properties'), 'utf8') === 'local' && !fs.existsSync(path.join(slot, 'dbcp-local.properties')) && notes.some((n) => n.includes('未确认')));
+  ok('manifest 落本机 tasks/local-files.json', readLocalFiles(ws).sources.backend.approved.includes('application-local.properties'));
+}
+{
   const { ensureTaskWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
   const ws = mkws();
   cleanups.push(ws);

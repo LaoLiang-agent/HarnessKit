@@ -222,6 +222,7 @@ go only to the provider you configure.
 | `/hk-archive <task>` | Archive the round and run Spec/Memory merge |
 | `/hk-fix [<task>] <description> [--full\|--light]` | Run the lightweight fix path |
 | `/hk-te [acquire\|release <task> \| status]` | Serial test-environment lease |
+| `/hk-local [scan\|status\|approve all\|path… \| skip path… \| mode copy\|symlink \| apply]` | Discover, approve, and provision git-ignored local config files into worktree slots |
 | `/hk-sync` | Sync the asset repository (commit → rebase → append merge → push) |
 | `/hk-doctor` | Check workspace health: kit, roles, rules, flows, scripts, board, model mappings |
 
