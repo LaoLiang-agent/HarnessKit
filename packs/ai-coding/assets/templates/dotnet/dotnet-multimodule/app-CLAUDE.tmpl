@@ -1,12 +1,12 @@
 ---
-description: .NET 前端子项目 CLAUDE.md 生成指令（SPA / Blazor WASM；支持 UI/<子前端>/ 聚合目录嵌套）
-target: services/{{SUB_PROJECT}}/{{PROJECT_NAME}}/CLAUDE.md
+description: .NET 前端子项目 AGENTS.md 生成指令（SPA / Blazor WASM；支持 UI/<子前端>/ 聚合目录嵌套）
+target: services/{{SUB_PROJECT}}/{{PROJECT_NAME}}/AGENTS.md
 variables:
   PROJECT_PATH: "前端子项目完整路径（含 UI 等聚合目录段）"
   PROJECT_NAME: "前端子项目相对服务根的路径段（如 UI/login、ClientApp）"
 ---
 
-请分析 `{{PROJECT_PATH}}/` 下的代码，生成前端子项目级 CLAUDE.md。
+请分析 `{{PROJECT_PATH}}/` 下的代码，生成前端子项目级 AGENTS.md。
 
 ## 必须包含的章节
 
@@ -25,10 +25,10 @@ variables:
 <!-- 从 package.json 或 .csproj PackageReference 中提取关键依赖：UI 库、状态管理、API 客户端 -->
 
 ### 关键约定/易错点
-<!-- 只写本项目实际存在且与根 CLAUDE.md 不重复的内容：组件命名、状态管理模式、API 调用封装 -->
+<!-- 只写本项目实际存在且与根 AGENTS.md 不重复的内容：组件命名、状态管理模式、API 调用封装 -->
 
 ## 约束
 - 每个章节必须有实际内容，不得输出 TODO、待补充、留空
 - 只生成以上章节，不添加额外章节
 - 元信息块置于文件开头，键名逐字照抄（`职责` / `domain`，区分大小写），供机器检索
-- 不要添加整体 CLAUDE.md 文件头
+- 不要添加整体 AGENTS.md 文件头

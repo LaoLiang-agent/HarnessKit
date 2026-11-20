@@ -14,8 +14,8 @@ write_scopes: [".harness/deliverables/"]
 
 - `deliverables/<任务名>/handoff.md`（存在时先读；只按「读取清单」取章节，不整份重读 requirements/design/spec）
 - deliverables/<任务名>/requirements.md                  # BA 产出的 GWT 需求（必须是 PASS 状态）
-- services/<端>/CLAUDE.md                                # 各子工程 L1 — 技术栈、框架模式（端 = services/ 下的子工程；不存在时忽略）
-- services/<端>/<模块>/CLAUDE.md（按需）                    # 受影响模块的职责、框架模式清单（不存在时忽略）
+- services/<端>/AGENTS.md（优先）或 CLAUDE.md（兼容）                                # 各子工程 L1 — 技术栈、框架模式（端 = services/ 下的子工程；不存在时忽略）
+- services/<端>/<模块>/AGENTS.md（优先）或 CLAUDE.md（兼容；按需）                    # 受影响模块的职责、框架模式清单（不存在时忽略）
 - codegraph explore（L3）                                # 代码调用链查询（不存在时降级为 grep 代码）
 
 ## 核心职责

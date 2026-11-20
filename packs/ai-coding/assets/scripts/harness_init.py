@@ -11,6 +11,16 @@ import lib
 
 TEMPLATES_DIR = lib.repo_root() / ".harness" / "templates"
 PLAN_PATH = Path(".harness") / ".logs" / "workflow" / "harness-init-plan.json"
+INSTRUCTION_NAMES = ("AGENTS.md", "CLAUDE.md")
+
+
+def instruction_file(path: Path):
+    """返回子工程/模块已有的入口文件（AGENTS 优先），没有则 None。"""
+    for name in INSTRUCTION_NAMES:
+        candidate = path / name
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def get_template_dir(sp_type: str) -> str:
@@ -102,7 +112,7 @@ def generate_plan(root: Path) -> dict:
             "role": lib.detect_service_role(path),
             "template_dir": tdir,
             # 键序 = 生成顺序（有依赖，勿打乱）：先落盘 build.json 与 docs/CODE_STANDARDS.md，
-            # 最后才生成 CLAUDE.md —— 它是唯一要引用同批产物的文件（「参考文档」段列 CODE_STANDARDS.md），
+            # 最后才生成 AGENTS.md —— 它是唯一要引用同批产物的文件（「参考文档」段列 CODE_STANDARDS.md），
             # 先落盘会让子 Agent 读盘时看不到 docs/，据实写出「工程没有 docs 目录」。
             "root_files": {
                 # missing_keys 让存量工程能被「补齐」而非只判 EXISTS 跳过（模板加字段的唯一传播路径）
@@ -112,7 +122,7 @@ def generate_plan(root: Path) -> dict:
                     "missing_keys": build_json_missing_keys(root, rel, f"{tdir}/build.tmpl"),
                 },
                 "docs/CODE_STANDARDS.md": {"status": check_file(root, f"{rel}/docs/CODE_STANDARDS.md"), "template": f"{tdir}/CODE_STANDARDS.tmpl"},
-                "CLAUDE.md": {"status": check_file(root, f"{rel}/CLAUDE.md"), "template": f"{tdir}/root-CLAUDE.tmpl"},
+                "AGENTS.md": {"status": "EXISTS" if instruction_file(path) else "MISSING", "template": f"{tdir}/root-CLAUDE.tmpl"},
             },
             "codegraph": "EXISTS" if (path / ".codegraph").is_dir() else "MISSING",
             "modules": [],
@@ -122,25 +132,25 @@ def generate_plan(root: Path) -> dict:
         if stype == "vue-multimodule":
             sp["modules"] = [{"name": m["name"], "path": f"services/{name}/apps/{m['name']}",
                               "template": f"{tdir}/app-CLAUDE.tmpl",
-                              "status": "EXISTS" if (Path(m["path"]) / "CLAUDE.md").is_file() else "MISSING"}
+                              "status": "EXISTS" if instruction_file(Path(m["path"])) else "MISSING"}
                              for m in list_frontend_apps(path)]
         elif stype == "maven-multimodule":
             sp["modules"] = [{"name": m["name"],
                               "path": f"services/{name}/{Path(m['parent']).relative_to(path) / m['name']}",
                               "template": f"{tdir}/module-CLAUDE.tmpl",
-                              "status": "EXISTS" if (Path(m["path"]) / "CLAUDE.md").is_file() else "MISSING"}
+                              "status": "EXISTS" if instruction_file(Path(m["path"])) else "MISSING"}
                              for m in list_maven_modules(path)]
         elif stype in ("dotnet", "dotnet-multimodule"):
             # 后端项目 → module-CLAUDE.tmpl；前端子项目（SPA/Blazor WASM）→ app-CLAUDE.tmpl
             sp["modules"] = [
                 {"name": m["name"], "path": f"services/{name}/{m['name']}",
                  "template": f"{tdir}/module-CLAUDE.tmpl",
-                 "status": "EXISTS" if (Path(m["path"]) / "CLAUDE.md").is_file() else "MISSING"}
+                 "status": "EXISTS" if instruction_file(Path(m["path"])) else "MISSING"}
                 for m in lib.list_dotnet_projects(path)
             ] + [
                 {"name": m["name"], "path": f"services/{name}/{m['name']}",
                  "template": f"{tdir}/app-CLAUDE.tmpl",
-                 "status": "EXISTS" if (Path(m["path"]) / "CLAUDE.md").is_file() else "MISSING"}
+                 "status": "EXISTS" if instruction_file(Path(m["path"])) else "MISSING"}
                 for m in lib.list_frontend_projects(path)
             ]
         subprojects.append(sp)

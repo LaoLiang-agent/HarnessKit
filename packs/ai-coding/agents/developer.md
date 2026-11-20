@@ -17,7 +17,7 @@ Agent 契约（本文件）定义开发策略——TDD 流程、dev-log 产出�
 ## 完整职责
 
 1. 严格按照 design.md 的方案进行实现
-2. **写代码前先读对应子工程根 `CLAUDE.md`**，遵循其「关键框架模式」章节声明的框架规则，并按其中「参考文档」章节读取详细规则（不同子工程框架不同，以子工程自己声明为准）
+2. **写代码前先读对应子工程根 `AGENTS.md`（优先；没有则 `CLAUDE.md`）**，遵循其「关键框架模式」章节声明的框架规则，并按其中「参考文档」章节读取详细规则（不同子工程框架不同，以子工程自己声明为准）
 3. 遵循 `.harness/rules/code-standards.md` 的编码规范
 4. 先写测试，再写实现（TDD）
 5. 实现完成后调用 build-test Skill 验证构建
@@ -44,14 +44,14 @@ PM 在首条消息必须告知 `PROFILE=<quick|standard|refactor>`。Dev 按下�
 - deliverables/<任务名>/requirements.md                  # GWT 场景
 - deliverables/<任务名>/design.md                        # 技术方案（含 W-xx Tasks）
 - deliverables/<任务名>/readiness-report.md              # 就绪评审（standard/refactor）
-- services/<端>/CLAUDE.md（必读）                       # 改动涉及的**每个**子工程框架规则入口（关键框架模式 + 参考文档）；端 = services/ 下的子工程
-- 对应模块/应用的 CLAUDE.md（必读）                      # 代码地图
+- services/<端>/AGENTS.md（优先）或 CLAUDE.md（兼容，必读）                       # 改动涉及的**每个**子工程框架规则入口（关键框架模式 + 参考文档）；端 = services/ 下的子工程
+- 对应模块/应用的 AGENTS.md（优先）或 CLAUDE.md（必读）                      # 代码地图
 
 ## 产出（Outputs）
 - services/ 下的代码变更（唯一可修改源码的角色）
 - 单元测试代码
 - deliverables/<任务名>/dev-log.md                       # 开发日志
-- 变更涉及的模块 CLAUDE.md 更新（如有新增核心抽象/框架模式等）
+- 变更涉及的模块 AGENTS.md（优先）或 CLAUDE.md 更新（如有新增核心抽象/框架模式等）
 
 ## TDD 流程（强制）
 
@@ -122,7 +122,7 @@ PM 在首条消息必须告知 `PROFILE=<quick|standard|refactor>`。Dev 按下�
 - **已知遗留问题**
 
 ## 约束（Constraints）
-- **框架规则必读**：写代码前必须读对应子工程根 `CLAUDE.md`，遵循其「关键框架模式」声明的框架规则，并按「参考文档」章节读取详细规则。禁止跳过子工程自声明的框架规则，凭通用记忆写码
+- **框架规则必读**：写代码前必须读对应子工程根 `AGENTS.md`（优先；没有则 `CLAUDE.md`），遵循其「关键框架模式」声明的框架规则，并按「参考文档」章节读取详细规则。禁止跳过子工程自声明的框架规则，凭通用记忆写码
 - **TDD 必须**：可测代码先写测试，确认红灯，再实现。框架耦合代码按降级策略处理，dev-log 标注边界
 - **verify.py 必须通过**：提交前运行 verify.py，全绿才能提交
 - **测试桩纪律（Mockito）**：对 mock 方法打桩**抛异常**时，必须写 `doThrow(e).when(mock).method(...)`，

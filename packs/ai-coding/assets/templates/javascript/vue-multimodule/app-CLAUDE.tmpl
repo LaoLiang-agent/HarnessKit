@@ -1,12 +1,12 @@
 ---
-description: 通用 Vue 前端 App 级 CLAUDE.md 生成指令
-target: services/{{SUB_PROJECT}}/apps/{{APP_NAME}}/CLAUDE.md
+description: 通用 Vue 前端 App 级 AGENTS.md 生成指令
+target: services/{{SUB_PROJECT}}/apps/{{APP_NAME}}/AGENTS.md
 variables:
   APP_PATH: "App 绝对路径"
   APP_NAME: "App 目录名"
 ---
 
-请分析 `{{APP_PATH}}/` 下的代码，生成 App 级 CLAUDE.md。
+请分析 `{{APP_PATH}}/` 下的代码，生成 App 级 AGENTS.md。
 
 ## 必须包含的章节
 
@@ -33,4 +33,4 @@ variables:
 - 每个章节必须有实际内容，不得输出 TODO、待补充、留空
 - 只生成以上章节，不添加额外章节
 - 元信息块置于文件开头，键名逐字照抄（`职责` / `domain`，区分大小写），供机器检索
-- 不要添加整体 CLAUDE.md 文件头
+- 不要添加整体 AGENTS.md 文件头

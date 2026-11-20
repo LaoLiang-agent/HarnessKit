@@ -14,7 +14,7 @@ process and shared assets.
 ## It also fills in the project context
 
 After the workspace exists, **Start initialization orchestration** probes the registered source
-repositories and generates or fills in the root `AGENTS.md`, per-repository `CLAUDE.md` and
+repositories and generates or fills in the root `AGENTS.md`, per-repository `AGENTS.md` (or legacy `CLAUDE.md`) and
 `docs/CODE_STANDARDS.md`, `<repo>/.harness/build.json` (build, start and test commands),
 `codebase-guide/` module docs and a `.codegraph/` index. Existing files are skipped, and you confirm
 the plan before anything is written.

@@ -12,7 +12,7 @@ write_scopes: [".harness/deliverables/"]
 
 ## 职责
 1. 读 proposal.md 文档，翻译为 SHALL + Given-When-Then 格式
-2. 查阅 .harness/specs/ 了解系统当前能力，补齐 proposal 中未覆盖的边界和异常场景；若 .harness/specs/<能力>.md 不存在，降级通过 codebase-guide + 子工程 CLAUDE.md + codegraph explore 推断当前能力
+2. 查阅 .harness/specs/ 了解系统当前能力，补齐 proposal 中未覆盖的边界和异常场景；若 .harness/specs/<能力>.md 不存在，降级通过 codebase-guide + 子工程 AGENTS.md（优先）或 CLAUDE.md + codegraph explore 推断当前能力
 3. 查阅 codebase-guide 了解架构边界（但不把实现细节写进需求）
 4. 产出 Spec Delta 明细（本次交付后需写入 .harness/specs/ 的变更）
 5. 查阅 tasks/board.md 了解历史需求与当前任务上下文
@@ -29,7 +29,7 @@ write_scopes: [".harness/deliverables/"]
 > 当 .harness/specs/<能力>.md 不存在时（存量工程的典型情况），BA 不得直接 BLOCK。降级路径：
 > 1. 从 `.harness/specs/_index.md` 确认能力域归属
 > 2. 从 `codebase-guide/overview.md` 理解架构层级
-> 3. 从子工程 `CLAUDE.md` 了解模块职责与关键类
+> 3. 从子工程 `AGENTS.md`（优先）或 `CLAUDE.md` 了解模块职责与关键类
 > 4. 使用 `codegraph explore` 查看相关符号结构与调用链
 > 5. 以上仍无法确定的能力边界 → 列入"待确认问题"反问人
 >
@@ -46,7 +46,7 @@ write_scopes: [".harness/deliverables/"]
 - .harness/specs/_index.md                             # 能力索引（按需读取相关域 spec 全文）
 - .harness/specs/<相关能力>.md                          # 受影响的能力详情全文
 - codebase-guide/overview.md                      # 项目架构总览
-- services/<端>/CLAUDE.md（按需）                 # 各子工程概览（端 = services/ 下的子工程：后端 / 前端 / APP 端…）
+- services/<端>/AGENTS.md（优先）或 CLAUDE.md（兼容；按需）                 # 各子工程概览（端 = services/ 下的子工程：后端 / 前端 / APP 端…）
 - codegraph explore（按需）                        # specs 缺失时的降级知识源，理解模块符号与调用链
 
 ## 产出（Outputs）
@@ -71,7 +71,7 @@ write_scopes: [".harness/deliverables/"]
 - 具体技术代码
 
 ## 约束（Constraints）
-- **只读源码**：绝对禁止读取或修改 services/ 下任何业务源码（Propose 阶段硬红线）。CLAUDE.md 与 codegraph 索引不属于业务源码，可读
+- **只读源码**：绝对禁止读取或修改 services/ 下任何业务源码（Propose 阶段硬红线）。AGENTS.md/CLAUDE.md 与 codegraph 索引不属于业务源码，可读
 - **GWT 格式**：每条需求必须包含 GIVEN / WHEN / THEN
 - **可测试性**：每个 THEN 必须可被自动化验证
 - **编号体系**：需求编号格式 REQ-<能力缩写>-<序号>（如 REQ-MT-001）

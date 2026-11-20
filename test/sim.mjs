@@ -56,6 +56,7 @@ section('hk-init 骨架/物化/幂等/编排');
   ok('services/* 自动扫描登记', readKitJson(ws).sources.some((s) => s.name === 'backend'));
   ok('scripts 物化', fs.existsSync(path.join(ws, '.harness/scripts/harness_init.py')));
   ok('templates 物化', fs.existsSync(path.join(ws, '.harness/templates/java/maven-multimodule/build.tmpl')));
+  ok('新工作区只生成 AGENTS，不生成 CLAUDE', fs.existsSync(path.join(ws, 'AGENTS.md')) && !fs.existsSync(path.join(ws, 'CLAUDE.md')));
   ok('assets.mode=local（默认）', readKitJson(ws).assets?.mode === 'local');
   ok('codebase-guide/overview.md 预置骨架', fs.readFileSync(path.join(ws, '.harness/codebase-guide/overview.md'), 'utf8').includes('项目架构总览'));
   ok('specs/_index.md 预置骨架（含跨域流程节）', (() => { const t = fs.readFileSync(path.join(ws, '.harness/specs/_index.md'), 'utf8'); return t.includes('系统能力索引') && t.includes('跨域流程'); })());
@@ -1785,23 +1786,26 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     const panelSrc = fs.readFileSync(path.join(bundleRoot, 'kernel/panel.js'), 'utf8');
     ok('所有面板路由统一经 guardPanelHandler', panelSrc.includes('handler: guardPanelHandler(route.handler, connection)'));
   }
-  // initGaps：根 AGENTS.md + 子工程 build.json / CLAUDE.md
+  // initGaps：根 AGENTS.md/CLAUDE.md + 子工程 build.json / AGENTS.md
   {
     const { initGaps } = await import(path.join(bundleRoot, 'kernel/panel.js'));
     const ws = mkws();
     cleanups.push(ws);
     fs.mkdirSync(path.join(ws, 'services/backend'), { recursive: true });
     const kit = { sources: [{ name: 'backend', path: 'services/backend' }, { name: 'gone', path: 'services/gone' }] };
-    ok('全缺：根 AGENTS.md + 子工程两文件', (() => {
+    ok('全缺：根 AGENTS/CLAUDE + 子工程两文件', (() => {
       const g = initGaps(ws, kit);
-      return g.includes('根 AGENTS.md') && g.includes('backend 的 build.json') && g.includes('backend 的 CLAUDE.md') && g.length === 3;
+      return g.includes('根 AGENTS.md/CLAUDE.md') && g.includes('backend 的 build.json') && g.includes('backend 的 AGENTS.md/CLAUDE.md') && g.length === 3;
     })());
     ok('路径不存在的子工程不报缺口', !initGaps(ws, kit).some((g) => g.includes('gone')));
     fs.writeFileSync(path.join(ws, 'AGENTS.md'), '# x\n', 'utf8');
     fs.mkdirSync(path.join(ws, 'services/backend/.harness'), { recursive: true });
     fs.writeFileSync(path.join(ws, 'services/backend/.harness/build.json'), '{}', 'utf8');
     fs.writeFileSync(path.join(ws, 'services/backend/CLAUDE.md'), '# x\n', 'utf8');
-    ok('齐全后无缺口', initGaps(ws, kit).length === 0);
+    ok('齐全后无缺口（legacy CLAUDE 也算）', initGaps(ws, kit).length === 0);
+    fs.unlinkSync(path.join(ws, 'services/backend/CLAUDE.md'));
+    fs.writeFileSync(path.join(ws, 'services/backend/AGENTS.md'), '# x\n', 'utf8');
+    ok('AGENTS 存在时也不报缺口', initGaps(ws, kit).length === 0);
   }
   // 设置页模型下拉数据源：listModelCatalog 聚合 provider/模型、单 provider 失败容忍、无服务返回 []
   {

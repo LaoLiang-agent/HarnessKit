@@ -24,8 +24,8 @@ Harness Kit is not only a workflow. After the workspace is created, **Start init
 orchestration** probes the registered source repositories and fills in the project knowledge AI
 would otherwise rediscover every time:
 
-- a root `AGENTS.md` and a one-line `CLAUDE.md` pointer
-- per-repository `CLAUDE.md` (stack, module entry points) and `docs/CODE_STANDARDS.md` (coding rules)
+- a root `AGENTS.md`; existing `CLAUDE.md` is left untouched and also read by DSH
+- per-repository `AGENTS.md` (or an existing `CLAUDE.md`) and `docs/CODE_STANDARDS.md` (coding rules)
 - `<repo>/.harness/build.json`: build, start and test commands
 - `codebase-guide/`: module docs loaded on demand instead of into every prompt
 - per-repository `.codegraph/`: class, method and call-chain indexes the AI can query instead of reading everything
@@ -283,7 +283,7 @@ rework and handover cost earlier instead of removing them.
 **Is it worth it for a solo developer?**
 Yes. Solo work loses context and rhythm most easily: the harness keeps each round's specs, lessons
 and decisions in files, so the next session does not start from zero. The CR/TE roles act as a fixed
-second pass, and the generated `CLAUDE.md`, `build.json` and CodeGraph index save the AI from
+second pass, and the generated `AGENTS.md` (or existing `CLAUDE.md`), `build.json` and CodeGraph index save the AI from
 re-reading the project every time.
 
 **Do I have to use the full flow?**

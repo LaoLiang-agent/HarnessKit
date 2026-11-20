@@ -330,41 +330,36 @@ M1 为旗标驱动的确定性实现（命令 handler 无法中途交互；交�
 - **归档后自动触发**：kit.json `assets.autoSync=true` 时 `/hk-archive` 成功后自动执行同一同步例程，结果并入归档汇报；默认关闭。
 - **审批说明（修正原设想）**：插件 handler 直接 spawn git（不经 bash 工具审批链，approval=ask 不会弹窗）。`/hk-sync` 本身是显式用户命令即授权；autoSync 需显式配置开启；所有 git 操作与结果写入命令返回文本，保证可审计。
 
-### 7.4 宿主指令文件适配（CLAUDE.md / AGENTS.md 兼容）
+### 7.4 宿主指令文件适配（AGENTS.md 优先，兼容 CLAUDE.md）
 
-**背景问题**：`/hk-init` 需要生成"项目知识"指令文件（子工程地图、构建命令、代码规范、红线），但各 Agent 宿主的指令文件约定不同（Claude Code: CLAUDE.md；Codex 等: AGENTS.md；Copilot: `.github/copilot-instructions.md`；DSH: 实测注入根 CLAUDE.md；WorkBuddy: 走 MCP resource）。
+**背景**：`/hk-init` 需要生成项目知识入口（子工程地图、构建命令、代码规范、红线）。各宿主约定不同：Claude Code 读 `CLAUDE.md`，Codex 等读 `AGENTS.md`；DSH 默认两者都读（`@deepseek-ai/dsh-agent-instructions`，候选 `AGENTS.md` / `CLAUDE.md`，项目根到 cwd）。
 
-**内容二分**（当前 CLAUDE.md 混合了两类，移植时分离）：
+**本项目主要面向 DSH，规则简化为：**
 
-| 内容类别 | 例子 | 归宿 |
-|---|---|---|
-| 项目知识（宿主中立） | 子工程地图、build/test 命令、模块约定、代码索引 | 仓库内指令文件（本节机制） |
-| 运行时纪律（宿主相关） | PM 调度规则、审批流程、命令用法 | DSH：preset 提示词 + 命令 + ToolGuard；其他宿主：各自适配层 |
+1. 子工程已有 `AGENTS.md` 或 `CLAUDE.md` 任一 → **不生成缺少的那个**，不覆盖已有内容；
+2. 两个都没有 → **只生成 `AGENTS.md`**，不生成 `CLAUDE.md`；
+3. 两个都有 → 不自动合并；初始化报告标注“双源”，由人决定是否收敛；
+4. 已有 `CLAUDE.md` 视为 legacy，DSH 仍可直接读取，不强制迁移。
 
-**双层供给结构**：
+**生成位置**：
 
 ```
 仓库根：
-├── AGENTS.md            ← 规范源（宿主中立），篇幅预算 ≤200 行：
-│                            项目地图 + 构建命令 + 红线 + 「深入某模块前
-│                            先读 .harness/codebase-guide/<模块>.md」的路标
-├── CLAUDE.md            ← 薄壳指针（一行 See @AGENTS.md；Claude Code 与 DSH 均原生读取）
-├── services/<端>/AGENTS.md  ← init 生成的子目录薄壳（best-effort：支持嵌套加载的
-│                               宿主自动生效，不支持的也无害）
-└── .harness/codebase-guide/ ← 内核持有的按需加载层（真正的省 context 机制）
-    ├── index.md             短索引
-    └── <模块>.md            模块详情，agent 按需 read；DSH 宿主上另注册为 skill
-                             （whenToUse: 修改 services/<端> 时），利用技能目录
-                             「摘要常驻、正文按需加载」的原生保证
+├── AGENTS.md            ← 新项目默认入口（项目地图 + 构建命令 + 红线）
+├── CLAUDE.md            ← 仅当项目已有；DSH 兼容读取（不自动生成）
+├── services/<端>/AGENTS.md  ← 新生成入口；已有 CLAUDE.md 则跳过
+└── .harness/codebase-guide/ ← 按需加载层，承担省 context 的主要职责
 ```
 
 **关键设计原则**：
 
-1. **不赌宿主的惰性加载**。嵌套指令文件的写法跨宿主通用，但"进入子目录才加载"的语义只有部分宿主保证（Claude Code 支持子目录 CLAUDE.md 惰性加载；agents.md 规范仅承诺"就近生效"，加载时机由各工具自定）。正确性由 codebase-guide 的"索引常驻 + 详情按需"机制保证，子目录薄壳只是附加红利。
-2. **规范源必须假设自己全量常驻**，因此保持精简；任何"只在某子工程干活才需要知道的事"一律进 codebase-guide 层。
-3. **运行时纪律不进指令文件**，由内核（preset 提示词/命令/护栏）承接。
-4. **init 幂等**：重跑只重新生成 AGENTS.md 与 codebase-guide（项目知识随代码演进）；薄壳指针静态生成一次。`kit.json` 增配 `hosts: ["dsh", "claude-code", …]` 决定生成哪些宿主薄壳。
-5. **存量迁移**：现有 CLAUDE.md 的项目知识部分移入 AGENTS.md，流程部分退役给插件，CLAUDE.md 收敛为一行指针。
+1. **不制造双源**：新项目只生成 AGENTS.md；已有 CLAUDE.md 不改写，避免两份正文漂移。
+2. **DSH 原生读取**：DSH 默认同时读取 AGENTS.md/CLAUDE.md；子工程文件从项目根到会话 cwd 生效，进入子目录后由文件操作触发补载。
+3. **不赌指针**：`See @AGENTS.md` 不是 DSH 的加载机制；DSH 读 AGENTS 本身，因此新项目不需要 CLAUDE 指针。
+4. **不赌宿主惰性加载**：正确性由 codebase-guide 的“索引常驻 + 详情按需”保证，子目录入口只是附加红利。
+5. **运行时纪律不进指令文件**：由内核 preset/命令/护栏承接。
+6. **init 幂等**：只创建缺失项；已有任一入口就跳过，不覆盖、不自动迁移。
+7. **存量迁移由人决定**：需要统一时，人工把 CLAUDE.md 内容移入 AGENTS.md 并删除旧正文；插件不自动改写。
 
 ---
 
@@ -377,7 +372,7 @@ M1 为旗标驱动的确定性实现（命令 handler 无法中途交互；交�
 | `.claude/skills/*.md`（4 个） | 内容包 `skills/` | 补标准 frontmatter |
 | `.claude/commands/*.md`（6 个） | 内核命令实现（TS） | 命令逻辑进内核，MD 中的流程说明进 Lead 编排提示词 |
 | `.claude/hooks/*.py` | 内核护栏（JS） | 见 §4.3 |
-| `.claude/rules/*.md`、CLAUDE.md | 内核 Lead 提示词段落 + 内容包 `rules/` | 领域无关部分（审批纪律、澄清义务）进内核；项目知识部分进 AGENTS.md 规范源（§7.4）；存量 CLAUDE.md 收敛为指针薄壳 |
+| `.claude/rules/*.md`、CLAUDE.md | 内核 Lead 提示词段落 + 内容包 `rules/` | 领域无关部分（审批纪律、澄清义务）进内核；项目知识部分进 AGENTS.md 规范源（§7.4）；存量 CLAUDE.md 保留为 legacy，不自动迁移；需要统一时由人移到 AGENTS.md |
 | `.harness/codebase-guide/` | 内核按需加载机制（§7.4）+ init 生成逻辑 | 从"项目资产"升格为内核机制；DSH 宿主上模块文档另注册为 skill |
 | `.harness/scripts/*.py` | 内核脚本目录（随包分发）+ MCP tools | 路径参数化（不再硬编码 `.harness/` 相对假设之外的逻辑） |
 | `.harness/templates/`（dotnet/java/js） | 内容包 `templates/` | 原样 |

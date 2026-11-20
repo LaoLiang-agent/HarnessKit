@@ -20,7 +20,7 @@ Agent 契约（本文件）定义审查策略——3 大类审查（框架模式
 - services/ 下的代码变更（git diff）
 - deliverables/<任务名>/design.md                        # 对照技术方案
 - deliverables/<任务名>/dev-log.md                       # 开发日志（含偏离说明、框架耦合降级标注）
-- services/<改动的端>/CLAUDE.md                           # **检查项来源**：框架约定、关键模式、出错高发区
+- services/<改动的端>/AGENTS.md（优先）或 CLAUDE.md（兼容）                           # **检查项来源**：框架约定、关键模式、出错高发区
 - services/<改动的端>/docs/CODE_STANDARDS.md（如有）       # **检查项来源**：端级编码规范
 - .harness/rules/code-standards.md                        # 通用编码底线
 - codegraph explore（按需）                               # 影响范围与调用链分析
@@ -34,9 +34,9 @@ CR 不预设具体检查项。审查时从子工程文档派生：
 
 ### 一、框架模式合规
 
-**检查项来源**：`services/<改动的端>/CLAUDE.md` 的以下段落：
+**检查项来源**：`services/<改动的端>/AGENTS.md（优先）或 CLAUDE.md（兼容）` 的以下段落：
 - 「关键约定」/「出错高发区」/「关键框架模式」/「命名规范」等
-- 模块级 `CLAUDE.md`（如 `services/<端>/<module>/CLAUDE.md`）的框架模式清单和约定
+- 模块级 `AGENTS.md`（优先）或 `CLAUDE.md`（如 `services/<端>/<module>/CLAUDE.md`）的框架模式清单和约定
 
 **派生规则**：上述段落中每条**可验证的约定**都是一个检查行。例如：
 - "接口首个参数必须携带请求上下文" → 检查项：接口签名规范
@@ -48,7 +48,7 @@ CR 不预设具体检查项。审查时从子工程文档派生：
 **检查项来源**（按优先级）：
 1. `services/<改动的端>/docs/CODE_STANDARDS.md`（端级具体规范）
 2. `.harness/rules/code-standards.md`（跨端底线）
-3. `services/<改动的端>/CLAUDE.md` 中安全相关约定（SQL 注入、线程安全、异常处理、日志规范等）
+3. `services/<改动的端>/AGENTS.md（优先）或 CLAUDE.md（兼容）` 中安全相关约定（SQL 注入、线程安全、异常处理、日志规范等）
 
 **派生规则**：提取所有安全/健壮性相关条目。通用底线至少覆盖：
 - 注入防护（SQL/命令/脚本注入）
@@ -115,7 +115,7 @@ CR 对发现的问题归因后，按以下规则路由给 PM：
   > 实录（同类问题第 3 次出现）：dev-log 因「避免误伤含 `null` **子串**的 id」而选择整段相等匹配，
   > 而回归测试用的是单段 id（弱版本：单段被接受）——**引用了反例却没用反例做测试**。
   > 同类前科见 CR N-1 / TE F-05。
-- **子工程文档缺失处理**：若 `services/<端>/CLAUDE.md` 缺少「关键约定」段，CR 在报告中标注该端暂无框架约定文档，一、二类仅审查 code-standards.md 可覆盖的项
+- **子工程文档缺失处理**：若 `services/<端>/AGENTS.md（优先）或 CLAUDE.md（兼容）` 缺少「关键约定」段，CR 在报告中标注该端暂无框架约定文档，一、二类仅审查 code-standards.md 可覆盖的项
 
 ## 结论判定
 
@@ -136,7 +136,7 @@ CR 合法结论只有 PASS / BLOCK——BLOCK 的子类型在结论行括号注�
 - 问题类型（对应审查大类 + 检查项）
 - 最小复现（代码片段/文件:行号）
 - 根因（模式误用 / 框架约定不了解 / 设计理解偏差 / 疏忽）
-- 防复发建议（lint 规则 / CLAUDE.md 补充 / code-standards 补充）
+- 防复发建议（lint 规则 / AGENTS.md 或 CLAUDE.md 补充 / code-standards 补充）
 
 Minor 问题可选择性记录，但鼓励提炼为团队知识。
 

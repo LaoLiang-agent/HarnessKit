@@ -60,9 +60,9 @@ def run_build(service_path, name: str):
 
 
 def check_claude_lines(path: Path):
-    f = path / "CLAUDE.md"
-    if not f.is_file():
-        print(f"  ⚠️  未找到 {f}，建议各子工程维护自己的技术规范。")
+    f = next((p for p in (path / "AGENTS.md", path / "CLAUDE.md") if p.is_file()), None)
+    if f is None:
+        print(f"  ⚠️  未找到 {path}/AGENTS.md 或 CLAUDE.md，建议各子工程维护自己的技术规范。")
         return
     lines = len(f.read_text(encoding="utf-8", errors="ignore").splitlines())
     v = claude_lines_verdict(lines)

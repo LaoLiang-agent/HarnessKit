@@ -18,8 +18,8 @@ Harness Kit 是 DeepSeek Harness 的多 Agent 工程流程插件：它把方案�
 
 Harness Kit 不只是"加流程"。创建完成后点「启动初始化编排」，它会探测已登记的子工程，把 AI 每次都要重新摸索的项目知识补齐：
 
-- 根目录 `AGENTS.md`，以及一行指针 `CLAUDE.md`
-- 每个子工程的 `CLAUDE.md`（技术栈、模块入口）和 `docs/CODE_STANDARDS.md`（编码规范）
+- 根目录 `AGENTS.md`；已有 `CLAUDE.md` 不覆盖，DSH 也会读取
+- 每个子工程的 `AGENTS.md`（已有 `CLAUDE.md` 则保留）和 `docs/CODE_STANDARDS.md`（编码规范）
 - `<子工程>/.harness/build.json`：编译、启动、测试命令
 - `codebase-guide/`：模块级文档，按需加载，不占上下文
 - 每个子工程的 `.codegraph/`：类、方法、调用链索引，AI 直接查，不必全量读代码
@@ -244,7 +244,7 @@ dsh plugin --profile desktop add /绝对路径/HarnessKit
 单文件小改会；需要反复迭代、跨模块、隔一段时间再回来接手的活不会。它把返工和交接成本提前，而不是消灭。
 
 **一个人有必要用吗？**
-有。一个人最容易丢的是上下文和节奏：harness 把每轮的规格、踩坑和决策留在文件里，下次不用重新解释；CR/TE 角色相当于固定的第二遍审查；初始化补齐的 `CLAUDE.md`、`build.json`、`CodeGraph` 让 AI 不必每次重读整个项目。
+有。一个人最容易丢的是上下文和节奏：harness 把每轮的规格、踩坑和决策留在文件里，下次不用重新解释；CR/TE 角色相当于固定的第二遍审查；初始化补齐的 `AGENTS.md`（或已有 `CLAUDE.md`）、`build.json`、`CodeGraph` 让 AI 不必每次重读整个项目。
 
 **必须走完整流程吗？**
 不用。四档流程 + `/hk-fix` 直通，可以先只用轻量档；流程档位在立项时确定。

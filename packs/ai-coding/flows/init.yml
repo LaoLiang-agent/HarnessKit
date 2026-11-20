@@ -12,7 +12,7 @@ stages:
   - name: 展示计划
     actor: PM
     do:
-      - 以表格向人展示每个子工程：类型、模板、L1 CLAUDE.md / L1.5 .harness/build.json / L2 docs/CODE_STANDARDS.md 各项状态（✅已存在跳过 / ♻️补齐缺失键 / ⬜待生成）、模块级 CLAUDE.md 的缺失清单
+      - 以表格向人展示每个子工程：类型、模板、L1 AGENTS.md（已有 CLAUDE.md 也算已存在，不生成缺少的）/ L1.5 .harness/build.json / L2 docs/CODE_STANDARDS.md 各项状态（✅已存在跳过 / ♻️补齐缺失键 / ⬜待生成）、模块级 AGENTS.md（已有 CLAUDE.md 也算已存在）的缺失清单
   - name: 生成确认
     actor: PM
     gate: 把计划交人确认（全部生成 / 逐项确认 / 取消），用 ask_user_question 工具；确认前不得写任何子工程文件
@@ -29,7 +29,7 @@ stages:
     gate: 补齐方案必须经人确认后才写盘；未经确认不得改 build.json
     do:
       - 目标：初始化完成后每个子工程都能真实编译和启动 —— build.json 的 compile / test / start / start-ok / start-timeout / start-port 必须是**可执行的工程事实**，不是模板占位
-      - 对每个子工程先探索事实再提方案：读 package.json 的 scripts / pom.xml / build.gradle / *.csproj / README / 已有 CLAUDE.md，推断各键的具体命令、启动端口、启动成功的日志特征（start-ok 正则候选，如 `Started .* in [0-9.]+ seconds`、`Local:.*http`）
+      - 对每个子工程先探索事实再提方案：读 package.json 的 scripts / pom.xml / build.gradle / *.csproj / README / 已有 AGENTS.md 或 CLAUDE.md，推断各键的具体命令、启动端口、启动成功的日志特征（start-ok 正则候选，如 `Started .* in [0-9.]+ seconds`、`Local:.*http`）
       - 以表格向人展示每个子工程的补齐方案：键、推断值、推断依据（来源文件）；用 ask_user_question 让人逐项确认 / 修改 / 跳过
       - 确认后写盘：用 python3 -c 读改 JSON，只覆盖人确认过的键，其余键原样保留；写完校验 JSON 合法
       - 工程事实也推不出的键保持空 = 未声明（后续验证如实报「未验证」），禁止拍脑袋编造
@@ -52,16 +52,16 @@ stages:
     do:
       - 对每个确认生成的子工程派发一个 subagent：自包含 prompt = 模板 .harness/templates/<模板目录>/CODE_STANDARDS.tmpl 全文 + 目标代码目录路径 + 输出路径 <子工程>/docs/CODE_STANDARDS.md
       - subagent 读代码后按模板章节据实生成，写盘后返回；等待返回再发下一个（串行，1-2 个很快）
-      - 必须在 build.json 之后、root CLAUDE.md 之前完成
-  - name: L1 根 CLAUDE.md
+      - 必须在 build.json 之后、root AGENTS.md 之前完成
+  - name: L1 根 AGENTS.md
     actor: PM
     do:
-      - 对每个确认生成的子工程派发一个 subagent：模板 root-CLAUDE.tmpl 全文 + 目标代码目录 + 输出 <子工程>/CLAUDE.md
+      - 对每个确认生成的子工程派发一个 subagent：模板 root-CLAUDE.tmpl 全文 + 目标代码目录 + 输出 <子工程>/AGENTS.md；仅当 AGENTS.md 和 CLAUDE.md 都不存在时生成，已有任一则跳过
       - 「参考文档」段必须列 docs/CODE_STANDARDS.md —— 模板已写死该引用，不得按当前盘面自行判断"无参考文档"
-  - name: 模块级 CLAUDE.md
+  - name: 模块级 AGENTS.md
     actor: PM
     do:
-      - 按 plan 中缺失的模块清单派发 subagent（后端 module-CLAUDE.tmpl / 前端 app-CLAUDE.tmpl），每批最多 5 个并行，避免上下文爆炸
+      - 按 plan 中缺失的模块清单派发 subagent（后端 module-CLAUDE.tmpl / 前端 app-CLAUDE.tmpl），输出 <模块>/AGENTS.md；模块已有 AGENTS.md 或 CLAUDE.md 任一则跳过，每批最多 5 个并行，避免上下文爆炸
       - 每个 prompt 自包含：模板全文 + 模块路径 + 输出路径
   - name: CodeGraph 索引
     actor: PM

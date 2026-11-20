@@ -203,20 +203,20 @@ export function claimTask(ws, task, by) {
 export { readTaskSessions, recordTaskSession } from './bindings.js';
 
 /**
- * 初始化完整性缺口：根 AGENTS.md 与各子工程的 build.json / CLAUDE.md。
+ * 初始化完整性缺口：根 AGENTS.md/CLAUDE.md 与各子工程的 build.json / AGENTS.md（兼容 CLAUDE.md）。
  * 确定性物化（面板「重跑初始化」）只铺骨架与脚本，子工程文档由初始化编排
  * （PM 流程）生成 —— 有缺口时面板给出「运行初始化编排」入口而不是让用户
  * 对着「初始化成功」却缺文件的工程发懵。
  */
 export function initGaps(ws, kit) {
   const gaps = [];
-  if (!fs.existsSync(path.join(ws, 'AGENTS.md'))) gaps.push('根 AGENTS.md');
+  if (!fs.existsSync(path.join(ws, 'AGENTS.md')) && !fs.existsSync(path.join(ws, 'CLAUDE.md'))) gaps.push('根 AGENTS.md/CLAUDE.md');
   for (const s of kit?.sources ?? []) {
     if (!s?.path) continue;
     const sp = path.join(ws, s.path);
     if (!fs.existsSync(sp)) continue;
     if (!fs.existsSync(path.join(sp, '.harness', 'build.json'))) gaps.push(`${s.name} 的 build.json`);
-    if (!fs.existsSync(path.join(sp, 'CLAUDE.md'))) gaps.push(`${s.name} 的 CLAUDE.md`);
+    if (!fs.existsSync(path.join(sp, 'AGENTS.md')) && !fs.existsSync(path.join(sp, 'CLAUDE.md'))) gaps.push(`${s.name} 的 AGENTS.md/CLAUDE.md`);
   }
   return gaps;
 }

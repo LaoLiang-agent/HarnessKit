@@ -13,6 +13,10 @@ All notable changes to Harness Kit are documented here. The format follows
   `tasks/local-files.json` manifest; new candidates only prompt via `/hk-local`, with no hardcoded
   project filenames. Existing target files are never overwritten. `sources[].localFiles` remains a
   simple team baseline.
+- Init treats `AGENTS.md` and `CLAUDE.md` as equivalent entry files for the workspace root and
+  subprojects: if either exists, the missing one is not generated; if neither exists, only
+  `AGENTS.md` is generated. Existing `CLAUDE.md` files are left untouched. Roles, init checks,
+  verify and the panel gap check read either name.
 - Added `.harness/scripts/te_lease.py`: the PM can acquire/release the TE lease through bash, using
   the same `tasks/test-env.json` as `/hk-te`, so the TE gate no longer requires a human to run a
   slash command. The lease remains a serial resource lock, not an approval.

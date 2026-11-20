@@ -268,7 +268,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       '',
       '| 层 | 位置 | 性质 | 用途 |',
       '|---|---|---|---|---|',
-      '| L1 入口 | `services/<子工程>/CLAUDE.md` | 人工编写 | 技术栈、框架模式、模块发现索引 |',
+      '| L1 入口 | `services/<子工程>/AGENTS.md`（优先）或 `CLAUDE.md`（兼容） | 人工编写 | 技术栈、框架模式、模块发现索引 |',
       '| L2 规范 | `services/<子工程>/docs/CODE_STANDARDS.md` | 人工编写 | 编码规范，团队持续打磨 |',
       '| L3 索引 | `services/<子工程>/.codegraph/` | CodeGraph 生成 | 类/方法/调用链，AI 通过 `codegraph explore` 查询 |',
       '',
@@ -277,9 +277,9 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       '| 角色 | 必读 | 按需 |',
       '|---|---|---|',
       '| PM | overview.md、specs/_index.md、tasks/board.md | memory/index.md |',
-      '| BA | overview.md、specs/_index.md、对应子工程 L1 CLAUDE.md | 相关模块 L1 CLAUDE.md |',
-      '| SA | 对应子工程 L1 + L2、codegraph explore（L3） | 相关模块 L1 CLAUDE.md |',
-      '| Dev | 对应子工程 L1 + L2、对应模块 L1 CLAUDE.md | codegraph explore（调用链） |',
+      '| BA | overview.md、specs/_index.md、对应子工程 L1 AGENTS.md/CLAUDE.md | 相关模块 L1 AGENTS.md/CLAUDE.md |',
+      '| SA | 对应子工程 L1 + L2、codegraph explore（L3） | 相关模块 L1 AGENTS.md/CLAUDE.md |',
+      '| Dev | 对应子工程 L1 + L2、对应模块 L1 AGENTS.md/CLAUDE.md | codegraph explore（调用链） |',
       '| CR | .harness/rules/code-standards.md、子工程 L2 | codegraph explore（影响范围） |',
       '| TE | 任务 deliverables（proposal/requirements/design） | 对应子工程 L1 |',
       '',
@@ -302,7 +302,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       '',
       '| 端 | 技术 | 说明 |',
       '|---|---|---|',
-      '<!-- TODO: 按各子工程 CLAUDE.md / build.json 据实补全 -->',
+      '<!-- TODO: 按各子工程 AGENTS.md 或 CLAUDE.md / build.json 据实补全 -->',
       '',
       '## 目录结构',
       '',
@@ -319,7 +319,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       '',
       '| 想知道什么 | 去哪看 |',
       '|---|---|---|',
-      '| 子工程技术细节、框架模式 | `services/<子工程>/CLAUDE.md` |',
+      '| 子工程技术细节、框架模式 | `services/<子工程>/AGENTS.md`（优先）或 `CLAUDE.md`（兼容） |',
       '| 编码规范 | `services/<子工程>/docs/CODE_STANDARDS.md` |',
       '| 构建/启动/测试命令 | `services/<子工程>/.harness/build.json` |',
       '| 已有系统能力 | `.harness/specs/_index.md` |',
@@ -505,9 +505,13 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
     }
   }
 
-  // 3. host instruction files: AGENTS.md canonical + CLAUDE.md pointer (never overwrite)
+  // 3. host instruction file: prefer AGENTS.md; if either AGENTS.md or legacy CLAUDE.md
+  //    already exists, do not generate the missing one (never overwrite).
   const agentsMd = path.join(ws, 'AGENTS.md');
-  if (!fs.existsSync(agentsMd)) {
+  const legacyClaudeMd = path.join(ws, 'CLAUDE.md');
+  const hasAgents = fs.existsSync(agentsMd);
+  const hasClaude = fs.existsSync(legacyClaudeMd);
+  if (!hasAgents && !hasClaude) {
     const sourceLines = kit.sources.map((s) => `| ${s.name} | \`${s.path}\` | ${s.role} | ${s.branch} |`).join('\n');
     fs.writeFileSync(
       agentsMd,
@@ -549,13 +553,9 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       'utf8',
     );
     created.push('AGENTS.md');
-  } else kept.push('AGENTS.md');
-
-  const claudeMd = path.join(ws, 'CLAUDE.md');
-  if (!fs.existsSync(claudeMd)) {
-    fs.writeFileSync(claudeMd, 'See @AGENTS.md\n', 'utf8');
-    created.push('CLAUDE.md（指针薄壳）');
-  } else kept.push('CLAUDE.md（已存在，未改动）');
+  } else {
+    kept.push(hasAgents ? 'AGENTS.md' : 'CLAUDE.md（legacy，未改动）');
+  }
 
   // 4. materialize init assets from the pack — scripts 是 pack 管理运行时（不入库，每次刷新覆盖）；
   //    templates 是播种资产（项目可裁剪，create-only 不覆盖）
