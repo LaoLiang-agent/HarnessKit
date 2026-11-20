@@ -844,6 +844,34 @@ section('池化工作区（主树优先 + slot 池）');
   const forcedFree = await ensureTaskWorkspaces(ws4, { sources: [{ name: 'backend', path: 'services/backend', branch: 'dev' }] }, 'task-r2', { forceSlot: true });
   ok('主树空闲 + --slot → 也进 slot（主动隔离）', forcedFree.assigned[0].placement === 'slot-1');
 }
+
+// ---------------------------------------------------------------- slot 本地配置
+section('slot 本地配置复制');
+{
+  const { ensureTaskWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  fs.mkdirSync(repo, { recursive: true });
+  git('init -b dev', repo);
+  fake(ws, 'services/backend/app.txt', 'v1');
+  git('add .', repo);
+  git('commit -m init', repo);
+  fake(ws, 'services/backend/application-local.properties', 'local-config');
+  fake(ws, 'services/backend/dbcp-local.properties', 'dbcp-config');
+  const kit = { sources: [{
+    name: 'backend', path: 'services/backend', branch: 'dev',
+    localFiles: ['application-local.properties', 'dbcp-local.properties'],
+  }] };
+  const r = await ensureTaskWorkspaces(ws, kit, 'local-task', { forceSlot: true });
+  const slot = path.join(ws, '.worktrees/backend/slot-1');
+  ok('slot 自动复制 ignored 本地配置', r.assigned[0]?.placement === 'slot-1'
+    && fs.readFileSync(path.join(slot, 'application-local.properties'), 'utf8') === 'local-config'
+    && fs.readFileSync(path.join(slot, 'dbcp-local.properties'), 'utf8') === 'dbcp-config');
+  fs.writeFileSync(path.join(slot, 'application-local.properties'), 'slot-local', 'utf8');
+  await ensureTaskWorkspaces(ws, kit, 'local-task', { forceSlot: true });
+  ok('slot 复用不覆盖已有本地配置', fs.readFileSync(path.join(slot, 'application-local.properties'), 'utf8') === 'slot-local');
+}
 {
   // 选了开发基线 + 干净主树在注册基线：apply 分配时应从所选基线切任务分支，而不是卡在 dev 裁决点
   const { ensureTaskWorkspaces, renderWorkspaceNotice, clearTaskWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));

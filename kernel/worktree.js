@@ -401,6 +401,36 @@ async function overlapWithInflight(ws, kit, task) {
 // --------------------------------------------------------------- slot 分配与释放
 
 /**
+ * 把主工作树里的本地配置文件补到 slot（git worktree 只带 tracked 文件，
+ * application-local.properties / dbcp-local.properties 这类 ignored 文件
+ * 不会自动出现）。只补缺失文件，不覆盖 slot 里已有内容。
+ */
+function copyLocalFiles(srcRoot, dstRoot, files) {
+  const notes = [];
+  if (!Array.isArray(files)) return notes;
+  for (const rel of files) {
+    if (typeof rel !== 'string' || !rel.trim()) continue;
+    const from = path.resolve(srcRoot, rel);
+    const to = path.resolve(dstRoot, rel);
+    const srcRel = path.relative(srcRoot, from);
+    const dstRel = path.relative(dstRoot, to);
+    if (srcRel.startsWith('..') || path.isAbsolute(srcRel) || dstRel.startsWith('..') || path.isAbsolute(dstRel)) {
+      notes.push(`本地配置路径越界，已跳过：${rel}`);
+      continue;
+    }
+    if (!fs.existsSync(from) || !fs.statSync(from).isFile()) {
+      notes.push(`本地配置不存在，未复制：${rel}`);
+      continue;
+    }
+    if (fs.existsSync(to)) continue;
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(from, to);
+    notes.push(`已复制本地配置：${rel}`);
+  }
+  return notes;
+}
+
+/**
  * 在仓上找空闲 slot 或新建一个，并切到任务分支。
  * 返回 { placement, path }；不可用时返回 { error }。
  */
@@ -616,6 +646,7 @@ export async function ensureTaskWorkspaces(ws, kit, task, { branchPrefix = 'feat
       continue;
     }
     result.notes.push(...(acq.notes ?? []));
+    result.notes.push(...copyLocalFiles(repoDir, acq.path, source.localFiles));
     ledger.slots[source.name][acq.placement] = { task, branch, since: new Date().toISOString(), state: 'bound' };
     tEntry.repos[source.name] = { placement: acq.placement, branch, base };
     result.assigned.push({ source: source.name, placement: acq.placement, path: acq.path, branch, base, reused: false });

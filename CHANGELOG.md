@@ -4,6 +4,15 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - Unreleased
+
+### Fixed
+
+- Slot allocation now copies source-declared local files (`kit.json` `sources[].localFiles`) from the
+  main worktree into a new or reused slot when the target is missing. This covers git-ignored files
+  such as `application-local.properties` and `dbcp-local.properties` without overwriting slot-local
+  edits.
+
 ## [0.1.5] - 2026-11-20
 
 ### Added
@@ -125,6 +134,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.1.6]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.6
 [0.1.5]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.5
 [0.1.4]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.4
 [0.1.3]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.3
