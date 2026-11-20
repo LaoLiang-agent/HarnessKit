@@ -234,7 +234,7 @@ go only to the provider you configure.
 **Plugins → Add plugin**, then enter:
 
 ```
-dsh-harness-kit@0.1.4
+dsh-harness-kit@0.1.5
 ```
 
 Enable the bundle after installation.
@@ -242,7 +242,7 @@ Enable the bundle after installation.
 ### Command line
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.1.4
+dsh plugin --profile desktop add dsh-harness-kit@0.1.5
 ```
 
 Quit DSH Desktop first; replace `desktop` with your profile name for other profiles.
