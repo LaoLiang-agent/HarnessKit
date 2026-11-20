@@ -13,6 +13,9 @@ All notable changes to Harness Kit are documented here. The format follows
   `tasks/local-files.json` manifest; new candidates only prompt via `/hk-local`, with no hardcoded
   project filenames. Existing target files are never overwritten. `sources[].localFiles` remains a
   simple team baseline.
+- `/hk-archive` can now auto-merge clean task branches locally when
+  `kit.json.worktree.autoMergeClean` is true. It only merges locally, never pushes; conflicts or an
+  unusable target still stop for human action. Default remains off.
 - Init treats `AGENTS.md` and `CLAUDE.md` as equivalent entry files for the workspace root and
   subprojects: if either exists, the missing one is not generated; if neither exists, only
   `AGENTS.md` is generated. Existing `CLAUDE.md` files are left untouched. Roles, init checks,

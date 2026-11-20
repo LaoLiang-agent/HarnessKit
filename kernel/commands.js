@@ -605,6 +605,10 @@ async function hkArchive({ agent, rawInput }) {
   // 可带 repo:branch 覆盖目标（不带则用任务创建时指定的基线）。合并只做本地提交，不推送。
   const mergeAsked = flags.merge !== undefined;
   const mergeOverrides = mergeAsked && typeof flags.merge === 'string' ? parseBaseSpec(flags.merge) : {};
+  // 可选自动化：分支都能干净本地合入时，归档自动合入并释放 slot；冲突/目标异常仍停下转人工。
+  // 只做本地合并，不推送；默认关闭，项目在 kit.json 显式开启。
+  const autoMergeClean = kit.worktree?.autoMergeClean === true;
+  const shouldMerge = mergeAsked || autoMergeClean;
 
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);
   // 活跃任务归档前先清理其他已归档残留；残留收尾（taskDir 不存在）不能先清理，
@@ -616,7 +620,7 @@ async function hkArchive({ agent, rawInput }) {
     // 此时活目录已清，正常预检必然失败；这里识别为「只做工作区释放」的收尾模式。
     const wl = readWorkspaces(ws);
     if (wl.tasks?.[task]) {
-      const mg = mergeAsked ? await mergeTaskBranches(ws, kit, task, mergeOverrides) : null;
+      const mg = shouldMerge ? await mergeTaskBranches(ws, kit, task, mergeOverrides) : null;
       const rel = await releaseTaskWorkspaces(ws, kit, task);
       const ta = await removeTaskAnalysisWorktrees(ws, kit, task);
       clearDecision(ws, task);
@@ -630,7 +634,7 @@ async function hkArchive({ agent, rawInput }) {
       if (rel.stale.length > 0) {
         const targets = [...new Set([...rel.stale.map((x) => x.source)])]
           .map((src) => `${src}→${(wl.tasks?.[task]?.repos?.[src]?.base) ?? '?'}`).join('、');
-        return err(`任务 **${task}** 已归档，但工作区仍未释放：\n${lines.join('\n')}\n\n确认要本地合入目标基线（${targets}）后运行：\n\`/hk-archive ${task} --merge\`（可用 \`--merge 仓:分支\` 覆盖目标；只做本地合并，推送仍由人执行）`);
+        return err(`任务 **${task}** 已归档，但工作区仍未释放：\n${lines.join('\n')}\n\n${autoMergeClean && !mergeAsked ? '自动本地合入未成功（冲突或目标异常），解决后运行：' : '确认要本地合入目标基线（' + targets + '）后运行：'}\n\`/hk-archive ${task} --merge\`（可用 \`--merge 仓:分支\` 覆盖目标；只做本地合并，推送仍由人执行）`);
       }
       return ok(`任务 **${task}** 已归档，残留工作区已收尾：\n${lines.join('\n') || '（无残留）'}`);
     }
@@ -720,13 +724,15 @@ async function hkArchive({ agent, rawInput }) {
 
   // worktree 收尾：slot 已合入基线的 → 切回基线释放（目录保留）；未合入 → stale 保留提示
   // 合入确认（B 方案）：--merge 时先本地合入目标基线，再释放槽位
-  const mgNormal = mergeAsked ? await mergeTaskBranches(ws, kit, task, mergeOverrides) : null;
+  const mgNormal = shouldMerge ? await mergeTaskBranches(ws, kit, task, mergeOverrides) : null;
   const wtResult = await releaseTaskWorkspaces(ws, kit, task);
   clearDecision(ws, task);
   const taCleanup = await removeTaskAnalysisWorktrees(ws, kit, task);
   const staleLines = wtResult.stale.map((s) => `⚠️ ${s.source}：${s.reason}`);
   const confirmHint = wtResult.stale.length > 0 && !mergeAsked
-    ? [`确认要本地合入目标基线后运行：\`/hk-archive ${task} --merge\`（可用 \`--merge 仓:分支\` 覆盖目标；只本地合并，推送由人执行）`]
+    ? [autoMergeClean
+        ? `自动本地合入未成功（冲突或目标异常），解决后运行：\`/hk-archive ${task} --merge\`（只本地合并，推送由人执行）`
+        : `确认要本地合入目标基线后运行：\`/hk-archive ${task} --merge\`（可用 \`--merge 仓:分支\` 覆盖目标；只本地合并，推送由人执行）`]
     : [];
   const wtNote = wtResult.missing && taCleanup.removed === 0 && taCleanup.notes.length === 0 && !mgNormal
     ? ''
