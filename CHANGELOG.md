@@ -12,6 +12,9 @@ All notable changes to Harness Kit are documented here. The format follows
   main worktree into a new or reused slot when the target is missing. This covers git-ignored files
   such as `application-local.properties` and `dbcp-local.properties` without overwriting slot-local
   edits.
+- Added `.harness/scripts/te_lease.py`: the PM can acquire/release the TE lease through bash, using
+  the same `tasks/test-env.json` as `/hk-te`, so the TE gate no longer requires a human to run a
+  slash command. The lease remains a serial resource lock, not an approval.
 
 ## [0.1.5] - 2026-11-20
 

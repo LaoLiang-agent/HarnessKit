@@ -816,8 +816,11 @@ function mergeLines(mg) {
 const TE_NOTICE = [
   '### TE 环境（串行排队，必须遵守）',
   '- 测试环境（起服务/连 TDengine/jmeter）全局只有一个，TE 阶段按租约串行。',
-  '- 派发 TE Worker **之前**先在本会话运行 `/hk-te acquire <任务名>`：',
-  '  已获授权 → 正常派发；排队中 → **暂停 TE 阶段**，向人汇报「TE 环境被谁占用、本任务已排队」，**不要派发 TE Worker、不要起服务/连测试库**（内核无法抢占运行中的 Worker，门必须在派发前）。',
+  '- 派发 TE Worker **之前**必须先获取租约：',
+  '  - 人可运行 `/hk-te acquire <任务名>`；',
+  '  - PM/自动流程可直接运行 `python3 .harness/scripts/te_lease.py acquire <任务名>`（与 `/hk-te` 共用同一 `tasks/test-env.json`，不需要人代跑 slash command）。',
+  '  - 已获授权 → 正常派发；排队中 → **暂停 TE 阶段**，向人汇报「TE 环境被谁占用、本任务已排队」，**不要派发 TE Worker、不要起服务/连测试库**（内核无法抢占运行中的 Worker，门必须在派发前）。',
+  '- 租约只是串行锁，不是人工审批；获取后仍按 TE 门禁执行。',
   '- TE 完成（看板链 TE 标 ✅）后内核自动释放并通知下一个排队任务，无需手工 release。',
 ].join('\n');
 
@@ -900,7 +903,7 @@ async function hkDoctor({ agent }) {
     'scripts/harness_init.py', 'scripts/harness.py', 'scripts/lib.py',
     'scripts/verify.py', 'scripts/spec_lint.py', 'scripts/env_auto.py',
     'scripts/check_codegraph.py', 'scripts/run_field.py', 'scripts/codebase_guide_init.py',
-    'scripts/update_board.py', 'scripts/memory_index.py',
+    'scripts/update_board.py', 'scripts/memory_index.py', 'scripts/te_lease.py',
     'rules/code-standards.md', 'specs/spec-template.md', 'memory/templates/entry.md',
     'memory/README.md', 'memory/cold.md',
   ];
