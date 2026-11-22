@@ -400,6 +400,36 @@ def cmd_repair(root: Path, write: bool) -> int:
         return 0
     lines, rows = read_rows(board.read_text(encoding="utf-8"))
     changed = 0
+    # 旧 4 列看板迁移（任务|状态|负责|更新）：先换成 7 列表头，再把旧列映射到新列。
+    # 负责人没有对应列，保留到「续接提示」里，避免修复时丢信息。
+    CANON_HEADER = "| 任务名 | 状态 | Profile | Apply进度 | 分支 | 上次活动 | 续接提示 |"
+    CANON_SEP = "|--------|------|---------|-----------|------|---------|----------|"
+    legacy = False
+    for i, line in enumerate(lines):
+        if not line.startswith("|"):
+            legacy = False
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if not cells:
+            continue
+        if not legacy and cells[0] in ("任务", "任务名") and len(cells) == 4:
+            legacy = True
+            lines[i] = CANON_HEADER
+            changed += 1
+            continue
+        if legacy:
+            if cells and not cells[0].strip("-: "):
+                lines[i] = CANON_SEP
+                changed += 1
+                continue
+            if len(cells) >= 4:
+                task, status, owner, updated = cells[0], cells[1], cells[2], cells[3]
+                hint = f"旧负责人：{owner}" if owner and owner != "—" else "—"
+                lines[i] = render_row([task, status, "—", "—", "—", updated, hint])
+                changed += 1
+    if changed:
+        # 让后续 repair 读取迁移后的行
+        lines, rows = read_rows("\n".join(lines))
     # 表头/分隔线规范化（曾有 Agent 用空格把单元格撑到 3.8 万字符）
     CANON = {
         "header": "| 任务名 | 状态 | Profile | Apply进度 | 分支 | 上次活动 | 续接提示 |",

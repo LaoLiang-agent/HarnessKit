@@ -28,6 +28,7 @@ import { readWorkspaces } from './worktree.js';
 import { listAllGitBranches } from './worktree.js';
 import { reconcileTestEnv, readTestEnv } from './te.js';
 import { readDecisions } from './worktree.js';
+import { discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
 
 /** 解析看板 markdown 表（7 列契约，见 commands.js boardTemplate）。
  *  容错与 commands.js parseBoardRow 同源：超列溢出并入「续接提示」，不足补 —。 */
@@ -208,17 +209,28 @@ export { readTaskSessions, recordTaskSession } from './bindings.js';
  * （PM 流程）生成 —— 有缺口时面板给出「运行初始化编排」入口而不是让用户
  * 对着「初始化成功」却缺文件的工程发懵。
  */
-export function initGaps(ws, kit) {
+export function initGapItems(ws, kit) {
   const gaps = [];
-  if (!fs.existsSync(path.join(ws, 'AGENTS.md')) && !fs.existsSync(path.join(ws, 'CLAUDE.md'))) gaps.push('根 AGENTS.md/CLAUDE.md');
+  if (!fs.existsSync(path.join(ws, 'AGENTS.md')) && !fs.existsSync(path.join(ws, 'CLAUDE.md'))) {
+    gaps.push({ kind: 'root-entry', repo: null, label: '根 AGENTS.md/CLAUDE.md', path: 'AGENTS.md', action: 'orchestrate' });
+  }
   for (const s of kit?.sources ?? []) {
     if (!s?.path) continue;
     const sp = path.join(ws, s.path);
     if (!fs.existsSync(sp)) continue;
-    if (!fs.existsSync(path.join(sp, '.harness', 'build.json'))) gaps.push(`${s.name} 的 build.json`);
-    if (!fs.existsSync(path.join(sp, 'AGENTS.md')) && !fs.existsSync(path.join(sp, 'CLAUDE.md'))) gaps.push(`${s.name} 的 AGENTS.md/CLAUDE.md`);
+    if (!fs.existsSync(path.join(sp, '.harness', 'build.json'))) {
+      gaps.push({ kind: 'build-json', repo: s.name, label: `${s.name} 的 build.json`, path: `${s.path}/.harness/build.json`, action: 'orchestrate' });
+    }
+    if (!fs.existsSync(path.join(sp, 'AGENTS.md')) && !fs.existsSync(path.join(sp, 'CLAUDE.md'))) {
+      gaps.push({ kind: 'subproject-entry', repo: s.name, label: `${s.name} 的 AGENTS.md/CLAUDE.md`, path: `${s.path}/AGENTS.md`, action: 'orchestrate' });
+    }
   }
   return gaps;
+}
+
+/** 兼容旧调用：只返回人类可读标签。 */
+export function initGaps(ws, kit) {
+  return initGapItems(ws, kit).map((g) => g.label);
 }
 
 /**
@@ -408,6 +420,7 @@ export function workspaceState(ws, { sync = null } = {}) {
   const slots = Object.fromEntries(Object.entries(ledger.slots).map(([repo, m]) => [repo,
     Object.entries(m).map(([slot, b]) => ({ slot, task: b.task, branch: b.branch, state: b.state ?? 'bound' }))]));
   const staleSlots = Object.entries(slots).flatMap(([repo, arr]) => arr.filter((s) => s.state === 'stale-unmerged').map((s) => ({ repo, ...s })));
+  const gapItems = initGapItems(ws, kit);
   // 已归档任务仍占着主工作树台账（典型：归档后才合入并切分支；没有后续归档触发释放）
   const archivedLedger = Object.entries(ledger.tasks ?? {})
     .filter(([task]) => !fs.existsSync(path.join(harnessDir(ws), 'deliverables', task)))
@@ -420,8 +433,9 @@ export function workspaceState(ws, { sync = null } = {}) {
     sync,
     slots,
     te: ledgerTe,
+    initGaps: gapItems,
     attention: (() => {
-      const items = attentionItems(tasks, sync, initGaps(ws, kit), staleSlots, ledgerTe, readDecisions(ws), archivedLedger);
+      const items = attentionItems(tasks, sync, gapItems.map((g) => g.label), staleSlots, ledgerTe, readDecisions(ws), archivedLedger);
       // 初始化失败 → block 级常驻提示（页面重开仍可见；成功后自动消失）
       const initJob = initProgress.get(ws);
       if (initJob?.done && initJob.error) {
@@ -839,6 +853,76 @@ export function registerPanelApi(ctx) {
           const r = updateKit(ws.path, patch);
           if (r.error) return sendJson(res, 400, { ok: false, error: r.error });
           sendJson(res, 200, { ok: true });
+        } catch (cause) {
+          sendJson(res, 500, { ok: false, error: cause.message });
+        }
+        return;
+      }
+      sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+    },
+  });
+
+  // 本机配置（git-ignored）发现/确认：面板化 /hk-local；确认后只为已绑定 slot 补齐。
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/local',
+    async handler(req, res) {
+      const ref = new URL(req.url, 'http://x').searchParams.get('workspace');
+      const ws = findWs(registry, ref);
+      if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+      const kit = readKit(ws.path);
+      if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
+      if (req.method === 'GET') {
+        try {
+          const manifest = readLocalFiles(ws.path);
+          const sources = [];
+          for (const source of kit.sources ?? []) {
+            if (!source?.path) continue;
+            const candidates = await discoverSource(ws.path, source);
+            const entry = manifest.sources?.[source.name] ?? {};
+            const approved = [...new Set([...(Array.isArray(source.localFiles) ? source.localFiles : []), ...(Array.isArray(entry.approved) ? entry.approved : [])])];
+            const skipped = Array.isArray(entry.skipped) ? entry.skipped : [];
+            sources.push({
+              name: source.name,
+              path: source.path,
+              mode: entry.mode === 'symlink' ? 'symlink' : 'copy',
+              approved,
+              skipped,
+              candidates: candidates.map((c) => ({ path: c.path, kind: c.kind, reason: c.reason, size: c.size, pending: !approved.includes(c.path) && !skipped.includes(c.path) })),
+            });
+          }
+          sendJson(res, 200, { ok: true, sources });
+        } catch (cause) {
+          sendJson(res, 500, { ok: false, error: cause.message });
+        }
+        return;
+      }
+      if (req.method === 'POST') {
+        try {
+          const { workspace, repo, action, paths } = JSON.parse(await readBody(req) || '{}');
+          const targetWs = findWs(registry, workspace);
+          if (!targetWs) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+          if (!['approve', 'skip'].includes(action)) return sendJson(res, 400, { ok: false, error: "action 必须是 'approve' 或 'skip'" });
+          const targetKit = readKit(targetWs.path);
+          const source = (targetKit?.sources ?? []).find((s) => s.name === repo);
+          if (!source) return sendJson(res, 404, { ok: false, error: `未知子工程：${repo ?? '?'}` });
+          const candidates = await discoverSource(targetWs.path, source);
+          const valid = new Set(candidates.map((c) => c.path));
+          const manifest = readLocalFiles(targetWs.path);
+          const entry = manifest.sources?.[repo] ?? {};
+          const approved = new Set(Array.isArray(entry.approved) ? entry.approved : []);
+          const skipped = new Set(Array.isArray(entry.skipped) ? entry.skipped : []);
+          const requested = Array.isArray(paths) && paths.length > 0 ? paths : candidates.map((c) => c.path);
+          const chosen = [...new Set(requested)].filter((p) => valid.has(p));
+          if (chosen.length === 0) return sendJson(res, 400, { ok: false, error: '没有有效的候选路径' });
+          for (const p of chosen) {
+            if (action === 'approve') { approved.add(p); skipped.delete(p); }
+            else { skipped.add(p); approved.delete(p); }
+          }
+          manifest.sources[repo] = { ...entry, approved: [...approved], skipped: [...skipped], updatedAt: new Date().toISOString() };
+          writeLocalFiles(targetWs.path, manifest);
+          const notes = action === 'approve' ? await provisionAllSlots(targetWs.path, [source]) : [];
+          sendJson(res, 200, { ok: true, notes });
         } catch (cause) {
           sendJson(res, 500, { ok: false, error: cause.message });
         }

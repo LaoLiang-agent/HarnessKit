@@ -975,8 +975,9 @@ async function hkLocal({ agent, rawInput }) {
 }
 
 // ---------------------------------------------------------------- /hk-doctor
-async function hkDoctor({ agent }) {
+async function hkDoctor({ agent, rawInput }) {
   const ws = wsRoot(agent);
+  const { flags } = parseArgs(rawInput ?? '');
   const lines = ['## Harness Kit 体检', ''];
   lines.push(`- 工作区：\`${ws}\``);
   lines.push(`- 内容包目录：\`${packDir(readKit(ws) ?? undefined)}\` ${fs.existsSync(packDir(readKit(ws) ?? undefined)) ? '✅' : '❌ 缺失'}`);
@@ -985,6 +986,48 @@ async function hkDoctor({ agent }) {
   if (!kit) {
     lines.push('- kit.json：❌ 不存在 → 运行 `/hk-init`');
     return ok(lines.join('\n'));
+  }
+  if (flags.fix === true) {
+    const fixed = [];
+    try {
+      const r = await runInit(ws, {});
+      if (!r.ok) {
+        lines.push(`- 修复：❌ 初始化物化失败：${r.error}`);
+      } else {
+        fixed.push(...r.created.map((x) => `物化 \`${x}\``));
+        for (const w of r.warnings) fixed.push(`⚠️ ${w}`);
+      }
+    } catch (cause) {
+      lines.push(`- 修复：❌ 初始化物化异常：${cause.message}`);
+    }
+    // 看板 7 列修复（唯一写入门禁）
+    const ub = path.join(harnessDir(ws), 'scripts', 'update_board.py');
+    if (fs.existsSync(ub)) {
+      const chk = await run('python3', [ub, '--check'], { cwd: ws, timeoutMs: 15_000 });
+      if (chk.code !== 0) {
+        const rep = await run('python3', [ub, '--repair', '--write'], { cwd: ws, timeoutMs: 30_000 });
+        fixed.push(rep.code === 0 ? '看板已按 7 列契约修复' : `看板修复失败：${(rep.stdout || rep.stderr).trim()}`);
+      }
+    }
+    // 记忆 hot/cold 索引（存在 entries 但索引缺失时重建）
+    const mem = path.join(harnessDir(ws), 'scripts', 'memory_index.py');
+    if (fs.existsSync(mem) && (!fs.existsSync(path.join(harnessDir(ws), 'memory', 'index.md')) || !fs.existsSync(path.join(harnessDir(ws), 'memory', 'cold.md')))) {
+      const sync = await run('python3', [mem, 'sync'], { cwd: ws, timeoutMs: 60_000 });
+      fixed.push(sync.code === 0 ? '记忆 hot/cold 索引已重建' : `记忆索引重建失败：${(sync.stdout || sync.stderr).trim()}`);
+    }
+    // 旧模板命名：只提示，不删可能被项目裁剪过的文件
+    const legacyTemplates = [];
+    const walk = (dir) => {
+      if (!fs.existsSync(dir)) return;
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const abs = path.join(dir, e.name);
+        if (e.isDirectory()) walk(abs);
+        else if (e.name.endsWith('-CLAUDE.tmpl')) legacyTemplates.push(path.relative(ws, abs));
+      }
+    };
+    walk(path.join(harnessDir(ws), 'templates'));
+    if (legacyTemplates.length > 0) fixed.push(`旧模板 ${legacyTemplates.length} 个（可人工删除，插件不覆盖）：${legacyTemplates.slice(0, 4).join('、')}${legacyTemplates.length > 4 ? ' 等' : ''}`);
+    lines.push(`- 自动修复：${fixed.length ? fixed.join('；') : '无确定性修复项'}`);
   }
   const reconcile = await reconcileArchivedQuiet(ws, kit);
   if (reconcile) {
@@ -1109,7 +1152,7 @@ export function registerCommands(ctx) {
     { name: 'hk-te', description: 'TE 环境串行租约（测试环境全局唯一）：acquire 授权/排队、release 释放/退队、status 查看', hint: '[acquire|release <任务名> | status]', handler: hkTe },
     { name: 'hk-local', description: '本地配置（git-ignored）发现/确认/复制：首次确认后新 slot 自动补齐', hint: '[scan|status|approve all|path... | skip path... | mode copy|symlink | apply] [--repo <仓库>]', handler: hkLocal },
     { name: 'hk-sync', description: '资产仓库 git 同步：自动提交 → pull --rebase → 纯追加文件自动三路合并 → push（其余冲突中止回滚转人工）', handler: hkSync },
-    { name: 'hk-doctor', description: '检查 harness 工作区健康度（kit/角色/红线/流程）', hint: '', handler: hkDoctor },
+    { name: 'hk-doctor', description: '检查 harness 工作区健康度（kit/角色/红线/流程）；--fix 修复确定性缺件', hint: '[--fix]', handler: hkDoctor },
   ];
   for (const def of defs) {
     ctx.commands.register({

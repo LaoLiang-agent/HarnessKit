@@ -35,6 +35,15 @@ def get_template_dir(sp_type: str) -> str:
     }.get(sp_type, "")
 
 
+def instruction_template(tdir: str, stem: str) -> str:
+    """入口文件模板：优先 *-AGENTS.tmpl；存量工作区回退旧 *-CLAUDE.tmpl。"""
+    for name in (f"{stem}-AGENTS.tmpl", f"{stem}-CLAUDE.tmpl"):
+        rel = f"{tdir}/{name}"
+        if (TEMPLATES_DIR / rel).is_file():
+            return rel
+    return f"{tdir}/{stem}-AGENTS.tmpl"
+
+
 def list_frontend_apps(path: Path):
     apps_dir = path / "apps"
     if not apps_dir.is_dir():
@@ -122,7 +131,7 @@ def generate_plan(root: Path) -> dict:
                     "missing_keys": build_json_missing_keys(root, rel, f"{tdir}/build.tmpl"),
                 },
                 "docs/CODE_STANDARDS.md": {"status": check_file(root, f"{rel}/docs/CODE_STANDARDS.md"), "template": f"{tdir}/CODE_STANDARDS.tmpl"},
-                "AGENTS.md": {"status": "EXISTS" if instruction_file(path) else "MISSING", "template": f"{tdir}/root-CLAUDE.tmpl"},
+                "AGENTS.md": {"status": "EXISTS" if instruction_file(path) else "MISSING", "template": instruction_template(tdir, "root")},
             },
             "codegraph": "EXISTS" if (path / ".codegraph").is_dir() else "MISSING",
             "modules": [],
@@ -131,25 +140,25 @@ def generate_plan(root: Path) -> dict:
         # 只生成根级 L1/L1.5/L2，modules 保持为空 —— 故此处不设分支。
         if stype == "vue-multimodule":
             sp["modules"] = [{"name": m["name"], "path": f"services/{name}/apps/{m['name']}",
-                              "template": f"{tdir}/app-CLAUDE.tmpl",
+                              "template": instruction_template(tdir, "app"),
                               "status": "EXISTS" if instruction_file(Path(m["path"])) else "MISSING"}
                              for m in list_frontend_apps(path)]
         elif stype == "maven-multimodule":
             sp["modules"] = [{"name": m["name"],
                               "path": f"services/{name}/{Path(m['parent']).relative_to(path) / m['name']}",
-                              "template": f"{tdir}/module-CLAUDE.tmpl",
+                              "template": instruction_template(tdir, "module"),
                               "status": "EXISTS" if instruction_file(Path(m["path"])) else "MISSING"}
                              for m in list_maven_modules(path)]
         elif stype in ("dotnet", "dotnet-multimodule"):
-            # 后端项目 → module-CLAUDE.tmpl；前端子项目（SPA/Blazor WASM）→ app-CLAUDE.tmpl
+            # 后端项目 → module-AGENTS.tmpl；前端子项目（SPA/Blazor WASM）→ app-AGENTS.tmpl
             sp["modules"] = [
                 {"name": m["name"], "path": f"services/{name}/{m['name']}",
-                 "template": f"{tdir}/module-CLAUDE.tmpl",
+                 "template": instruction_template(tdir, "module"),
                  "status": "EXISTS" if instruction_file(Path(m["path"])) else "MISSING"}
                 for m in lib.list_dotnet_projects(path)
             ] + [
                 {"name": m["name"], "path": f"services/{name}/{m['name']}",
-                 "template": f"{tdir}/app-CLAUDE.tmpl",
+                 "template": instruction_template(tdir, "app"),
                  "status": "EXISTS" if instruction_file(Path(m["path"])) else "MISSING"}
                 for m in lib.list_frontend_projects(path)
             ]

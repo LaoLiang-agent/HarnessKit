@@ -870,6 +870,8 @@ window.__ModuleLoader__.load({
       const [autoSync, setAutoSync] = useState(k.assets?.autoSync === true);
       const [autoClose, setAutoClose] = useState(k.worktree?.autoClose === true);
       const [targetSync, setTargetSync] = useState(k.worktree?.targetSync ?? 'safe');
+      const [local, setLocal] = useState(null);
+      const [localBusy, setLocalBusy] = useState(false);
       const [models, setModels] = useState(() => Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
       const [applyMode, setApplyMode] = useState(k.applyMode ?? 'auto');
       useEffect(() => {
@@ -880,6 +882,23 @@ window.__ModuleLoader__.load({
         setModels(Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
         setApplyMode(k.applyMode ?? 'auto');
       }, [ws.id]);
+      const loadLocal = useCallback(() => {
+        fetch(`/harness-kit/local?workspace=${encodeURIComponent(ws.id)}`, { cache: 'no-store' })
+          .then((r) => r.json())
+          .then((j) => setLocal(j.ok ? j : { sources: [] }))
+          .catch(() => setLocal({ sources: [] }));
+      }, [ws.id]);
+      useEffect(() => { loadLocal(); }, [loadLocal]);
+      const localAction = (repo, action, paths) => {
+        setLocalBusy(true);
+        fetch('/harness-kit/local', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ workspace: ws.id, repo, action, paths }),
+        }).then((r) => r.json()).then((j) => {
+          toast(j.ok ? (j.notes?.length ? j.notes.join('；') : (action === 'approve' ? '已确认' : '已跳过')) : j.error || '操作失败', j.ok);
+          if (j.ok) loadLocal();
+        }).catch((e) => toast(e.message, false)).finally(() => setLocalBusy(false));
+      };
       const kv = (label, value) => h('div', { style: S.kv }, h('span', { style: { color: V.sub, minWidth: 96 } }, label), h('span', null, value ?? '—'));
 
       return h('div', null,
@@ -908,6 +927,27 @@ window.__ModuleLoader__.load({
                 title: '点击复制完整路径',
                 onClick: () => { try { navigator.clipboard?.writeText(`${ws.path}/.worktrees/${repo}/${s.slot}`); toast('路径已复制'); } catch { /* 剪贴板不可用时无操作 */ } },
               }, `${ws.path}/.worktrees/${repo}/${s.slot}`)))))),
+        // 本机配置（git-ignored）：确认一次，新 slot 自动补齐；只影响本机，不进团队资产
+        h('div', { style: S.section },
+          h('div', { style: S.secTitle }, '本机配置（git-ignored）'),
+          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+            '从主工作树发现本地配置候选；确认后写入本机清单，并为已绑定 slot 补齐。只影响本机，不提交到资产仓库。'),
+          local === null && h('div', { style: { fontSize: 12, color: V.sub } }, '扫描中…'),
+          local && (local.sources ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '未登记子工程。'),
+          local && (local.sources ?? []).map((s) => {
+            const pending = (s.candidates ?? []).filter((c) => c.pending);
+            return h('div', { key: s.name, style: { marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${V.border}` } },
+              h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 3 } },
+                `${s.name}：已确认 ${s.approved.length} 个，待确认 ${pending.length} 个`,
+                h('span', { style: { marginLeft: 8, color: V.sub, fontWeight: 400 } }, `模式 ${s.mode}`)),
+              pending.length > 0 && h('div', { style: { marginBottom: 5 } },
+                pending.slice(0, 8).map((c) => h('div', { key: c.path, style: { fontFamily: 'monospace', fontSize: 11, color: V.sub } },
+                  `${c.reason === 'high' ? '高' : '配置'} · ${c.kind} · ${c.path}`)),
+                pending.length > 8 && h('div', { style: { fontSize: 11, color: V.sub } }, `… 另 ${pending.length - 8} 个`)),
+              pending.length > 0 && h('div', { style: { display: 'flex', gap: 6 } },
+                h('button', { style: S.btn(localBusy, true), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '全部确认'),
+                h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '全部跳过')));
+          })),
         // ② 可配项
         (k.sources ?? []).length > 0 && h('div', { style: S.section },
           h('div', { style: S.secTitle }, '子工程基线分支'),

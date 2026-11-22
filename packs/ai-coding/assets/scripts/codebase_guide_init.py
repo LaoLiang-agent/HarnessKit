@@ -22,7 +22,7 @@ def instruction_target(path: Path) -> Path:
     return path / "AGENTS.md"
 
 # 模块 / App 级 AGENTS.md 的**机器可读元信息行**：行内加粗键值 `- **键**：值`，**不是** `### 标题`。
-# 这是 `.harness/templates/*/{module,app}-CLAUDE.tmpl`（内容按 AGENTS.md 生成）与本检查器之间的**唯一契约**：
+# 这是 `.harness/templates/*/{module,app}-AGENTS.tmpl`（内容按 AGENTS.md 生成）与本检查器之间的**唯一契约**：
 # 检查器按这些键做子串匹配，模板必须原样产出对应行 —— 模板若教标题形态，
 # 「严格照模板生成」的文档必然报 WARN（历史上前端 41 个 App 全中）。
 # `tests/harness/test_codebase_guide_init.py` 把两边钉死，改这里必须同步改模板。

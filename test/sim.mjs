@@ -56,6 +56,7 @@ section('hk-init 骨架/物化/幂等/编排');
   ok('services/* 自动扫描登记', readKitJson(ws).sources.some((s) => s.name === 'backend'));
   ok('scripts 物化', fs.existsSync(path.join(ws, '.harness/scripts/harness_init.py')));
   ok('templates 物化', fs.existsSync(path.join(ws, '.harness/templates/java/maven-multimodule/build.tmpl')));
+  ok('模板使用 AGENTS 命名', fs.existsSync(path.join(ws, '.harness/templates/java/maven-multimodule/root-AGENTS.tmpl')) && !fs.existsSync(path.join(ws, '.harness/templates/java/maven-multimodule/root-CLAUDE.tmpl')));
   ok('新工作区只生成 AGENTS，不生成 CLAUDE', fs.existsSync(path.join(ws, 'AGENTS.md')) && !fs.existsSync(path.join(ws, 'CLAUDE.md')));
   ok('assets.mode=local（默认）', readKitJson(ws).assets?.mode === 'local');
   ok('codebase-guide/overview.md 预置骨架', fs.readFileSync(path.join(ws, '.harness/codebase-guide/overview.md'), 'utf8').includes('项目架构总览'));
@@ -252,6 +253,9 @@ section('hk-doctor 体检');
   const res2 = await run('hk-doctor', '', ws);
   ok('缺件被点名（spec_lint/rules）', res2.text.includes('初始化资产：❌') && res2.text.includes('spec_lint.py') && res2.text.includes('rules/code-standards.md'));
   ok('4 列旧看板被警告', res2.text.includes('看板契约：⚠️'));
+  const resFix = await run('hk-doctor', '--fix', ws);
+  ok('doctor --fix 补齐脚本/规范', resFix.kind === 'success' && fs.existsSync(path.join(ws, '.harness/scripts/spec_lint.py')) && fs.existsSync(path.join(ws, '.harness/rules/code-standards.md')));
+  ok('doctor --fix 修复看板并复检通过', resFix.text.includes('看板已按 7 列契约修复') && fs.readFileSync(path.join(ws, '.harness/tasks/board.md'), 'utf8').includes('| 任务名 | 状态 | Profile |'));
 }
 
 // ---------------------------------------------------------------- hk-new
@@ -1897,7 +1901,7 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
   }
   // initGaps：根 AGENTS.md/CLAUDE.md + 子工程 build.json / AGENTS.md
   {
-    const { initGaps } = await import(path.join(bundleRoot, 'kernel/panel.js'));
+    const { initGaps, initGapItems } = await import(path.join(bundleRoot, 'kernel/panel.js'));
     const ws = mkws();
     cleanups.push(ws);
     fs.mkdirSync(path.join(ws, 'services/backend'), { recursive: true });
@@ -1907,6 +1911,8 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
       return g.includes('根 AGENTS.md/CLAUDE.md') && g.includes('backend 的 build.json') && g.includes('backend 的 AGENTS.md/CLAUDE.md') && g.length === 3;
     })());
     ok('路径不存在的子工程不报缺口', !initGaps(ws, kit).some((g) => g.includes('gone')));
+    const gi = initGapItems(ws, kit);
+    ok('缺口结构化（kind/repo/path/action）', gi.length === 3 && gi.some((g) => g.kind === 'root-entry' && g.action === 'orchestrate') && gi.some((g) => g.kind === 'build-json' && g.repo === 'backend') && gi.some((g) => g.kind === 'subproject-entry' && g.repo === 'backend' && g.path === 'services/backend/AGENTS.md'));
     fs.writeFileSync(path.join(ws, 'AGENTS.md'), '# x\n', 'utf8');
     fs.mkdirSync(path.join(ws, 'services/backend/.harness'), { recursive: true });
     fs.writeFileSync(path.join(ws, 'services/backend/.harness/build.json'), '{}', 'utf8');

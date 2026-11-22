@@ -56,12 +56,12 @@ stages:
   - name: L1 根 AGENTS.md
     actor: PM
     do:
-      - 对每个确认生成的子工程派发一个 subagent：模板 root-CLAUDE.tmpl 全文 + 目标代码目录 + 输出 <子工程>/AGENTS.md；仅当 AGENTS.md 和 CLAUDE.md 都不存在时生成，已有任一则跳过
+      - 对每个确认生成的子工程派发一个 subagent：模板 root-AGENTS.tmpl（存量工作区若只有 root-CLAUDE.tmpl 则兼容） 全文 + 目标代码目录 + 输出 <子工程>/AGENTS.md；仅当 AGENTS.md 和 CLAUDE.md 都不存在时生成，已有任一则跳过
       - 「参考文档」段必须列 docs/CODE_STANDARDS.md —— 模板已写死该引用，不得按当前盘面自行判断"无参考文档"
   - name: 模块级 AGENTS.md
     actor: PM
     do:
-      - 按 plan 中缺失的模块清单派发 subagent（后端 module-CLAUDE.tmpl / 前端 app-CLAUDE.tmpl），输出 <模块>/AGENTS.md；模块已有 AGENTS.md 或 CLAUDE.md 任一则跳过，每批最多 5 个并行，避免上下文爆炸
+      - 按 plan 中缺失的模块清单派发 subagent（后端 module-AGENTS.tmpl（旧 module-CLAUDE.tmpl 兼容） / 前端 app-AGENTS.tmpl（旧 app-CLAUDE.tmpl 兼容）），输出 <模块>/AGENTS.md；模块已有 AGENTS.md 或 CLAUDE.md 任一则跳过，每批最多 5 个并行，避免上下文爆炸
       - 每个 prompt 自包含：模板全文 + 模块路径 + 输出路径
   - name: CodeGraph 索引
     actor: PM
