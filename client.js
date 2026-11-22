@@ -971,7 +971,8 @@ window.__ModuleLoader__.load({
       };
       const localAction = (repo, action, paths) => {
         setLocalBusy(true);
-        fetch('/harness-kit/local', {
+        // 同时带 query 与 body：兼容尚未重载、仍从 query 解析 workspace 的旧 Host。
+        fetch(`/harness-kit/local?workspace=${encodeURIComponent(ws.id)}`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ workspace: ws.id, repo, action, paths }),
         }).then((r) => r.json()).then((j) => {
