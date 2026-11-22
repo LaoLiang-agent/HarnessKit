@@ -258,6 +258,38 @@ section('hk-doctor 体检');
   ok('doctor --fix 修复看板并复检通过', resFix.text.includes('看板已按 7 列契约修复') && fs.readFileSync(path.join(ws, '.harness/tasks/board.md'), 'utf8').includes('| 任务名 | 状态 | Profile |'));
 }
 
+// ---------------------------------------------------------------- 本机状态目录
+section('本机状态统一到 .harness/local/');
+{
+  const { readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const { readTaskSessions } = await import(path.join(bundleRoot, 'kernel/bindings.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  fake(ws, '.harness/tasks/worktrees.json', JSON.stringify({ version: 2, slots: { backend: { 'slot-1': { task: 't1' } } }, tasks: { t1: { repos: {} } } }));
+  fake(ws, '.harness/tasks/sessions.json', JSON.stringify({ tasks: { t1: { sessionId: 's1', at: 'now' } } }));
+  const ledger = readWorkspaces(ws);
+  ok('旧 worktrees.json 自动迁入 local/', fs.existsSync(path.join(ws, '.harness/local/worktrees.json')) && !fs.existsSync(path.join(ws, '.harness/tasks/worktrees.json')) && !!ledger.tasks.t1);
+  const sessions = readTaskSessions(ws);
+  ok('旧 sessions.json 自动迁入 local/', fs.existsSync(path.join(ws, '.harness/local/sessions.json')) && !fs.existsSync(path.join(ws, '.harness/tasks/sessions.json')) && sessions.t1?.sessionId === 's1');
+  ok('迁移时补 .gitignore local/', fs.readFileSync(path.join(ws, '.harness/.gitignore'), 'utf8').split('\n').some((l) => l.trim() === 'local/'));
+}
+// ---------------------------------------------------------------- /hk 统一入口
+section('/hk 统一入口：init / task / close / doctor');
+{
+  const ws = mkws();
+  cleanups.push(ws);
+  fake(ws, 'services/backend/.git/HEAD', 'ref: refs/heads/dev');
+  const help = await run('hk', '', ws);
+  ok('/hk 无参数返回入口说明', help.kind === 'success' && help.text.includes('/hk init') && help.text.includes('/hk close'));
+  const init = await run('hk', 'init', ws);
+  ok('/hk init 等价初始化', init.kind === 'success' && fs.existsSync(path.join(ws, '.harness/kit.json')));
+  const task = await run('hk', 'task unified-one 统一入口立项', ws, []);
+  ok('/hk task 等价 /hk-new', task.kind === 'success' && fs.existsSync(path.join(ws, '.harness/deliverables/unified-one/proposal.md')));
+  const doctor = await run('hk', 'doctor', ws);
+  ok('/hk doctor 等价体检', doctor.kind === 'success' && doctor.text.includes('Harness Kit 体检'));
+  const unknown = await run('hk', 'nope', ws);
+  ok('/hk 未知子命令给指引', unknown.kind === 'error' && unknown.text.includes('init / task / close / doctor'));
+}
 // ---------------------------------------------------------------- hk-new
 section('hk-new Bootstrap 脚手架');
 {
@@ -838,7 +870,7 @@ section('池化工作区（主树优先 + slot 池）');
   ok('脏基线 → 拒绝并给决策提示（含 --slot）', refused.refused.length === 1 && refused.assigned.length === 0 && refused.refused[0].reason.includes('未提交改动') && refused.refused[0].reason.includes('--slot'));
   const forced = await ensureTaskWorkspaces(ws3, kit3, 'task-r1', { forceSlot: true });
   ok('--slot 裁决 → 隔离 slot 开发（不碰脏主树）', forced.assigned[0].placement.startsWith('slot-') && forced.refused.length === 0);
-  ok('台账本地化：.gitignore 排除 worktrees.json', fs.readFileSync(path.join(ws3, '.harness/.gitignore'), 'utf8').split('\n').some((l) => l.trim() === 'tasks/worktrees.json'));
+  ok('本机状态本地化：.gitignore 排除 local/', fs.readFileSync(path.join(ws3, '.harness/.gitignore'), 'utf8').split('\n').some((l) => l.trim() === 'local/'));
   // 场景13：主树空闲时 --slot 也强制进 slot（用户主动隔离）
   const ws4 = mkws();
   cleanups.push(ws4);
@@ -878,7 +910,7 @@ section('slot 本地配置复制');
   const slot = path.join(ws, '.worktrees/backend/slot-1');
   const notes = await (await import(path.join(bundleRoot, 'kernel/local-files.js'))).provisionLocalFiles(ws, source, slot);
   ok('确认项复制、未确认项只提示', fs.readFileSync(path.join(slot, 'application-local.properties'), 'utf8') === 'local' && !fs.existsSync(path.join(slot, 'dbcp-local.properties')) && notes.some((n) => n.includes('未确认')));
-  ok('manifest 落本机 tasks/local-files.json', readLocalFiles(ws).sources.backend.approved.includes('application-local.properties'));
+  ok('manifest 落本机 local/local-files.json', fs.existsSync(path.join(ws, '.harness/local/local-files.json')) && readLocalFiles(ws).sources.backend.approved.includes('application-local.properties'));
 }
 {
   const { ensureTaskWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
@@ -1006,7 +1038,7 @@ section('TE 环境串行排队（租约）');
   const acq = await run('hk-te', 'acquire t-z', ws);
   ok('/hk-te acquire 授权', acq.kind === 'success' && acq.text.includes('已授权'));
   // 台账本地化排除
-  ok('test-env.json 进 .gitignore（本机状态）', fs.readFileSync(path.join(ws, '.harness/.gitignore'), 'utf8').split('\n').some((l) => l.trim() === 'tasks/test-env.json'));
+  ok('test-env.json 进 .gitignore（本机状态）', fs.readFileSync(path.join(ws, '.harness/.gitignore'), 'utf8').split('\n').some((l) => l.trim() === 'local/'));
   // 注意力：有排队时提示
   acquireTestEnv(ws, 't-y');
   const items2 = attentionItems([], null, [], [], readTestEnv(ws));
@@ -1236,7 +1268,7 @@ section('结构化决策点（外来占用 → 可点选项 + 引擎停重试）
   fake(ws0, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [] }));
   recordDecision(ws0, 't1', { code: 'workspace-foreign', text: 'x', options: [{ label: 'a', line: '/hk-apply t1 --slot' }] });
   ok('决策点记录/读取', readDecisions(ws0).t1?.code === 'workspace-foreign' && readDecisions(ws0).t1.options.length === 1);
-  ok('决策点台账本机化（gitignore）', fs.readFileSync(path.join(ws0, '.harness/.gitignore'), 'utf8').split('\n').some((l) => l.trim() === 'tasks/decisions.json'));
+  ok('决策点台账本机化（gitignore）', fs.readFileSync(path.join(ws0, '.harness/.gitignore'), 'utf8').split('\n').some((l) => l.trim() === 'local/'));
   clearDecision(ws0, 't1');
   ok('决策点清除', readDecisions(ws0).t1 === undefined);
   // hk-apply 外来分支 → 结构化 decision（含现场详情与选项）
@@ -1729,7 +1761,7 @@ section('M4 面板：看板解析/流程进度/动作推导');
   ok('workspaceState 行透出 sessionId', state2.tasks.find((x) => x.task === 'demo')?.sessionId === 'sess-abc');
   ok('未绑定任务 sessionId 为 null', state2.tasks.find((x) => x.task === 'bug1')?.sessionId === null);
   ok('坏 sessions.json 容忍为 {}', (() => {
-    fs.writeFileSync(path.join(ws, '.harness/tasks/sessions.json'), '{坏', 'utf8');
+    fs.writeFileSync(path.join(ws, '.harness/local/sessions.json'), '{坏', 'utf8');
     return Object.keys(readTaskSessions(ws)).length === 0;
   })());
   recordTaskSession(ws, 'demo', 'sess-abc'); // 复原，避免影响后续断言

@@ -174,7 +174,7 @@ window.__ModuleLoader__.load({
     // 看板链词表 → 中文显示名（证据推导路径的阶段名本身即中文，原样通过）
     const STAGE_LABEL = {
       propose: '需求方案', Dev: '开发', CR: '代码审查', TE: '测试', 验证: '验证',
-      审批1: '审批 1', 审批2: '审批 2', 质量门: '质量门', 影响面: '影响面分析',
+      审批1: '方案审批', 审批2: '交付审批', 质量门: '质量门', 影响面: '影响面分析',
     };
     const stageLabel = (name) => STAGE_LABEL[name] || name;
 
@@ -386,7 +386,7 @@ window.__ModuleLoader__.load({
         }).catch((e) => toast(e.message, false)).finally(() => setBusy(false));
       }, [ws, toast, fetchState, openFallbackSession]);
 
-      // 立项/fix 直通：为任务开专属新会话（openWorkspace 在当前窗口直达新会话，
+      // 立项/快速修复：为任务开专属新会话（openWorkspace 在当前窗口直达新会话，
       // beforeOpen 同步拿到 sessionId），再把命令定向注入该会话——host 端轮询等
       // agent 就绪（≤15s），用户全程看到执行现场，侧栏也有新会话记录。
       // 打开失败/被取代则回落旧路径（注入最近活动会话）。
@@ -568,8 +568,8 @@ window.__ModuleLoader__.load({
         h('span', { style: { flex: 1 } }),
         h('button', { style: { ...S.btn(false), fontSize: 12 }, title: '新建 / 打开工作区', onClick: () => setObMode('choice') }, '＋ 工作区'),
         ws && h('button', { style: S.iconBtn, title: '新建任务', onClick: () => setModal({ name: '', desc: '', file: '' }) }, '＋'),
-        ws && h('button', { style: S.iconBtn, title: '团队动态', onClick: () => setView(view === 'activity' ? 'main' : 'activity') }, '🕘'),
-        ws && h('button', { style: S.iconBtn, title: '配置', onClick: () => setView(view === 'config' ? 'main' : 'config') }, '⚙'),
+        ws && h('button', { style: S.iconBtn, title: '团队', onClick: () => setView(view === 'activity' ? 'main' : 'activity') }, '🕘'),
+        ws && h('button', { style: S.iconBtn, title: '工作区', onClick: () => setView(view === 'config' ? 'main' : 'config') }, '⚙'),
         h('button', { style: S.iconBtn, title: '刷新', onClick: fetchState }, '⟳'),
       );
 
@@ -615,7 +615,7 @@ window.__ModuleLoader__.load({
         return h('div', { style: S.wrap, className: 'hk-root' }, header, h('div', { style: S.body },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0' } },
             h('button', { style: S.iconBtn, onClick: () => setView('main') }, '←'),
-            h('span', { style: S.hTitle }, `配置 · ${ws.title || ws.id}`)),
+            h('span', { style: S.hTitle }, `工作区 · ${ws.title || ws.id}`)),
           !config ? h('div', { style: S.empty }, '加载中…') : h(ConfigView, { config, syncMeta, ws, busy, saveConfig, runInit: runInitPanel, onOrchestrate: () => run('/hk-init'), catalog: config.catalog ?? [], toast }),
         ), h('div', { style: S.toastWrap }, toasts.map((tst) => h('div', { key: tst.id, style: S.toast(tst.ok), onClick: () => !tst.ok && setToasts((ts) => ts.filter((x) => x.id !== tst.id)) }, tst.text))));
       }
@@ -643,7 +643,7 @@ window.__ModuleLoader__.load({
         return h('div', { style: S.wrap, className: 'hk-root' }, header, h('div', { style: S.body },
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0' } },
             h('button', { style: S.iconBtn, onClick: () => setView('main') }, '←'),
-            h('span', { style: S.hTitle }, `团队动态 · ${ws.title || ws.id}`)),
+            h('span', { style: S.hTitle }, `团队 · ${ws.title || ws.id}`)),
           content));
       }
 
@@ -778,7 +778,7 @@ window.__ModuleLoader__.load({
             histOpen && h('div', { style: { padding: '0 12px 12px' } },
               h('input', { style: { ...S.input, width: 220, marginBottom: 8 }, placeholder: '搜索任务名…', value: histQuery, onChange: (e) => setHistQuery(e.target.value) }),
               h('table', { style: S.table },
-                h('thead', null, h('tr', null, ['任务', 'Profile', '完成时间'].map((x) => h('th', { key: x, style: S.th }, x)))),
+                h('thead', null, h('tr', null, ['任务', '流程', '完成时间'].map((x) => h('th', { key: x, style: S.th }, x)))),
                 h('tbody', null, histRows.map((t) => h('tr', { key: t.task },
                   h('td', { style: S.td }, t.task),
                   h('td', { style: S.td }, t.profile),
@@ -789,7 +789,7 @@ window.__ModuleLoader__.load({
           h('div', { style: S.modal, onClick: (e) => e.stopPropagation() },
             h('div', { style: { ...S.hTitle, marginBottom: 10 } }, '新建任务'),
             h('div', { style: { display: 'flex', gap: 6, marginBottom: 14 } },
-              [['new', '需求'], ['fix', 'fix 直通']].map(([m, label]) =>
+              [['new', '需求'], ['fix', '快速修复']].map(([m, label]) =>
                 h('button', {
                   key: m,
                   style: { ...S.btn(false), padding: '4px 12px', fontSize: 12, borderRadius: 14,
@@ -800,7 +800,7 @@ window.__ModuleLoader__.load({
             h('div', { style: { fontSize: 11, color: V.sub, margin: '-8px 0 12px' } },
               (modal.mode ?? 'new') === 'fix'
                 ? '简单 bug 修复：跳过文档审批，PM 评估质量门后交你裁决（轻量=只开发+验证）'
-                : '完整流程：提案澄清 → Profile 判定 → 人工审批 → 开发实施'),
+                : '完整流程：提案澄清 → 流程判定 → 人工审批 → 开发实施'),
             h('div', { style: S.field }, h('label', { style: S.label }, '任务名（可选，留空自动按描述生成英文短名）'),
               h('input', { style: S.input, value: modal.name, autoFocus: true, placeholder: '留空自动起名；仅限英文/数字/-_', onChange: (e) => setModal({ ...modal, name: e.target.value }) })),
             h('div', { style: S.field }, h('label', { style: S.label }, '一句话需求描述'),
@@ -993,7 +993,7 @@ window.__ModuleLoader__.load({
           }, '保存分支')),
         // 流程模式（原 .harness/config.json 的 apply-mode，已并入 kit.json）
         h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '流程模式'),
+          h('div', { style: S.secTitle }, '流程设置'),
           h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
             'applyMode 决定 CR 通过后是否进入人工审查点（review = CR PASS 后暂停等人工审查，auto = 直接进 TE）。'),
           k.legacyConfig && h('div', { style: { ...S.attn('warn'), marginBottom: 8 } },
@@ -1032,7 +1032,7 @@ window.__ModuleLoader__.load({
             '归档后自动执行资产同步（/hk-sync）'),
           h('button', { style: S.btn(busy, true), disabled: busy, onClick: () => saveConfig({ autoSync }, autoSync ? '已开启自动同步' : '已关闭自动同步') }, '保存')),
         h('div', { style: S.section },
-          h('div', { style: S.secTitle }, 'Worker 模型映射'),
+          h('div', { style: S.secTitle }, '高级：Worker 模型映射'),
           h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
             '键支持角色名（优先）或逻辑名（fast / coding / reasoning）；未配置的角色走会话默认。'),
           h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },

@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { runGit } from './exec.js';
-import { readKit, writeKit, defaultKit, harnessDir, packDir, kitPath } from './paths.js';
+import { readKit, writeKit, defaultKit, harnessDir, packDir, kitPath, migrateLegacyLocalState } from './paths.js';
 
 export function guessRole(name) {
   if (/front|web|ui/i.test(name)) return 'frontend';
@@ -356,7 +356,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       '',
     ].join('\n')],
     // transient logs + pack 管理运行时 stay out of the assets repo (independent-repo layout)
-    ['.gitignore', '.logs/**/*\n!.logs/**/\n!.logs/**/.gitkeep\n# pack 管理运行时（/hk-init 每次刷新，勿手改、勿提交）\nscripts/\n# 本机状态（各机独立，勿提交：会话绑定/续接点火/工作区分配/决策点/环境租约）\ntasks/sessions.json\ntasks/auto-advance.json\ntasks/worktrees.json\ntasks/decisions.json\ntasks/test-env.json\ntasks/local-files.json\n'],
+    ['.gitignore', '.logs/**/*\n!.logs/**/\n!.logs/**/.gitkeep\n# pack 管理运行时（/hk-init 每次刷新，勿手改、勿提交）\nscripts/\n# 本机状态（机器本地，不共享、勿提交）\nlocal/\n'],
   ]) {
     const abs = path.join(hd, file);
     if (!fs.existsSync(abs)) {
@@ -390,8 +390,9 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
     }
   }
 
-  // 存量迁移：本机状态文件（会话绑定/续接点火/工作区分配/决策点/环境租约）不入资产库
-  const LOCAL_STATE = ['tasks/sessions.json', 'tasks/auto-advance.json', 'tasks/worktrees.json', 'tasks/decisions.json', 'tasks/test-env.json'];
+  // 存量迁移：本机状态统一到 .harness/local/（旧 tasks/*.json 自动搬移），整目录不进资产库
+  migrateLegacyLocalState(ws);
+  const LOCAL_STATE = ['local/'];
   if (fs.existsSync(giPath)) {
     const cur = fs.readFileSync(giPath, 'utf8');
     const missing = LOCAL_STATE.filter((e) => !cur.split('\n').some((l) => l.trim() === e));

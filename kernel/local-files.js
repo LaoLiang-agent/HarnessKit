@@ -2,15 +2,15 @@
 //
 // 设计（2026-11-20 与人定稿）：
 //   - 不从插件硬编码文件名；候选由主工作树的 ignored/untracked 文件推断；
-//   - 首次确认后写入本机 manifest（tasks/local-files.json，不入资产 git）；
+//   - 首次确认后写入本机 manifest（.harness/local/local-files.json，不入资产 git）；
 //   - 新 slot 只复制已确认项；新候选只提示，不自动复制；
 //   - 支持 copy / symlink 两种模式，目标已存在时不覆盖。
 import fs from 'node:fs';
 import path from 'node:path';
-import { harnessDir } from './paths.js';
+import { harnessDir, localStatePath } from './paths.js';
 import { runGit } from './exec.js';
 
-const MANIFEST = 'tasks/local-files.json';
+const MANIFEST = 'local-files.json';
 const CONFIG_EXT = new Set(['.properties', '.yml', '.yaml', '.conf', '.ini', '.toml', '.json', '.xml', '.env']);
 const EXCLUDE_DIRS = new Set([
   '.git', 'target', 'build', 'dist', 'out', 'bin', 'obj', 'node_modules', '.idea', '.vscode',
@@ -21,7 +21,7 @@ const EXCLUDE_EXT = new Set([
   '.pdf', '.log', '.lock', '.map', '.min.js', '.min.css', '.woff', '.woff2', '.ttf', '.eot',
 ]);
 
-export const localFilesPath = (ws) => path.join(harnessDir(ws), MANIFEST);
+export const localFilesPath = (ws) => localStatePath(ws, MANIFEST, 'tasks/local-files.json');
 
 export function readLocalFiles(ws) {
   try {
@@ -160,7 +160,7 @@ export async function provisionLocalFiles(ws, source, slotDir) {
 /** 把已确认配置补到所有已绑定 slot（/hk-local apply）。 */
 export async function provisionAllSlots(ws, sources) {
   let ledger = {};
-  try { ledger = JSON.parse(fs.readFileSync(path.join(harnessDir(ws), 'tasks', 'worktrees.json'), 'utf8')); } catch { /* no ledger */ }
+  try { ledger = JSON.parse(fs.readFileSync(localStatePath(ws, 'worktrees.json', 'tasks/worktrees.json'), 'utf8')); } catch { /* no ledger */ }
   const notes = [];
   for (const source of sources ?? []) {
     const slots = ledger.slots?.[source.name] ?? {};

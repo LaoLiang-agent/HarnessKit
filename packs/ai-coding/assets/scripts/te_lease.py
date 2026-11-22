@@ -18,12 +18,17 @@ from pathlib import Path
 
 
 def env_path() -> Path:
+    return Path.cwd() / ".harness" / "local" / "test-env.json"
+
+
+def legacy_env_path() -> Path:
     return Path.cwd() / ".harness" / "tasks" / "test-env.json"
 
 
 def read_env():
     try:
-        data = json.loads(env_path().read_text(encoding="utf-8"))
+        path = env_path() if env_path().exists() or not legacy_env_path().exists() else legacy_env_path()
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         data = {}
     return {

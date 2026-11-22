@@ -5,13 +5,13 @@
 //   审批 1 通过 + 看板 IN_PROGRESS                     → /hk-apply <task>
 // 触发守卫：
 //   - 看板状态行是第一道闸（hk-propose 成功会置 IN_PROGRESS，天然阻断重复触发）；
-//   - 一次性标记落盘 .harness/tasks/auto-advance.json（host 重载后仍然幂等；
+//   - 一次性标记落盘 .harness/local/auto-advance.json（host 重载后仍然幂等；
 //     /hk-new、/hk-fix、/hk-archive 会清理对应任务标记，重建/归档后可重新接力）；
 //   - 审批/归档本身仍是人裁决：本引擎只在人写下 approved / 审批 1：通过 之后接力。
 // 修复直通（fix profile）没有这两个闸门，不参与自动续接。
 import fs from 'node:fs';
 import path from 'node:path';
-import { harnessDir } from './paths.js';
+import { harnessDir, localStatePath } from './paths.js';
 
 // 与 kernel/commands.js 的闸门正则同源（那边用于命令准入，这边用于触发扫描）。
 const APPROVAL1 = /审批\s*1[^0-9\n]{0,20}(通过|PASS)/i;
@@ -21,7 +21,7 @@ const APPROVAL2 = /审批\s*2\s*(✅|通过|PASS)/i;
 const STATUS_APPROVED = /状态[*＊]*[:：][ \t]*`?approved(?![\w-])/im;
 const TASK_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
-const marksPath = (ws) => path.join(harnessDir(ws), 'tasks', 'auto-advance.json');
+const marksPath = (ws) => localStatePath(ws, 'auto-advance.json', 'tasks/auto-advance.json');
 
 /** 读一次性触发标记（坏文件容忍为 {}）。 */
 export function readAdvanceMarks(ws) {

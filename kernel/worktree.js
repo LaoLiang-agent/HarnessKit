@@ -13,7 +13,7 @@
 //   - 卫生纪律：分配给新任务前 slot 必须干净（git status 空），脏 slot 拒绝分配并给清理指引
 //     （不自动 stash——残留可能是有价值的工作，由人裁决）。
 //
-// 台账 .harness/tasks/worktrees.json（v2）：
+// 台账 .harness/local/worktrees.json（v2）：
 //   {
 //     "version": 2,
 //     "slots":  { "<repo>": { "slot-1": { "task": "…", "branch": "…", "since": "ISO", "state": "bound" | "stale-unmerged" } } },
@@ -23,11 +23,11 @@
 // M1 刚上线即改为池化，野外无 v1 数据需要迁移。
 import fs from 'node:fs';
 import path from 'node:path';
-import { harnessDir } from './paths.js';
+import { harnessDir, localStatePath } from './paths.js';
 import { runGit } from './exec.js';
 import { provisionLocalFiles } from './local-files.js';
 
-const ledgerPath = (ws) => path.join(harnessDir(ws), 'tasks', 'worktrees.json');
+const ledgerPath = (ws) => localStatePath(ws, 'worktrees.json', 'tasks/worktrees.json');
 const worktreeRoot = (ws, repo) => path.join(ws, '.worktrees', repo);
 
 // --------------------------------------------------------------- 台账读写
@@ -47,19 +47,19 @@ function writeWorkspaces(ws, { slots, tasks }) {
   keepLedgerLocal(ws);
 }
 
-/** 台账本地化：.gitignore 排除 + 已追踪的旧文件摘除追踪（保留本地文件）。失败容忍。 */
-export function keepLedgerLocal(ws, entry = 'tasks/worktrees.json') {
+/** 本机状态本地化：.gitignore 排除整个 .harness/local/；旧 tasks/*.json 行保留不影响。 */
+export function keepLedgerLocal(ws, _entry = null) {
   try {
     const hd = harnessDir(ws);
     const gi = path.join(hd, '.gitignore');
     const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
-    if (!cur.split('\n').some((l) => l.trim() === entry)) {
-      fs.appendFileSync(gi, `${cur.endsWith('\n') || cur === '' ? '' : '\n'}# 本机工作区/环境台账（机器本地状态，不共享、勿提交）\n${entry}\n`, 'utf8');
+    if (!cur.split('\n').some((l) => l.trim() === 'local/')) {
+      fs.appendFileSync(gi, `${cur.endsWith('\n') || cur === '' ? '' : '\n'}# 本机状态（机器本地，不共享、勿提交）\nlocal/\n`, 'utf8');
     }
     if (fs.existsSync(path.join(hd, '.git'))) {
-      runGit(['rm', '--cached', '--quiet', '--ignore-unmatch', entry], { cwd: hd });
+      runGit(['rm', '-r', '--cached', '--quiet', '--ignore-unmatch', 'local'], { cwd: hd });
     }
-  } catch { /* 容忍：最坏结果是台账被同步，跨用户挡路问题复现 */ }
+  } catch { /* 容忍：最坏结果是本机状态被同步 */ }
 }
 
 // 兼容旧测试与外部引用
@@ -212,7 +212,7 @@ async function mergedStatus(repoDir, branch, base) {
 
 // --------------------------------------------------------------- 决策点（需人裁决的结构性阻塞）
 
-const decisionsPath = (ws) => path.join(harnessDir(ws), 'tasks', 'decisions.json');
+const decisionsPath = (ws) => localStatePath(ws, 'decisions.json', 'tasks/decisions.json');
 
 /** 待裁决决策点（本机状态）：{ <task>: { code, text, options, at } }。 */
 export function readDecisions(ws) {
@@ -225,7 +225,7 @@ export function readDecisions(ws) {
 function writeDecisions(ws, decisions) {
   fs.mkdirSync(path.dirname(decisionsPath(ws)), { recursive: true });
   fs.writeFileSync(decisionsPath(ws), `${JSON.stringify(decisions, null, 2)}\n`, 'utf8');
-  keepLedgerLocal(ws, 'tasks/decisions.json');
+  keepLedgerLocal(ws);
 }
 
 /** 记录决策点（工作区分配拒绝等）；重复记录覆盖（保持最新文本）。 */

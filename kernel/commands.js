@@ -876,7 +876,7 @@ const TE_NOTICE = [
   '- 测试环境（起服务/连 TDengine/jmeter）全局只有一个，TE 阶段按租约串行。',
   '- 派发 TE Worker **之前**必须先获取租约：',
   '  - 人可运行 `/hk-te acquire <任务名>`；',
-  '  - PM/自动流程可直接运行 `python3 .harness/scripts/te_lease.py acquire <任务名>`（与 `/hk-te` 共用同一 `tasks/test-env.json`，不需要人代跑 slash command）。',
+  '  - PM/自动流程可直接运行 `python3 .harness/scripts/te_lease.py acquire <任务名>`（与 `/hk-te` 共用同一 `local/test-env.json`，不需要人代跑 slash command）。',
   '  - 已获授权 → 正常派发；排队中 → **暂停 TE 阶段**，向人汇报「TE 环境被谁占用、本任务已排队」，**不要派发 TE Worker、不要起服务/连测试库**（内核无法抢占运行中的 Worker，门必须在派发前）。',
   '- 租约只是串行锁，不是人工审批；获取后仍按 TE 门禁执行。',
   '- TE 完成（看板链 TE 标 ✅）后内核自动释放并通知下一个排队任务，无需手工 release。',
@@ -1156,8 +1156,41 @@ async function hkDoctor({ agent, rawInput }) {
   return ok(lines.join('\n'));
 }
 
+/**
+ * 统一入口（0.3.0 概念收敛）：/hk init|task|close|doctor。
+ * 旧 /hk-* 命令继续作为别名，内部转发到同一 handler。
+ */
+async function hkUmbrella({ agent, rawInput, ctx }) {
+  const text = String(rawInput ?? '').trim();
+  const [sub, ...restParts] = text.split(/\s+/).filter(Boolean);
+  const rest = restParts.join(' ');
+  if (!sub || sub === 'help' || sub === '-h' || sub === '--help') {
+    return ok([
+      '## /hk 入口',
+      '',
+      '- `/hk init [--assets …]`：初始化 / 修复工作区骨架与资产绑定',
+      '- `/hk task <描述> [--file …]`：立项；加 `--fix` 走快速修复',
+      '- `/hk close <任务> [--merge|--no-merge] [--dry-run]`：归档并收尾',
+      '- `/hk doctor [--fix]`：体检；`--fix` 修复确定性缺件',
+      '',
+      '高级命令仍可用：/hk-setup、/hk-propose、/hk-apply、/hk-archive、/hk-fix、/hk-te、/hk-local、/hk-sync。',
+    ].join('\n'));
+  }
+  if (sub === 'init') return hkInit({ agent, rawInput: rest, ctx });
+  if (sub === 'close') return hkArchive({ agent, rawInput: rest, ctx });
+  if (sub === 'doctor') return hkDoctor({ agent, rawInput: rest, ctx });
+  if (sub === 'task') {
+    const tokens = restParts.filter((t) => t !== '--fix');
+    const line = tokens.join(' ');
+    if (restParts.includes('--fix')) return hkFix({ agent, rawInput: line, ctx });
+    return hkNew({ agent, rawInput: line, ctx });
+  }
+  return err(`未知 /hk 子命令：${sub}。可用：init / task / close / doctor。`);
+}
+
 export function registerCommands(ctx) {
   const defs = [
+    { name: 'hk', description: 'Harness Kit 统一入口：init / task / close / doctor', hint: '[init|task|close|doctor] …', handler: hkUmbrella },
     { name: 'hk-setup', description: '收集代码仓库并登记 kit.json（--add <url> [--name n] [--path p] [--role r] [--branch b]）', hint: '[--add <git-url> …]', handler: hkSetup },
     { name: 'hk-init', description: '初始化 .harness 骨架/资产仓库绑定/脚本模板物化，并编排子工程文档与 CodeGraph 索引生成（幂等）', hint: '[--assets <url|init|local>] [--branch <分支>]', handler: hkInit },
     { name: 'hk-fix', description: '启动轻量 fix 直通任务：脚手架 + PM 编排剧本', hint: '[任务名] <一句话描述> [--full|--light] [--auto]', handler: hkFix },

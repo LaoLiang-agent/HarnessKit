@@ -1,7 +1,7 @@
 // TE 环境串行排队（M3 一期，2026-11-15 定）：测试环境全局只有一个
 // （起服务/连 TDengine/jmeter 不可多任务并发），TE 阶段按租约串行：
 //
-//   - 租约台账 .harness/tasks/test-env.json（本机状态，不进资产 git）：
+//   - 租约台账 .harness/local/test-env.json（本机状态，不进资产 git）：
 //       { "holder": "task-x", "since": "ISO", "queue": ["task-y"] }
 //   - PM 派发 TE Worker 前必须先 `/hk-te acquire <任务>`：
 //       空闲 → 授权；自己持有 → 已持有；别人持有 → 排队并暂停 TE 阶段（内核不可抢占运行中的 Worker，门在派发前）
@@ -10,10 +10,10 @@
 //   - grace：holder 已授权但看板链还没标 TE▶（PM 先 acquire 后写板的时序窗口）不释放
 import fs from 'node:fs';
 import path from 'node:path';
-import { harnessDir } from './paths.js';
+import { localStatePath } from './paths.js';
 import { keepLedgerLocal } from './worktree.js';
 
-const envPath = (ws) => path.join(harnessDir(ws), 'tasks', 'test-env.json');
+const envPath = (ws) => localStatePath(ws, 'test-env.json', 'tasks/test-env.json');
 
 export function readTestEnv(ws) {
   try {
@@ -29,7 +29,7 @@ export function readTestEnv(ws) {
 function writeTestEnv(ws, env) {
   fs.mkdirSync(path.dirname(envPath(ws)), { recursive: true });
   fs.writeFileSync(envPath(ws), `${JSON.stringify(env, null, 2)}\n`, 'utf8');
-  keepLedgerLocal(ws, 'tasks/test-env.json');
+  keepLedgerLocal(ws);
 }
 
 /** 看板链中 TE 阶段的标记（✅ 完成 / — 跳过 → 不再需要环境；▶/…/⛔/缺 → 仍可能需要）。 */

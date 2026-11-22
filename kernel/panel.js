@@ -200,7 +200,7 @@ export function claimTask(ws, task, by) {
 }
 
 // ---------------------------------------------------------- 任务 ↔ 会话绑定
-// .harness/tasks/sessions.json：{ tasks: { <任务名>: { sessionId, at } } }
+// .harness/local/sessions.json：{ tasks: { <任务名>: { sessionId, at, sessions } } }
 // 实现已下沉 kernel/bindings.js（kernel 命令 handler 与自动续接引擎共用），此处转出口径不变。
 export { readTaskSessions, recordTaskSession } from './bindings.js';
 
