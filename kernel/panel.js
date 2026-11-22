@@ -909,11 +909,11 @@ export function registerPanelApi(ctx) {
     path: '/harness-kit/local',
     async handler(req, res) {
       const ref = new URL(req.url, 'http://x').searchParams.get('workspace');
-      const ws = findWs(registry, ref);
-      if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
-      const kit = readKit(ws.path);
-      if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
       if (req.method === 'GET') {
+        const ws = findWs(registry, ref);
+        if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+        const kit = readKit(ws.path);
+        if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
         try {
           const manifest = readLocalFiles(ws.path);
           const sources = [];

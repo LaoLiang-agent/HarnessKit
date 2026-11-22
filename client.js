@@ -925,6 +925,7 @@ window.__ModuleLoader__.load({
       const [autoClose, setAutoClose] = useState(k.worktree?.autoClose === true);
       const [targetSync, setTargetSync] = useState(k.worktree?.targetSync ?? 'safe');
       const [local, setLocal] = useState(null);
+      const [localSel, setLocalSel] = useState({});
       const [localBusy, setLocalBusy] = useState(false);
       const [models, setModels] = useState(() => Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
       const [applyMode, setApplyMode] = useState(k.applyMode ?? 'auto');
@@ -935,21 +936,48 @@ window.__ModuleLoader__.load({
         setTargetSync(k.worktree?.targetSync ?? 'safe');
         setModels(Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
         setApplyMode(k.applyMode ?? 'auto');
+        setLocalSel({});
       }, [ws.id]);
       const loadLocal = useCallback(() => {
         fetch(`/harness-kit/local?workspace=${encodeURIComponent(ws.id)}`, { cache: 'no-store' })
           .then((r) => r.json())
-          .then((j) => setLocal(j.ok ? j : { sources: [] }))
+          .then((j) => {
+            if (!j.ok) { setLocal({ sources: [] }); return; }
+            setLocal(j);
+            setLocalSel((prev) => {
+              const next = { ...prev };
+              for (const s of j.sources ?? []) {
+                const pending = (s.candidates ?? []).filter((c) => c.pending);
+                const valid = new Set(pending.map((c) => c.path));
+                if (!Array.isArray(next[s.name])) {
+                  // 默认勾选高置信项；普通配置项由用户自行勾选
+                  next[s.name] = pending.filter((c) => c.reason === 'high').map((c) => c.path);
+                } else {
+                  next[s.name] = next[s.name].filter((p) => valid.has(p));
+                }
+              }
+              return next;
+            });
+          })
           .catch(() => setLocal({ sources: [] }));
       }, [ws.id]);
       useEffect(() => { loadLocal(); }, [loadLocal]);
+      const toggleLocal = (repo, path, checked) => {
+        setLocalSel((prev) => {
+          const cur = new Set(prev[repo] ?? []);
+          if (checked) cur.add(path); else cur.delete(path);
+          return { ...prev, [repo]: [...cur] };
+        });
+      };
       const localAction = (repo, action, paths) => {
         setLocalBusy(true);
         fetch('/harness-kit/local', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ workspace: ws.id, repo, action, paths }),
         }).then((r) => r.json()).then((j) => {
-          toast(j.ok ? (j.notes?.length ? j.notes.join('；') : (action === 'approve' ? '已确认' : '已跳过')) : j.error || '操作失败', j.ok);
+          const notes = j.notes ?? [];
+          const detail = notes.length > 3 ? `${notes.slice(0, 3).join('；')} 等 ${notes.length} 项` : notes.join('；');
+          toast(j.ok ? (detail || (action === 'approve' ? '已同步' : '已跳过')) : j.error || '操作失败', j.ok);
           if (j.ok) loadLocal();
         }).catch((e) => toast(e.message, false)).finally(() => setLocalBusy(false));
       };
@@ -995,14 +1023,24 @@ window.__ModuleLoader__.load({
                 `${s.name}：已同步 ${s.approved.length} 个，待处理 ${pending.length} 个`),
               pending.length === 0 && s.approved.length > 0 && h('div', { style: { fontSize: 11, color: V.ok } }, '本机配置已同步。'),
               pending.length === 0 && s.approved.length === 0 && h('div', { style: { fontSize: 11, color: V.sub } }, '没有发现需要同步的本机文件。'),
-              pending.length > 0 && h('div', { style: { marginBottom: 5 } },
-                pending.slice(0, 8).map((c) => h('div', { key: c.path, style: { fontSize: 11, color: V.sub, marginBottom: 2 } },
-                  h('span', { style: { color: c.reason === 'high' ? V.warn : V.sub, marginRight: 6 } }, c.reason === 'high' ? '建议同步' : '可选'),
-                  h('span', { style: { fontFamily: 'monospace' } }, c.path))),
-                pending.length > 8 && h('div', { style: { fontSize: 11, color: V.sub } }, `… 另 ${pending.length - 8} 个`)),
-              pending.length > 0 && h('div', { style: { display: 'flex', gap: 6 } },
-                h('button', { style: S.btn(localBusy, true), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '同步这些文件'),
-                h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '暂不同步')));
+              pending.length > 0 && (() => {
+                const selected = new Set(localSel[s.name] ?? []);
+                const selectedPending = pending.filter((c) => selected.has(c.path));
+                return h('div', null,
+                  h('div', { style: { maxHeight: 230, overflowY: 'auto', border: `1px solid ${V.border}`, borderRadius: 6, padding: '4px 6px', marginBottom: 6 } },
+                    pending.map((c) => h('label', {
+                      key: c.path,
+                      style: { display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, color: V.sub, marginBottom: 3, cursor: 'pointer' },
+                      title: c.path,
+                    },
+                      h('input', { type: 'checkbox', checked: selected.has(c.path), onChange: (e) => toggleLocal(s.name, c.path, e.target.checked) }),
+                      h('span', { style: { color: c.reason === 'high' ? V.warn : V.sub, whiteSpace: 'nowrap' } }, c.reason === 'high' ? '建议同步' : '可选'),
+                      h('span', { style: { fontFamily: 'monospace', wordBreak: 'break-all' } }, c.path)))),
+                  h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+                    h('button', { style: S.btn(localBusy || selectedPending.length === 0, true), disabled: localBusy || selectedPending.length === 0, onClick: () => localAction(s.name, 'approve', selectedPending.map((c) => c.path)) }, `同步选中（${selectedPending.length}）`),
+                    h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '同步全部'),
+                    h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '暂不同步')));
+              })());
           })),
         // ② 可配项
         (k.sources ?? []).length > 0 && h('div', { style: S.section },

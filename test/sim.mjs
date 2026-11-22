@@ -1851,6 +1851,53 @@ section('自动续接引擎：定稿→propose、审批1→apply 扫描与一次
   ok('hk-propose 内更新任务绑定', readBindings(ws)['adv-b']?.sessionId === 'sess-prop');
 }
 
+// ------------------------------------------------------------- 本机配置路由
+section('本机配置面板：GET 扫描 + POST 确认');
+{
+  const { registerPanelApi } = await import(path.join(bundleRoot, 'kernel/panel.js'));
+  const { EventEmitter } = await import('node:events');
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  fs.mkdirSync(repo, { recursive: true });
+  git('init -b dev', repo);
+  fake(ws, 'services/backend/.gitignore', 'application-local.properties\n');
+  fake(ws, 'services/backend/application-local.properties', 'local=true\n');
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [{ name: 'backend', path: 'services/backend', role: 'backend', branch: 'dev' }] }));
+  const routes = new Map();
+  const webServer = {
+    exact: routes, prefixes: new Map(),
+    register(route) { routes.set(route.path, route); return () => routes.delete(route.path); },
+  };
+  const registry = { list: () => [{ id: 'ws-local', path: ws, title: 'local', sessionIds: [] }] };
+  const ctx = {
+    get(name) {
+      if (name === 'webServer') return webServer;
+      if (name === 'workspaceRegistry') return registry;
+      if (name === 'connection') return { requestRejection: () => undefined };
+      return undefined;
+    },
+  };
+  const disposers = registerPanelApi(ctx);
+  const route = routes.get('/harness-kit/local');
+  const response = () => ({ code: 0, body: null, writeHead(code) { this.code = code; }, end(body) { this.body = JSON.parse(body); } });
+  const getRes = response();
+  await route.handler({ method: 'GET', url: '/harness-kit/local?workspace=ws-local' }, getRes);
+  const candidates = getRes.body?.sources?.[0]?.candidates ?? [];
+  ok('GET 本机配置返回候选', getRes.code === 200 && candidates.some((c) => c.path === 'application-local.properties' && c.pending));
+  const req = new EventEmitter();
+  req.method = 'POST'; req.url = '/harness-kit/local';
+  const postRes = response();
+  const pending = route.handler(req, postRes);
+  queueMicrotask(() => {
+    req.emit('data', Buffer.from(JSON.stringify({ workspace: 'ws-local', repo: 'backend', action: 'approve', paths: ['application-local.properties'] })));
+    req.emit('end');
+  });
+  await pending;
+  ok('POST 本机配置不再报未知工作区', postRes.code === 200 && postRes.body?.ok === true);
+  ok('POST 确认写入本机清单', JSON.parse(fs.readFileSync(path.join(ws, '.harness/local/local-files.json'), 'utf8')).sources.backend.approved.includes('application-local.properties'));
+  disposers.forEach((d) => d());
+}
 // ------------------------------------------------------------- 任务运行统计
 section('任务运行统计：会话树、token、覆盖率、归档快照');
 {
@@ -1992,6 +2039,7 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     const panelSrc = fs.readFileSync(path.join(bundleRoot, 'kernel/panel.js'), 'utf8');
     ok('所有面板路由统一经 guardPanelHandler', panelSrc.includes('handler: guardPanelHandler(route.handler, connection)'));
     ok('历史任务统计优先归档快照', panelSrc.includes('readLatestTaskMetrics') && panelSrc.includes("!fs.existsSync(path.join(harnessDir(ws.path), 'deliverables', task))"));
+    ok('本机配置 POST 从 body 解析工作区', panelSrc.includes("const { workspace, repo, action, paths } = JSON.parse") && panelSrc.includes('const targetWs = findWs(registry, workspace)'));
   }
   // initGaps：根 AGENTS.md/CLAUDE.md + 子工程 build.json / AGENTS.md
   {
@@ -2407,6 +2455,7 @@ section('client：工作区提醒');
   ok('历史任务运行记录入口', clientSrc.includes('历史任务运行记录弹窗') && clientSrc.includes('运行记录 · ${histInsight.task}') && clientSrc.includes('setHistInsight(t)'));
   ok('运行记录主视图不展示失败次数', !clientSrc.includes("'失败'].map") && !clientSrc.includes('· 失败 ${d.totals'));
   ok('本机配置使用普通用户文案', clientSrc.includes('本机开发配置') && clientSrc.includes('不会提交到代码仓库') && !clientSrc.includes('本机配置（git-ignored）'));
+  ok('本机配置支持逐文件选择', clientSrc.includes('同步选中（') && clientSrc.includes('toggleLocal') && clientSrc.includes('maxHeight: 230'));
 }
 
 // ---------------------------------------------------------------- report
