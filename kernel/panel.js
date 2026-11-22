@@ -323,6 +323,18 @@ export function updateKit(ws, patch) {
       target.branch = s.branch.trim();
     }
   }
+  if (patch.worktree !== undefined) {
+    if (patch.worktree == null || typeof patch.worktree !== 'object' || Array.isArray(patch.worktree)) {
+      return { error: 'worktree 必须是对象' };
+    }
+    if (patch.worktree.autoClose !== undefined && typeof patch.worktree.autoClose !== 'boolean') {
+      return { error: 'worktree.autoClose 必须是布尔值' };
+    }
+    if (patch.worktree.targetSync !== undefined && !['safe', 'ff-only', 'off'].includes(patch.worktree.targetSync)) {
+      return { error: "worktree.targetSync 必须是 'safe' / 'ff-only' / 'off'" };
+    }
+    kit.worktree = { ...(kit.worktree ?? {}), ...patch.worktree };
+  }
   if (patch.autoSync !== undefined) {
     if (typeof patch.autoSync !== 'boolean') return { error: 'autoSync 必须是布尔值' };
     kit.assets = kit.assets ?? { mode: 'local' };
@@ -804,6 +816,7 @@ export function registerPanelApi(ctx) {
               sources: kit.sources ?? [],
               models: kit.models ?? {},
               assets: kit.assets ?? { mode: 'local' },
+              worktree: kit.worktree ?? {},
               // 流程配置（原 .harness/config.json，2026-11-18 迁入 kit.json）
               applyMode: kit.applyMode ?? 'auto',
               legacyConfig: readLegacyConfig(ws.path),

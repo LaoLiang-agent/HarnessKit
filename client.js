@@ -868,11 +868,15 @@ window.__ModuleLoader__.load({
       });
       const [branches, setBranches] = useState(() => Object.fromEntries((k.sources ?? []).map((s) => [s.name, s.branch ?? ''])));
       const [autoSync, setAutoSync] = useState(k.assets?.autoSync === true);
+      const [autoClose, setAutoClose] = useState(k.worktree?.autoClose === true);
+      const [targetSync, setTargetSync] = useState(k.worktree?.targetSync ?? 'safe');
       const [models, setModels] = useState(() => Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
       const [applyMode, setApplyMode] = useState(k.applyMode ?? 'auto');
       useEffect(() => {
         setBranches(Object.fromEntries((k.sources ?? []).map((s) => [s.name, s.branch ?? ''])));
         setAutoSync(k.assets?.autoSync === true);
+        setAutoClose(k.worktree?.autoClose === true);
+        setTargetSync(k.worktree?.targetSync ?? 'safe');
         setModels(Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
         setApplyMode(k.applyMode ?? 'auto');
       }, [ws.id]);
@@ -931,6 +935,23 @@ window.__ModuleLoader__.load({
             style: S.btn(busy, true), disabled: busy,
             onClick: () => saveConfig({ applyMode }, '流程配置已保存'),
           }, '保存'))),
+        h('div', { style: S.section },
+          h('div', { style: S.secTitle }, '任务收尾'),
+          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+            '开启后归档会先同步目标基线并本地合入干净任务分支；冲突、目标脏或分叉时停下，不会自动 push。'),
+          h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },
+            h('input', { type: 'checkbox', checked: autoClose, onChange: (e) => setAutoClose(e.target.checked) }),
+            '归档时自动收尾（autoClose）'),
+          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, fontSize: 12 } },
+            h('span', { style: { minWidth: 96, color: V.sub } }, '目标同步'),
+            h('select', { style: { ...S.select, width: 150 }, value: targetSync, onChange: (e) => setTargetSync(e.target.value) },
+              h('option', { value: 'safe' }, 'safe（推荐）'),
+              h('option', { value: 'ff-only' }, 'ff-only（严格）'),
+              h('option', { value: 'off' }, 'off（不同步）'))),
+          h('button', {
+            style: S.btn(busy, true), disabled: busy,
+            onClick: () => saveConfig({ worktree: { autoClose, targetSync } }, '任务收尾配置已保存'),
+          }, '保存')),
         h('div', { style: S.section },
           h('div', { style: S.secTitle }, '自动同步'),
           h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },

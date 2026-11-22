@@ -257,20 +257,144 @@ export async function describeMainWorktree(ws, source, { maxLines = 10 } = {}) {
   ].join('\n');
 }
 
+/** 判断 ancestor 是否为 descendant 的祖先（git 退出码 0 = 是）。 */
+async function isAncestor(repoDir, ancestor, descendant) {
+  return (await runGit(['merge-base', '--is-ancestor', ancestor, descendant], { cwd: repoDir })).code === 0;
+}
+
+/** 把目标本地分支的上游设为 origin/<target>（远端分支存在时；失败不阻断）。 */
+async function setTargetUpstream(repoDir, target) {
+  const remote = await runGit(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${target}`], { cwd: repoDir });
+  if (remote.code !== 0) return;
+  await runGit(['branch', '--set-upstream-to', `origin/${target}`, target], { cwd: repoDir });
+}
+
+/** 把 origin/<target> 干净地并入本地目标（仅本地，不推送）；冲突中止回滚。 */
+async function mergeRemoteIntoTarget(ws, repoDir, name, target, remoteRev, out) {
+  const localRev = (await runGit(['rev-parse', 'refs/heads/' + target], { cwd: repoDir })).stdout.trim();
+  const holder = await worktreeOnBranch(repoDir, target);
+  let cwd = holder;
+  let tempDir = null;
+  if (!cwd) {
+    tempDir = path.join(worktreeRoot(ws, name), '_sync');
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(tempDir), { recursive: true });
+    const add = await runGit(['worktree', 'add', tempDir, target], { cwd: repoDir });
+    if (add.code !== 0) {
+      out.refused.push({ repo: name, reason: `目标 ${target} 同步工作树创建失败：${(add.stderr || '').trim().split('\n')[0]}` });
+      return false;
+    }
+    cwd = tempDir;
+  }
+  if (await isDirty(cwd)) {
+    if (tempDir) await runGit(['worktree', 'remove', '--force', tempDir], { cwd: repoDir });
+    out.refused.push({ repo: name, reason: `目标分支 ${target} 所在工作树有未提交改动，无法并入远端：${cwd}` });
+    return false;
+  }
+  const mg = await runGit(['merge', '--no-edit', `origin/${target}`], { cwd });
+  if (mg.code !== 0) {
+    const files = (await runGit(['diff', '--name-only', '--diff-filter=U'], { cwd })).stdout.trim().split('\n').filter(Boolean);
+    await runGit(['merge', '--abort'], { cwd });
+    if (tempDir) { await runGit(['worktree', 'remove', '--force', tempDir], { cwd: repoDir }); fs.rmSync(tempDir, { recursive: true, force: true }); }
+    out.refused.push({ repo: name, reason: `目标 ${target} 与 origin/${target} 分叉且自动并入冲突（已回滚）：${files.slice(0, 6).join('、') || '见 git status'}` });
+    return false;
+  }
+  if (tempDir) { await runGit(['worktree', 'remove', '--force', tempDir], { cwd: repoDir }); fs.rmSync(tempDir, { recursive: true, force: true }); }
+  await setTargetUpstream(repoDir, target);
+  out.synced.push({ repo: name, target, from: localRev.slice(0, 12), to: remoteRev.slice(0, 12), merged: true });
+  return true;
+}
+
+/**
+ * 合并前把本地目标与 origin/<target> 对齐。
+ * - safe（默认）：落后 → 快进；领先 → 保留；分叉 → 干净地并入 origin（冲突回滚）。
+ * - ff-only：落后 → 快进；领先/分叉 → 停止。
+ * - off：不同步。
+ * 返回 true = 可以继续；false = 已写入 out.refused。
+ * 不做 rebase、不强制更新、不推送。
+ */
+async function syncTargetBranch(ws, repoDir, name, target, out, mode = 'safe') {
+  const hasOrigin = (await runGit(['remote', 'get-url', 'origin'], { cwd: repoDir })).code === 0;
+  if (!hasOrigin) return true;
+  const remoteRef = `refs/remotes/origin/${target}`;
+  const hadRemoteRef = (await runGit(['rev-parse', '--verify', '--quiet', remoteRef], { cwd: repoDir })).code === 0;
+  // fetch 是只读远端操作；失败时若有已知远端分支则停止，避免在旧目标上合入。
+  const fetched = await runGit(['fetch', 'origin', target], { cwd: repoDir, timeoutMs: 30_000 });
+  if (fetched.code !== 0) {
+    if (hadRemoteRef) {
+      out.refused.push({
+        repo: name,
+        reason: `目标 ${target} 远端拉取失败（${(fetched.stderr || '').trim().split('\n')[0] || '网络/权限'}）；修复后重试，或加 --no-merge 仅归档`,
+      });
+      return false;
+    }
+    // 远端还没有同名分支：按纯本地目标处理。
+    return true;
+  }
+  const remoteRev = (await runGit(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${target}`], { cwd: repoDir })).stdout.trim();
+  if (!remoteRev) return true;
+  const localRev = (await runGit(['rev-parse', '--verify', '--quiet', `refs/heads/${target}`], { cwd: repoDir })).stdout.trim();
+  if (!localRev) return true;
+  if (localRev === remoteRev) {
+    await setTargetUpstream(repoDir, target);
+    return true;
+  }
+  if (await isAncestor(repoDir, localRev, remoteRev)) {
+    // 本地目标落后远端：优先在 checkout 它的干净工作树里快进；否则直接更新 ref。
+    const holder = await worktreeOnBranch(repoDir, target);
+    if (holder) {
+      if (await isDirty(holder)) {
+        out.refused.push({ repo: name, reason: `目标分支 ${target} 所在工作树有未提交改动，无法快进：${holder}` });
+        return false;
+      }
+      const ff = await runGit(['merge', '--ff-only', `origin/${target}`], { cwd: holder });
+      if (ff.code !== 0) {
+        out.refused.push({ repo: name, reason: `目标 ${target} 快进失败：${(ff.stderr || '').trim().split('\n')[0]}` });
+        return false;
+      }
+    } else {
+      const ur = await runGit(['update-ref', `refs/heads/${target}`, remoteRev], { cwd: repoDir });
+      if (ur.code !== 0) {
+        out.refused.push({ repo: name, reason: `目标 ${target} 本地 ref 快进失败` });
+        return false;
+      }
+    }
+    await setTargetUpstream(repoDir, target);
+    out.synced.push({ repo: name, target, from: localRev.slice(0, 12), to: remoteRev.slice(0, 12) });
+    return true;
+  }
+  if (await isAncestor(repoDir, remoteRev, localRev)) {
+    // 本地目标领先远端：这是 autoClose 未推送合并提交后的常态，safe 模式不应阻止下一次收尾。
+    if (mode === 'ff-only') {
+      out.refused.push({ repo: name, reason: `目标 ${target} 有未推送的本地提交（领先 origin/${target}）；ff-only 模式停止，改用 safe 或先推送` });
+      return false;
+    }
+    await setTargetUpstream(repoDir, target);
+    return true;
+  }
+  if (mode !== 'safe') {
+    out.refused.push({ repo: name, reason: `目标 ${target} 与 origin/${target} 已分叉；ff-only 模式停止，改用 safe 或先人工合并` });
+    return false;
+  }
+  return mergeRemoteIntoTarget(ws, repoDir, name, target, remoteRev, out);
+}
+
 /**
  * 本地合入任务分支到目标基线（B 方案，2026-11-17 定）：不推送，推送仍归人。
- * 人通过 /hk-archive <任务> --merge（可带 repo:branch 覆盖）显式确认目标分支——
- * 确认即触发本次调用。合并提交留在目标分支上；冲突则中止并报告，不污染基线。
  *
+ * 2026-11-22（0.2.0）：合并前先把本地目标快进到 origin/<target>（只 ff），
+ * 已合入（本地或远端）不再重复 merge；冲突/目标脏/目标分叉全部在归档前停止。
  * 合并位置：目标分支若被某工作树 checkout 且干净 → 就地合并；否则建临时工作树
  * （.worktrees/<仓>/_merge）合并后删除。主工作树脏 → 拒绝该仓。
- * 返回 { merged: [{repo,target,commit}], conflicts: [{repo,target,files}], refused: [{repo,reason}] }。
+ *
+ * 返回 { merged, conflicts, refused, alreadyMerged, synced, planned, dryRun }。
  */
-export async function mergeTaskBranches(ws, kit, task, overrides = {}) {
-  const out = { merged: [], conflicts: [], refused: [] };
+export async function mergeTaskBranches(ws, kit, task, overrides = {}, { syncTarget = 'safe', dryRun = false } = {}) {
+  const out = { merged: [], conflicts: [], refused: [], alreadyMerged: [], synced: [], planned: [], dryRun: dryRun === true };
   const ledger = readWorkspaces(ws);
   const entry = ledger.tasks?.[task];
-  if (!entry) { out.refused.push({ repo: '-', reason: `台账无任务 ${task} 的工作区记录` }); return out; }
+  // 无台账 = 本任务没有分配过代码工作区（纯文档任务），不是错误；直接跳过合入。
+  if (!entry) { out.noWorkspace = true; return out; }
 
   for (const [name, info] of Object.entries(entry.repos ?? {})) {
     if (!info || !info.branch) continue; // 无分支记录（非 git 仓）跳过；main/slot 两种放置都可合入
@@ -290,6 +414,7 @@ export async function mergeTaskBranches(ws, kit, task, overrides = {}) {
         const cb = await runGit(['branch', local, target], { cwd: repoDir });
         if (cb.code !== 0) { out.refused.push({ repo: name, reason: `目标 ${target} 无法建立本地分支` }); continue; }
       }
+      await setTargetUpstream(repoDir, local);
       target = local;
     }
     if ((await runGit(['rev-parse', '--verify', `refs/heads/${target}`], { cwd: repoDir })).code !== 0) {
@@ -299,6 +424,21 @@ export async function mergeTaskBranches(ws, kit, task, overrides = {}) {
     const branch = info.branch;
     if ((await runGit(['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repoDir })).code !== 0) {
       out.refused.push({ repo: name, reason: `任务分支 ${branch} 已不存在` });
+      continue;
+    }
+
+    // 已合入本地目标：无需同步/合并，直接释放。远端 MR 合入的情况在 sync 后再判一次。
+    if (await mergedLocally(repoDir, branch, target)) {
+      out.alreadyMerged.push({ repo: name, target });
+      continue;
+    }
+    if (dryRun) {
+      out.planned.push({ repo: name, target, branch });
+      continue;
+    }
+    if (syncTarget !== 'off' && !(await syncTargetBranch(ws, repoDir, name, target, out, syncTarget))) continue;
+    if (await mergedLocally(repoDir, branch, target)) {
+      out.alreadyMerged.push({ repo: name, target });
       continue;
     }
 
@@ -681,12 +821,14 @@ async function releaseEntry(ws, kit, task, entry, ledger) {
         await runGit(['branch', '-d', info.branch], { cwd: repoDir });
         out.released.push({ source: name, placement: 'main', note: `主工作树已切回 ${mergedBase} 并删已合入分支` });
       } else {
-        // 当前在别的分支：只释放台账，不改用户当前分支，也不删分支——
-        // 分支清理交给人在确认后处理，避免自动对账产生额外副作用。
+        // 当前在别的分支：不改用户当前分支，但已确认合入的任务分支可以安全删除（-d 会拒绝未合入）。
+        const del = await runGit(['branch', '-d', info.branch], { cwd: repoDir });
         out.released.push({
           source: name,
           placement: 'main',
-          note: `主工作树当前在 ${cur || '(detached)'}；任务分支已合入 ${mergedBase}，仅释放台账`,
+          note: del.code === 0
+            ? `主工作树当前在 ${cur || '(detached)'}；任务分支已合入 ${mergedBase}，已删除任务分支`
+            : `主工作树当前在 ${cur || '(detached)'}；任务分支已合入 ${mergedBase}，但分支仍被其他工作树使用，保留`,
         });
       }
       continue;

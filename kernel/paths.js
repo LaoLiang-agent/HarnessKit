@@ -43,7 +43,7 @@ export function writeKit(ws, kit) {
 }
 
 export function defaultKit() {
-  return { version: 1, pack: DEFAULT_PACK, hosts: ['dsh'], sources: [], models: {} };
+  return { version: 1, pack: DEFAULT_PACK, hosts: ['dsh'], sources: [], models: {}, worktree: { autoClose: true, targetSync: 'safe' } };
 }
 
 /** kit.json sources plus the always-protected e2e/ zone. */

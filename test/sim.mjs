@@ -1286,6 +1286,8 @@ section('结构化决策点（外来占用 → 可点选项 + 引擎停重试）
   await run('hk-init', '', ws);
   // 造两个任务：A 占主树 → B 落 slot-1（模拟 phm 场景）；只归档 B 的文档（stale 槽位保留）
   const kit = JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8'));
+  kit.worktree = { autoClose: false };
+  fs.writeFileSync(path.join(ws, '.harness/kit.json'), JSON.stringify(kit, null, 2) + '\n');
   await ensureTaskWorkspaces(ws, kit, 'task-a');
   await ensureTaskWorkspaces(ws, kit, 'task-b');
   ok('前置：B 落 slot-1', readWorkspaces(ws).tasks['task-b']?.repos?.backend?.placement === 'slot-1');
@@ -1380,6 +1382,8 @@ section('结构化决策点（外来占用 → 可点选项 + 引擎停重试）
   git('commit -m init', repo);
   await run('hk-init', '', ws);
   const kit = JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8'));
+  kit.worktree = { autoClose: false };
+  fs.writeFileSync(path.join(ws, '.harness/kit.json'), JSON.stringify(kit, null, 2) + '\n');
   const { ensureTaskWorkspaces, readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
   await ensureTaskWorkspaces(ws, kit, 'task-m1'); // 主树
   await ensureTaskWorkspaces(ws, kit, 'task-m2'); // slot-1
@@ -1409,6 +1413,8 @@ section('结构化决策点（外来占用 → 可点选项 + 引擎停重试）
   git('commit -m init', repo2);
   await run('hk-init', '', ws2);
   const kit2 = JSON.parse(fs.readFileSync(path.join(ws2, '.harness/kit.json'), 'utf8'));
+  kit2.worktree = { autoClose: false };
+  fs.writeFileSync(path.join(ws2, '.harness/kit.json'), JSON.stringify(kit2, null, 2) + '\n');
   await ensureTaskWorkspaces(ws2, kit2, 'task-c1');
   await ensureTaskWorkspaces(ws2, kit2, 'task-c2');
   fake(ws2, '.worktrees/backend/slot-1/same.txt', 'from-task');
@@ -1425,6 +1431,109 @@ section('结构化决策点（外来占用 → 可点选项 + 引擎停重试）
   ok('冲突 → 中止回滚并报冲突文件', c2.kind === 'error' && c2.text.includes('合并冲突') && c2.text.includes('same.txt'));
   ok('冲突后基线未污染（dev 保持原提交）', git('log --oneline -1', repo2).includes('dev-change') && fs.readFileSync(path.join(repo2, 'same.txt'), 'utf8').trim() === 'from-dev');
   ok('冲突后槽位仍保留', !!readWorkspaces(ws2).tasks['task-c2']);
+}
+// ---------------------------------------------------------------- 零人工收尾（0.2.0）
+section('零人工收尾：目标快进、重复收尾、失败前置、dry-run/--no-merge');
+{
+  // 远端目标落后 + autoClose：一条归档命令完成快进、合入、释放，且不推送
+  const { ensureTaskWorkspaces, readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const remote = mkws();
+  cleanups.push(remote);
+  const bare = path.join(remote, 'r.git');
+  git('init -q --bare r.git', remote);
+  git('init -q -b dev seed', remote);
+  const seed = path.join(remote, 'seed');
+  fake(remote, 'seed/app.txt', 'v1');
+  git('add -A && git commit -qm init', seed);
+  git(`remote add origin ${bare}`, seed);
+  git('push -q -u origin dev', seed);
+  git('symbolic-ref HEAD refs/heads/dev', bare);
+
+  const ws = mkws();
+  cleanups.push(ws);
+  fs.mkdirSync(path.join(ws, 'services'), { recursive: true });
+  git(`clone -q ${bare} services/backend`, ws);
+  await run('hk-init', '', ws);
+  const repo = path.join(ws, 'services/backend');
+  const kitPath = path.join(ws, '.harness/kit.json');
+  const kit = JSON.parse(fs.readFileSync(kitPath, 'utf8'));
+  kit.worktree = { autoClose: true, targetSync: 'safe' };
+  fs.writeFileSync(kitPath, JSON.stringify(kit, null, 2) + '\n');
+
+  await ensureTaskWorkspaces(ws, kit, 'task-a');
+  await ensureTaskWorkspaces(ws, kit, 'task-b');
+  const slot = path.join(ws, '.worktrees/backend/slot-1');
+  fake(ws, '.worktrees/backend/slot-1/work.txt', 'task-work');
+  git('add .', slot);
+  git('commit -m task-work', slot);
+  fake(ws, '.harness/deliverables/task-b/proposal.md', '# p\n\n审批 1：通过\n');
+  fake(ws, '.harness/deliverables/task-b/test-report.md', '# t\n\n## 结论\nPASS\n');
+
+  // 远端前进一个提交，本地 dev 仍停在旧提交
+  git('checkout dev', seed);
+  fake(remote, 'seed/remote.txt', 'remote');
+  git('add -A && git commit -qm remote && git push -q origin dev', seed);
+  const remoteBefore = git('rev-list --count refs/heads/dev', bare).trim();
+
+  const dry = await run('hk-archive', 'task-b --dry-run', ws);
+  ok('dry-run 只出预演，不归档不合入', dry.kind === 'success' && dry.text.includes('预演') && fs.existsSync(path.join(ws, '.harness/deliverables/task-b/proposal.md')) && !!readWorkspaces(ws).tasks['task-b']);
+
+  const r = await run('hk-archive', 'task-b', ws);
+  ok('autoClose 自动快进目标并本地合入', r.kind === 'success' && r.text.includes('已快进') && r.text.includes('已本地合入'));
+  ok('autoClose 释放槽位并删除任务分支', !readWorkspaces(ws).tasks['task-b'] && !git('branch --list feat/harness-task-b', repo).includes('feat/harness-task-b'));
+  ok('autoClose 不推送远端', git('rev-list --count refs/heads/dev', bare).trim() === remoteBefore);
+  ok('本地 dev 同时含远端提交与任务提交', git('show dev:remote.txt', repo).trim() === 'remote' && git('show dev:work.txt', repo).trim() === 'task-work');
+
+  // 本地 dev 现在领先 origin（未推送的收尾提交）；远端再次前进 → 下一次收尾必须仍可自动进行
+  await ensureTaskWorkspaces(ws, kit, 'task-c');
+  const slot2 = path.join(ws, '.worktrees/backend/slot-1');
+  fake(ws, '.worktrees/backend/slot-1/work2.txt', 'task-work-2');
+  git('add .', slot2);
+  git('commit -m task-work-2', slot2);
+  fake(ws, '.harness/deliverables/task-c/proposal.md', '# p\n\n审批 1：通过\n');
+  fake(ws, '.harness/deliverables/task-c/test-report.md', '# t\n\n## 结论\nPASS\n');
+  git('checkout dev', seed);
+  fake(remote, 'seed/remote2.txt', 'remote-2');
+  git('add -A && git commit -qm remote-2 && git push -q origin dev', seed);
+  const remote2Before = git('rev-list --count refs/heads/dev', bare).trim();
+  const r2 = await run('hk-archive', 'task-c', ws);
+  ok('本地领先 + 远端再前进仍可 safe 收尾', r2.kind === 'success' && r2.text.includes('已并入 origin') && r2.text.includes('已本地合入'));
+  ok('重复收尾仍不推送远端', git('rev-list --count refs/heads/dev', bare).trim() === remote2Before);
+  ok('重复收尾保留两轮远端提交与任务提交', git('show dev:remote2.txt', repo).trim() === 'remote-2' && git('show dev:work2.txt', repo).trim() === 'task-work-2');
+}
+{
+  // 冲突：归档前置失败，任务保持活跃、文档仍在；--no-merge 可退化为只归档
+  const { ensureTaskWorkspaces, readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  fs.mkdirSync(repo, { recursive: true });
+  git('init -b dev', repo);
+  fake(ws, 'services/backend/same.txt', 'base');
+  git('add .', repo);
+  git('commit -m init', repo);
+  await run('hk-init', '', ws);
+  const kitPath = path.join(ws, '.harness/kit.json');
+  const kit = JSON.parse(fs.readFileSync(kitPath, 'utf8'));
+  kit.worktree = { autoClose: true, targetSync: 'safe' };
+  fs.writeFileSync(kitPath, JSON.stringify(kit, null, 2) + '\n');
+  await ensureTaskWorkspaces(ws, kit, 'task-a');
+  await ensureTaskWorkspaces(ws, kit, 'task-b');
+  const slot = path.join(ws, '.worktrees/backend/slot-1');
+  fake(ws, '.worktrees/backend/slot-1/same.txt', 'from-task');
+  git('add .', slot);
+  git('commit -m task-change', slot);
+  // 在 dev 上制造冲突提交（ensureTaskWorkspaces 只登记主树，不会替任务切分支，当前仍在 dev）
+  fake(ws, 'services/backend/same.txt', 'from-dev');
+  git('add .', repo);
+  git('commit -m dev-change', repo);
+  fake(ws, '.harness/deliverables/task-b/proposal.md', '# p\n\n审批 1：通过\n');
+  fake(ws, '.harness/deliverables/task-b/test-report.md', '# t\n\n## 结论\nPASS\n');
+  const c = await run('hk-archive', 'task-b', ws);
+  ok('冲突 → 归档前置失败并报冲突文件', c.kind === 'error' && c.text.includes('归档未执行') && c.text.includes('same.txt'));
+  ok('冲突后任务仍活跃、文档未归档', fs.existsSync(path.join(ws, '.harness/deliverables/task-b/proposal.md')) && !!readWorkspaces(ws).tasks['task-b']);
+  const nm = await run('hk-archive', 'task-b --no-merge', ws);
+  ok('--no-merge 只归档文档并保留 stale 槽位', nm.kind === 'success' && nm.text.includes('已归档') && !fs.existsSync(path.join(ws, '.harness/deliverables/task-b')) && !!readWorkspaces(ws).tasks['task-b']);
 }
 // ---------------------------------------------------------------- hk-sync
 section('hk-sync 资产同步');
@@ -1856,6 +1965,8 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     const ws = mkws();
     cleanups.push(ws);
     await run('hk-init', '', ws);
+    const initialKit = JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8'));
+    ok('新工作区默认开启 autoClose', initialKit.worktree?.autoClose === true && initialKit.worktree?.targetSync === 'safe');
     fs.writeFileSync(path.join(ws, '.harness/kit.json'), JSON.stringify({
       version: 1, pack: 'ai-coding', hosts: ['dsh'],
       sources: [{ name: 'backend', path: 'services/backend', role: 'backend', branch: 'dev' }],
@@ -1876,6 +1987,10 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     const r3 = updateKit(ws, { applyMode: 'review' });
     const k3 = JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8'));
     ok('applyMode 保存进 kit.json', r3.ok === true && k3.applyMode === 'review');
+    ok('worktree targetSync 非法值拒绝', updateKit(ws, { worktree: { targetSync: 'nope' } }).error !== undefined);
+    const r4 = updateKit(ws, { worktree: { autoClose: true, targetSync: 'ff-only' } });
+    const k4 = JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8'));
+    ok('worktree 收尾配置保存进 kit.json', r4.ok === true && k4.worktree.autoClose === true && k4.worktree.targetSync === 'ff-only');
   }
   // 旧 config.json → kit.json 迁移并在 init 时删除（2026-11-18）
   {

@@ -600,15 +600,19 @@ async function hkArchive({ agent, rawInput }) {
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
   const { flags, positional } = parseArgs(rawInput);
   const task = positional[0];
-  if (!task) return err('用法：/hk-archive <任务名> [--merge [仓:分支,…]]');
+  if (!task) return err('用法：/hk-archive <任务名> [--merge [仓:分支,…]] [--no-merge] [--dry-run]');
   // 合入确认（B 方案，2026-11-17）：--merge = 人显式确认要把任务分支本地合入目标基线；
   // 可带 repo:branch 覆盖目标（不带则用任务创建时指定的基线）。合并只做本地提交，不推送。
   const mergeAsked = flags.merge !== undefined;
+  const noMerge = flags['no-merge'] === true;
+  const dryRun = flags['dry-run'] === true;
+  if (mergeAsked && noMerge) return err('`--merge` 与 `--no-merge` 不能同时使用。');
   const mergeOverrides = mergeAsked && typeof flags.merge === 'string' ? parseBaseSpec(flags.merge) : {};
-  // 可选自动化：分支都能干净本地合入时，归档自动合入并释放 slot；冲突/目标异常仍停下转人工。
-  // 只做本地合并，不推送；默认关闭，项目在 kit.json 显式开启。
-  const autoMergeClean = kit.worktree?.autoMergeClean === true;
-  const shouldMerge = mergeAsked || autoMergeClean;
+  // 0.2.0：autoClose 取代 autoMergeClean（旧键兼容）；只做本地合并，不推送。
+  const autoClose = kit.worktree?.autoClose === true || kit.worktree?.autoMergeClean === true;
+  const targetSync = ['off', 'ff-only', 'safe'].includes(kit.worktree?.targetSync) ? kit.worktree.targetSync : 'safe';
+  const shouldMerge = !noMerge && (mergeAsked || autoClose);
+  const mergeOpts = { syncTarget: targetSync, dryRun };
 
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);
   // 活跃任务归档前先清理其他已归档残留；残留收尾（taskDir 不存在）不能先清理，
@@ -620,7 +624,10 @@ async function hkArchive({ agent, rawInput }) {
     // 此时活目录已清，正常预检必然失败；这里识别为「只做工作区释放」的收尾模式。
     const wl = readWorkspaces(ws);
     if (wl.tasks?.[task]) {
-      const mg = shouldMerge ? await mergeTaskBranches(ws, kit, task, mergeOverrides) : null;
+      const mg = shouldMerge ? await mergeTaskBranches(ws, kit, task, mergeOverrides, mergeOpts) : null;
+      if (dryRun) {
+        return ok(`/hk-archive ${task} 收尾预演（dry-run，未改动任何 ref）：\n${(mg ? mergeLines(mg) : ['（未启用自动收尾）']).join('\n')}`);
+      }
       const rel = await releaseTaskWorkspaces(ws, kit, task);
       const ta = await removeTaskAnalysisWorktrees(ws, kit, task);
       clearDecision(ws, task);
@@ -631,10 +638,18 @@ async function hkArchive({ agent, rawInput }) {
         ...(ta.removed > 0 ? [`任务分析工作区已回收 ×${ta.removed}`] : []),
         ...ta.notes,
       ];
+      const mgFailed = mg && (mg.conflicts.length > 0 || mg.refused.length > 0);
+      if (mgFailed) {
+        return err(`任务 **${task}** 已归档，但工作区收尾被阻断：\n${lines.join('\n')}\n\n任务文档已在归档区；修复上述问题后重跑 \`/hk-archive ${task}\`（只做本地合并，推送仍由人执行）。`);
+      }
       if (rel.stale.length > 0) {
         const targets = [...new Set([...rel.stale.map((x) => x.source)])]
           .map((src) => `${src}→${(wl.tasks?.[task]?.repos?.[src]?.base) ?? '?'}`).join('、');
-        return err(`任务 **${task}** 已归档，但工作区仍未释放：\n${lines.join('\n')}\n\n${autoMergeClean && !mergeAsked ? '自动本地合入未成功（冲突或目标异常），解决后运行：' : '确认要本地合入目标基线（' + targets + '）后运行：'}\n\`/hk-archive ${task} --merge\`（可用 \`--merge 仓:分支\` 覆盖目标；只做本地合并，推送仍由人执行）`);
+        const hint = noMerge
+          ? `已按 \`--no-merge\` 跳过代码收尾；确认合入目标基线（${targets}）后重跑不带该旗标：`
+          : `确认要本地合入目标基线（${targets}）后运行：`;
+        const command = noMerge ? `/hk-archive ${task}` : `/hk-archive ${task} --merge`;
+        return err(`任务 **${task}** 已归档，但工作区仍未释放：\n${lines.join('\n')}\n\n${hint}\n\`${command}\`（只做本地合并，推送仍由人执行）`);
       }
       return ok(`任务 **${task}** 已归档，残留工作区已收尾：\n${lines.join('\n') || '（无残留）'}`);
     }
@@ -686,6 +701,21 @@ async function hkArchive({ agent, rawInput }) {
     }
   }
 
+  // 0.2.0：收尾前置。干净可合入时先同步目标并合入；失败则任务保持活跃、文档不归档，
+  // 避免出现「已归档但 slot 还 stale」的中间态。--no-merge 保留旧行为（只归档文档）。
+  if (dryRun) {
+    const mgPlan = shouldMerge ? await mergeTaskBranches(ws, kit, task, mergeOverrides, mergeOpts) : null;
+    const planLines = mgPlan ? mergeLines(mgPlan) : ['（未启用自动收尾，将只归档文档）'];
+    return ok(`/hk-archive ${task} 预演（dry-run，未改动任何文件/ref）：\n${planLines.join('\n')}\n\n门禁已通过；去掉 --dry-run 即执行。`);
+  }
+  let mgBefore = null;
+  if (shouldMerge) {
+    mgBefore = await mergeTaskBranches(ws, kit, task, mergeOverrides, mergeOpts);
+    if (mgBefore.conflicts.length > 0 || mgBefore.refused.length > 0) {
+      return err(`归档未执行：工作区收尾被阻断，任务 **${task}** 仍保持活跃，文档未归档。\n${mergeLines(mgBefore).join('\n')}\n\n修复后重跑 \`/hk-archive ${task}\`；若只想先归档文档，加 \`--no-merge\`。`);
+    }
+  }
+
   const archiveDir = path.join(harnessDir(ws), 'deliverables', '_archive', task);
   fs.mkdirSync(archiveDir, { recursive: true });
   const date = new Date().toISOString().slice(0, 10);
@@ -722,22 +752,20 @@ async function hkArchive({ agent, rawInput }) {
   clearAdvanceMarks(ws, task);
   bindCurrentSession(ws, task, agent);
 
-  // worktree 收尾：slot 已合入基线的 → 切回基线释放（目录保留）；未合入 → stale 保留提示
-  // 合入确认（B 方案）：--merge 时先本地合入目标基线，再释放槽位
-  const mgNormal = shouldMerge ? await mergeTaskBranches(ws, kit, task, mergeOverrides) : null;
+  // worktree 收尾：合入已在前置阶段完成；这里只释放槽位/切回基线并删除已合入分支。
   const wtResult = await releaseTaskWorkspaces(ws, kit, task);
   clearDecision(ws, task);
   const taCleanup = await removeTaskAnalysisWorktrees(ws, kit, task);
   const staleLines = wtResult.stale.map((s) => `⚠️ ${s.source}：${s.reason}`);
-  const confirmHint = wtResult.stale.length > 0 && !mergeAsked
-    ? [autoMergeClean
-        ? `自动本地合入未成功（冲突或目标异常），解决后运行：\`/hk-archive ${task} --merge\`（只本地合并，推送由人执行）`
-        : `确认要本地合入目标基线后运行：\`/hk-archive ${task} --merge\`（可用 \`--merge 仓:分支\` 覆盖目标；只本地合并，推送由人执行）`]
+  const confirmHint = wtResult.stale.length > 0
+    ? [noMerge
+        ? `已按 \`--no-merge\` 跳过代码收尾；确认合入目标基线后重跑不带该旗标：\`/hk-archive ${task}\``
+        : `收尾后仍有槽位未释放；确认合入目标基线后运行：\`/hk-archive ${task} --merge\`（可用 \`--merge 仓:分支\` 覆盖目标；只本地合并，推送由人执行）`]
     : [];
-  const wtNote = wtResult.missing && taCleanup.removed === 0 && taCleanup.notes.length === 0 && !mgNormal
+  const wtNote = wtResult.missing && taCleanup.removed === 0 && taCleanup.notes.length === 0 && !mgBefore
     ? ''
     : [
-        ...(mgNormal ? mergeLines(mgNormal) : []),
+        ...(mgBefore ? mergeLines(mgBefore) : []),
         ...wtResult.released.map((r) => `${r.placement === 'main' ? '主工作树无需处理' : `slot ${r.placement} 已释放（切回基线，目录保留）`}（${r.source}）`),
         ...staleLines,
         ...confirmHint,
@@ -810,10 +838,17 @@ function hkTe({ agent, rawInput }) {
   return err('用法：/hk-te [acquire|release <任务名> | status]');
 }
 
-/** 合入结果的行化输出（--merge 用）。 */
+/** 合入结果的行化输出（--merge / autoClose 用）。 */
 function mergeLines(mg) {
   const lines = [];
+  for (const s of mg.synced ?? []) {
+    lines.push(s.merged
+      ? `🔄 ${s.repo} → ${s.target} 已并入 origin/${s.target} ${s.from}..${s.to}（本地合并，未推送）`
+      : `🔄 ${s.repo} → ${s.target} 已快进 ${s.from}..${s.to}（origin，未推送）`);
+  }
+  for (const a of mg.alreadyMerged ?? []) lines.push(`✅ ${a.repo} → ${a.target} 已包含任务分支（跳过重复合并）`);
   for (const m of mg.merged) lines.push(`✅ ${m.repo} → ${m.target} 已本地合入（commit ${m.commit}，未推送）`);
+  for (const p of mg.planned ?? []) lines.push(`📝 [dry-run] ${p.repo}：将先快进 ${p.target}，再合入 ${p.branch}`);
   for (const c of mg.conflicts) lines.push(`⛔ ${c.repo} → ${c.target} 合并冲突（已中止回滚）：${c.files.slice(0, 8).join('、') || '见 git status'}`);
   for (const r of mg.refused) lines.push(`⚠️ ${r.repo}：${r.reason}`);
   return lines;
