@@ -2405,6 +2405,7 @@ section('client：工作区提醒');
   ok('provider 下拉不显示未启用项', !clientSrc.includes('（未启用）') && !clientSrc.includes('已声明但未启用'));
   ok('模型映射文案已精简', clientSrc.includes('未配置的角色走会话默认') && clientSrc.includes('推理等级随模型能力变化'));
   ok('历史任务运行记录入口', clientSrc.includes('历史任务运行记录弹窗') && clientSrc.includes('运行记录 · ${histInsight.task}') && clientSrc.includes('setHistInsight(t)'));
+  ok('运行记录主视图不展示失败次数', !clientSrc.includes("'失败'].map") && !clientSrc.includes('· 失败 ${d.totals'));
 }
 
 // ---------------------------------------------------------------- report

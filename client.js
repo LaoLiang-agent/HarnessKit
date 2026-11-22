@@ -303,16 +303,15 @@ window.__ModuleLoader__.load({
       return h('div', { style: { marginTop: 4 } },
         button,
         h('div', { style: { fontSize: 11, color: d.coverage === 'complete' ? V.ok : V.warn, margin: '4px 0' } },
-          `覆盖率 ${d.coverage}${d.source === 'archive' ? ' · 归档快照' : ''} · ${d.totals?.agents ?? 0} 个 Agent · ${n(d.totals?.totalTokens)} tokens · ${Math.round((d.totals?.activeDurationMs || 0) / 1000)}s · 失败 ${d.totals?.toolFailures ?? 0}`),
+          `覆盖率 ${d.coverage}${d.source === 'archive' ? ' · 归档快照' : ''} · ${d.totals?.agents ?? 0} 个 Agent · ${n(d.totals?.totalTokens)} tokens · ${Math.round((d.totals?.activeDurationMs || 0) / 1000)}s`),
         h('table', { style: S.table },
-          h('thead', null, h('tr', null, ['Agent', '模型', '轮次', 'tokens', '耗时', '失败'].map((x) => h('th', { key: x, style: S.th }, x)))),
+          h('thead', null, h('tr', null, ['Agent', '模型', '轮次', 'tokens', '耗时'].map((x) => h('th', { key: x, style: S.th }, x)))),
           h('tbody', null, (d.agents ?? []).map((a) => h('tr', { key: a.label },
             h('td', { style: S.td }, a.label),
             h('td', { style: S.td }, `${a.provider || '—'}/${a.model || '—'}${a.reasoningEffort ? ` · ${a.reasoningEffort}` : ''}`),
             h('td', { style: S.td }, n(a.turns)),
             h('td', { style: S.td }, n(a.totalTokens)),
-            h('td', { style: S.td }, `${Math.round((a.activeDurationMs || 0) / 1000)}s`),
-            h('td', { style: S.td }, n(a.toolFailures)))))),
+            h('td', { style: S.td }, `${Math.round((a.activeDurationMs || 0) / 1000)}s`))))),
         (d.notes ?? []).length > 0 && h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, d.notes.join('；')));
     }
 
