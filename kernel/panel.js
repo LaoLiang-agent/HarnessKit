@@ -29,6 +29,7 @@ import { listAllGitBranches } from './worktree.js';
 import { reconcileTestEnv, readTestEnv } from './te.js';
 import { readDecisions } from './worktree.js';
 import { discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
+import { collectTaskMetrics } from './metrics.js';
 
 /** 解析看板 markdown 表（7 列契约，见 commands.js boardTemplate）。
  *  容错与 commands.js parseBoardRow 同源：超列溢出并入「续接提示」，不足补 —。 */
@@ -859,6 +860,38 @@ export function registerPanelApi(ctx) {
         return;
       }
       sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+    },
+  });
+
+  // 任务运行统计：按任务会话树汇总 model/effort/token/耗时；只读元数据。
+  const insightCache = new Map();
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/task-insight',
+    async handler(req, res) {
+      if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      const url = new URL(req.url, 'http://x');
+      const ws = findWs(registry, url.searchParams.get('workspace'));
+      if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+      const task = url.searchParams.get('task');
+      if (!task) return sendJson(res, 400, { ok: false, error: '缺少 task' });
+      const kit = readKit(ws.path);
+      if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
+      const key = `${ws.path}::${task}`;
+      const hit = insightCache.get(key);
+      if (hit && Date.now() - hit.at < 10_000) return sendJson(res, 200, { ok: true, metrics: hit.metrics });
+      try {
+        const metrics = await collectTaskMetrics(ws.path, kit, task, {
+          sessionQuery: ctx.get('sessionQuery'),
+          tokenMeter: ctx.get('tokenMeter'),
+          sessions: ctx.get('sessions'),
+        });
+        const payload = { ...metrics, task };
+        insightCache.set(key, { at: Date.now(), metrics: payload });
+        sendJson(res, 200, { ok: true, metrics: payload });
+      } catch (cause) {
+        sendJson(res, 500, { ok: false, error: cause.message });
+      }
     },
   });
 

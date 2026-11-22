@@ -300,6 +300,7 @@ window.__ModuleLoader__.load({
       const [activity, setActivity] = useState(null);
       const [toasts, setToasts] = useState([]);
       const [expanded, setExpanded] = useState(() => new Set());
+      const [insight, setInsight] = useState({}); // task -> { loading, data, error }
       const [histOpen, setHistOpen] = useState(false);
       const [histQuery, setHistQuery] = useState('');
       const [modal, setModal] = useState(null); // {name, desc, file}
@@ -406,6 +407,15 @@ window.__ModuleLoader__.load({
         setBusy(false);
         setTimeout(fetchState, 600);
       }, [ws, uiWorkspace, run, toast, fetchState]);
+
+      const loadInsight = useCallback((t) => {
+        if (!ws) return;
+        setInsight((prev) => ({ ...prev, [t.task]: { loading: true } }));
+        fetch(`/harness-kit/task-insight?workspace=${encodeURIComponent(ws.id)}&task=${encodeURIComponent(t.task)}`, { cache: 'no-store' })
+          .then((r) => r.json())
+          .then((j) => setInsight((prev) => ({ ...prev, [t.task]: { loading: false, data: j.ok ? j.metrics : null, error: j.ok ? null : j.error || '读取失败' } })))
+          .catch((e) => setInsight((prev) => ({ ...prev, [t.task]: { loading: false, data: null, error: e.message } })));
+      }, [ws]);
 
       const syncNow = useCallback(() => {
         if (!ws) return;
@@ -695,6 +705,29 @@ window.__ModuleLoader__.load({
             t.apply && t.apply !== '—' && h('div', null, h('b', null, 'Apply：'), t.apply),
             t.progress.deliverables.length > 0 && h('div', null, h('b', null, '产物：'), t.progress.deliverables.join('、')),
             t.hint && t.hint !== '—' && h('div', null, h('b', null, '续接：'), t.hint),
+            h('div', { style: { marginTop: 8 } },
+              h('button', { style: S.btn(false), onClick: () => loadInsight(t) }, insight[t.task]?.loading ? '读取中…' : (insight[t.task]?.data ? '刷新运行记录' : '查看运行记录')),
+              (() => {
+                const ins = insight[t.task];
+                if (!ins) return null;
+                if (ins.loading) return h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, '读取会话统计…');
+                if (ins.error) return h('div', { style: { fontSize: 11, color: V.err, marginTop: 4 } }, ins.error);
+                const d = ins.data;
+                const n = (x) => (typeof x === 'number' ? x.toLocaleString() : '—');
+                return h('div', { style: { marginTop: 6 } },
+                  h('div', { style: { fontSize: 11, color: d.coverage === 'complete' ? V.ok : V.warn, marginBottom: 4 } },
+                    `覆盖率 ${d.coverage} · ${d.totals.agents} 个 Agent · ${n(d.totals.totalTokens)} tokens · ${Math.round((d.totals.activeDurationMs || 0) / 1000)}s · 失败 ${d.totals.toolFailures}`),
+                  h('table', { style: S.table },
+                    h('thead', null, h('tr', null, ['Agent', '模型', '轮次', 'tokens', '耗时', '失败'].map((x) => h('th', { key: x, style: S.th }, x)))),
+                    h('tbody', null, (d.agents ?? []).map((a) => h('tr', { key: a.label },
+                      h('td', { style: S.td }, a.label),
+                      h('td', { style: S.td }, `${a.provider || '—'}/${a.model || '—'}${a.reasoningEffort ? ` · ${a.reasoningEffort}` : ''}`),
+                      h('td', { style: S.td }, n(a.turns)),
+                      h('td', { style: S.td }, n(a.totalTokens)),
+                      h('td', { style: S.td }, `${Math.round((a.activeDurationMs || 0) / 1000)}s`),
+                      h('td', { style: S.td }, n(a.toolFailures)))))),
+                  (d.notes ?? []).length > 0 && h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, d.notes.join('；')));
+              })()),
             t.progress.pendingApproval && h('div', { style: { color: V.warn } }, `⛔ ${t.progress.pendingApproval} 等待人工审批（在会话中答复，并写入通过标记）`)),
         );
       };

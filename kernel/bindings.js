@@ -14,11 +14,16 @@ export function readTaskSessions(ws) {
   } catch { return {}; }
 }
 
-/** 登记/覆盖任务→会话绑定。 */
+/** 登记/覆盖任务→会话绑定，并保留历史会话（统计归档用；同一会话去重）。 */
 export function recordTaskSession(ws, task, sessionId) {
   const file = path.join(harnessDir(ws), 'tasks', 'sessions.json');
   const tasks = readTaskSessions(ws);
-  tasks[task] = { sessionId, at: new Date().toISOString() };
+  const now = new Date().toISOString();
+  const prev = tasks[task] && typeof tasks[task] === 'object' ? tasks[task] : {};
+  const history = Array.isArray(prev.sessions) ? prev.sessions.filter((x) => x && typeof x.id === 'string') : [];
+  if (prev.sessionId && !history.some((x) => x.id === prev.sessionId)) history.push({ id: prev.sessionId, at: prev.at ?? now });
+  if (!history.some((x) => x.id === sessionId)) history.push({ id: sessionId, at: now });
+  tasks[task] = { sessionId, at: now, sessions: history };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify({ tasks }, null, 2)}\n`, 'utf8');
 }

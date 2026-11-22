@@ -430,6 +430,8 @@ section('全流程 propose/apply/archive');
     steered[steered.length - 1].includes('Spec Merge') &&
     fs.existsSync(path.join(ws, '.harness/deliverables/_archive/feat-x/proposal.md')) &&
     !fs.existsSync(taskDir));
+  ok('归档写入运行统计快照',
+    fs.existsSync(path.join(ws, '.harness/deliverables/_archive/feat-x/metrics/R0.json')));
   ok('收尾剧本锚定 spec/memory 格式契约模板',
     steered[steered.length - 1].includes('spec-template.md') &&
     steered[steered.length - 1].includes('memory/templates/entry.md') &&
@@ -1813,6 +1815,59 @@ section('自动续接引擎：定稿→propose、审批1→apply 扫描与一次
   ok('hk-propose 内更新任务绑定', readBindings(ws)['adv-b']?.sessionId === 'sess-prop');
 }
 
+// ------------------------------------------------------------- 任务运行统计
+section('任务运行统计：会话树、token、覆盖率、归档快照');
+{
+  const { collectTaskMetrics, writeTaskMetrics } = await import(path.join(bundleRoot, 'kernel/metrics.js'));
+  const { recordTaskSession, readTaskSessions } = await import(path.join(bundleRoot, 'kernel/bindings.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  recordTaskSession(ws, 'metric-task', 's-pm');
+  recordTaskSession(ws, 'hist-task', 's1');
+  recordTaskSession(ws, 'hist-task', 's2');
+  const hist = readTaskSessions(ws)['hist-task'];
+  ok('会话绑定保留历史并去重', hist.sessionId === 's2' && hist.sessions.length === 2 && hist.sessions[1].id === 's2');
+  const events = {
+    's-pm': [
+      { type: 'request/header', time: 1000, data: { header: { config: { provider: 'deepseek', model: 'chat', reasoningEffort: 'high' } } } },
+      { type: 'turn/start', time: 1000, data: { turn: 1 } },
+      { type: 'assistant/message', time: 2000, data: { message: { source: { provider: 'deepseek', model: 'chat' } }, usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 40, reasoningTokens: 5 } } },
+      { type: 'tool/call', time: 2100, data: {} },
+      { type: 'tool/result', time: 2200, data: { error: { code: 'x' } } },
+      { type: 'turn/end', time: 3000, data: { turn: 1 } },
+      { type: 'subagent/catalog', time: 1500, data: { childId: 's-child', label: 'Dev' } },
+    ],
+    's-child': [
+      { type: 'request/header', time: 4000, data: { header: { config: { provider: 'p2', model: 'm2', reasoningEffort: 'low' } } } },
+      { type: 'turn/start', time: 4000, data: { turn: 1 } },
+      { type: 'assistant/message', time: 4500, data: { message: { source: { provider: 'p2', model: 'm2' } }, usage: { inputTokens: 50, outputTokens: 10 } } },
+      { type: 'turn/end', time: 5000, data: { turn: 1 } },
+    ],
+  };
+  const sessionQuery = {
+    traceSession: async (id) => {
+      if (id === 's-pm') return { target: { header: { id: 's-pm' } }, descendants: [{ session: { header: { id: 's-child' } }, descendants: [] }] };
+      if (id === 's-child') return { target: { header: { id: 's-child' } }, descendants: [] };
+      throw new Error('missing');
+    },
+    readSession: async (id) => ({ session: { id }, events: events[id] ?? [] }),
+    inspectSession: async (id, read) => read({ header: { id } }),
+  };
+  const tokenMeter = { contextPressure: () => ({ pressureTokens: 50, contextWindow: 100 }) };
+  const m = await collectTaskMetrics(ws, { sources: [] }, 'metric-task', { sessionQuery, tokenMeter });
+  ok('统计覆盖 PM + 子会话且顺序稳定', m.coverage === 'complete' && m.agents.length === 2 && m.agents[0].label === 'PM' && m.agents[1].label === 'Dev');
+  ok('统计汇总 provider/model/effort', m.agents[0].provider === 'deepseek' && m.agents[0].model === 'chat' && m.agents[0].reasoningEffort === 'high' && m.agents[1].provider === 'p2');
+  ok('统计 token 分项与合计', m.agents[0].inputTokens === 100 && m.agents[0].outputTokens === 20 && m.agents[0].cacheReadTokens === 40 && m.agents[0].totalTokens === 120 && m.totals.totalTokens === 180);
+  ok('统计轮次/耗时/失败', m.totals.turns === 2 && m.totals.activeDurationMs === 3000 && m.totals.toolFailures === 1 && m.agents[0].contextPressure === 0.5);
+  ok('统计不携带原始 session id / 正文', !JSON.stringify(m).includes('s-pm') && !JSON.stringify(m).includes('s-child') && !JSON.stringify(m).includes('assistant/message'));
+  const written = writeTaskMetrics(ws, 'metric-task', 'R0', m);
+  const file = path.join(ws, '.harness/deliverables/_archive/metric-task/metrics/R0.json');
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  ok('归档统计快照写入 metrics/R0.json', fs.existsSync(file) && saved.task === 'metric-task' && saved.round === 'R0' && saved.coverage === 'complete');
+  ok('同一轮统计不覆盖', writeTaskMetrics(ws, 'metric-task', 'R0', { ...m, coverage: 'partial' }).skipped === true && JSON.parse(fs.readFileSync(file, 'utf8')).coverage === 'complete');
+  const empty = await collectTaskMetrics(ws, { sources: [] }, 'none', {});
+  ok('无会话绑定 → unavailable', empty.coverage === 'unavailable' && empty.agents.length === 0);
+}
 // ------------------------------------------------------------- M4b 面板 v2
 section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
 {

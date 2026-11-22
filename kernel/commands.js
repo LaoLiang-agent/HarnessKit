@@ -19,6 +19,7 @@ import { discoverAll, discoverSource, readLocalFiles, writeLocalFiles, provision
 import { recordTaskSession } from './bindings.js';
 import { addSource, runInit, formatInitReport, guessRole, boardTemplate } from './setup.js';
 import { dispatchSection, describeWorkerModel } from './models.js';
+import { collectTaskMetrics, writeTaskMetrics } from './metrics.js';
 
 const ok = (text) => ({ kind: 'success', text });
 const err = (text) => ({ kind: 'error', text });
@@ -594,7 +595,7 @@ async function hkApply({ agent, rawInput }) {
 }
 
 // --------------------------------------------------------------- /hk-archive
-async function hkArchive({ agent, rawInput }) {
+async function hkArchive({ agent, rawInput, ctx }) {
   const ws = wsRoot(agent);
   const kit = readKit(ws);
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
@@ -730,6 +731,21 @@ async function hkArchive({ agent, rawInput }) {
   }
   const tag = `R${round}`;
 
+  // 运行统计快照：与面板 task-insight 共用采集函数；失败不阻塞归档，写 unavailable stub。
+  let metricsNote = '';
+  try {
+    const metrics = await collectTaskMetrics(ws, kit, task, {
+      sessionQuery: ctx?.get?.('sessionQuery'),
+      tokenMeter: ctx?.get?.('tokenMeter'),
+      sessions: ctx?.get?.('sessions'),
+      currentSession: agent?.session,
+    });
+    const written = writeTaskMetrics(ws, task, tag, metrics);
+    metricsNote = `\n- 运行统计：\`_archive/${task}/metrics/${tag}.json\`（${metrics.coverage}${written.skipped ? '，已存在' : ''}）`;
+  } catch (cause) {
+    metricsNote = `\n- ⚠️ 运行统计写入失败：${String(cause?.message || cause).replace(/\s+/g, ' ').slice(0, 160)}`;
+  }
+
   // append each active doc to its archive counterpart under an R<N> section
   const appended = [];
   for (const name of fs.readdirSync(taskDir)) {
@@ -814,7 +830,7 @@ async function hkArchive({ agent, rawInput }) {
         ? `资产随工作区根仓库管理（\`${lay.repoRoot}\`），随根仓库 commit/push 即共享，无需 \`/hk-sync\``
         : '资产仓库为本地模式；如需团队共享，绑定远端后用 `/hk-sync` 同步';
   }
-  return ok(`任务 **${task}** 已归档为 ${tag}：\n- 追加归档：${appended.map((f) => `\`_archive/${task}/${f}\``).join('、') || '（无）'}\n- 轮次摘要追加到 \`_archive/${task}/rounds.md\`\n- 活目录已清空${wtNote ? `\n- ${wtNote}` : ''}\n\n${mergeNote}${syncHint}。`);
+  return ok(`任务 **${task}** 已归档为 ${tag}：\n- 追加归档：${appended.map((f) => `\`_archive/${task}/${f}\``).join('、') || '（无）'}\n- 轮次摘要追加到 \`_archive/${task}/rounds.md\`\n- 活目录已清空${wtNote ? `\n- ${wtNote}` : ''}${metricsNote}\n\n${mergeNote}${syncHint}。`);
 }
 
 // ---------------------------------------------------------------- /hk-te
@@ -1159,7 +1175,7 @@ export function registerCommands(ctx) {
       name: def.name,
       description: def.description,
       ...(def.hint ? { input: { hint: def.hint } } : {}),
-      handler: ({ agent, rawInput }) => def.handler({ agent, rawInput }),
+      handler: ({ agent, rawInput }) => def.handler({ agent, rawInput, ctx }),
     });
   }
 }
