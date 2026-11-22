@@ -152,7 +152,7 @@ export async function provisionLocalFiles(ws, source, slotDir) {
   const skipped = skippedOf(manifest, source);
   const pending = candidates.filter((c) => !approved.includes(c.path) && !skipped.has(c.path));
   if (pending.length > 0) {
-    notes.push(`发现 ${pending.length} 个未确认的本地配置候选：运行 \`/hk-local scan\` 查看，\`/hk-local approve all --repo ${source.name}\` 确认`);
+    notes.push(`发现 ${pending.length} 个本机配置文件：打开 Harness Kit 面板 →「工作区」→「本机开发配置」确认一次，新工作区会自动带上；高级用户也可运行 \`/hk-local scan\``);
   }
   return notes;
 }

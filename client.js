@@ -981,26 +981,28 @@ window.__ModuleLoader__.load({
                 title: '点击复制完整路径',
                 onClick: () => { try { navigator.clipboard?.writeText(`${ws.path}/.worktrees/${repo}/${s.slot}`); toast('路径已复制'); } catch { /* 剪贴板不可用时无操作 */ } },
               }, `${ws.path}/.worktrees/${repo}/${s.slot}`)))))),
-        // 本机配置（git-ignored）：确认一次，新 slot 自动补齐；只影响本机，不进团队资产
+        // 本机开发配置：只存在于本机的配置（数据库密码/端口/证书等）需要带到并行工作区。
         h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '本机配置（git-ignored）'),
-          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-            '从主工作树发现本地配置候选；确认后写入本机清单，并为已绑定 slot 补齐。只影响本机，不提交到资产仓库。'),
-          local === null && h('div', { style: { fontSize: 12, color: V.sub } }, '扫描中…'),
-          local && (local.sources ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '未登记子工程。'),
+          h('div', { style: S.secTitle }, '本机开发配置'),
+          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
+            '有些配置文件只存在于你的电脑（例如数据库密码、端口、私有证书），不会提交到代码仓库。确认一次后，新建的并行工作区会自动带上它们；只在本机复制，不会提交或上传。'),
+          local === null && h('div', { style: { fontSize: 12, color: V.sub } }, '正在查找本机配置文件…'),
+          local && (local.sources ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '还没有登记代码仓库。'),
           local && (local.sources ?? []).map((s) => {
             const pending = (s.candidates ?? []).filter((c) => c.pending);
             return h('div', { key: s.name, style: { marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${V.border}` } },
               h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 3 } },
-                `${s.name}：已确认 ${s.approved.length} 个，待确认 ${pending.length} 个`,
-                h('span', { style: { marginLeft: 8, color: V.sub, fontWeight: 400 } }, `模式 ${s.mode}`)),
+                `${s.name}：已同步 ${s.approved.length} 个，待处理 ${pending.length} 个`),
+              pending.length === 0 && s.approved.length > 0 && h('div', { style: { fontSize: 11, color: V.ok } }, '本机配置已同步。'),
+              pending.length === 0 && s.approved.length === 0 && h('div', { style: { fontSize: 11, color: V.sub } }, '没有发现需要同步的本机文件。'),
               pending.length > 0 && h('div', { style: { marginBottom: 5 } },
-                pending.slice(0, 8).map((c) => h('div', { key: c.path, style: { fontFamily: 'monospace', fontSize: 11, color: V.sub } },
-                  `${c.reason === 'high' ? '高' : '配置'} · ${c.kind} · ${c.path}`)),
+                pending.slice(0, 8).map((c) => h('div', { key: c.path, style: { fontSize: 11, color: V.sub, marginBottom: 2 } },
+                  h('span', { style: { color: c.reason === 'high' ? V.warn : V.sub, marginRight: 6 } }, c.reason === 'high' ? '建议同步' : '可选'),
+                  h('span', { style: { fontFamily: 'monospace' } }, c.path))),
                 pending.length > 8 && h('div', { style: { fontSize: 11, color: V.sub } }, `… 另 ${pending.length - 8} 个`)),
               pending.length > 0 && h('div', { style: { display: 'flex', gap: 6 } },
-                h('button', { style: S.btn(localBusy, true), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '全部确认'),
-                h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '全部跳过')));
+                h('button', { style: S.btn(localBusy, true), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '同步这些文件'),
+                h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '暂不同步')));
           })),
         // ② 可配项
         (k.sources ?? []).length > 0 && h('div', { style: S.section },

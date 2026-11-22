@@ -913,7 +913,7 @@ section('slot 本地配置复制');
   writeLocalFiles(ws, { sources: { backend: { approved: ['application-local.properties'] } } });
   const slot = path.join(ws, '.worktrees/backend/slot-1');
   const notes = await (await import(path.join(bundleRoot, 'kernel/local-files.js'))).provisionLocalFiles(ws, source, slot);
-  ok('确认项复制、未确认项只提示', fs.readFileSync(path.join(slot, 'application-local.properties'), 'utf8') === 'local' && !fs.existsSync(path.join(slot, 'dbcp-local.properties')) && notes.some((n) => n.includes('未确认')));
+  ok('确认项复制、未确认项只提示', fs.readFileSync(path.join(slot, 'application-local.properties'), 'utf8') === 'local' && !fs.existsSync(path.join(slot, 'dbcp-local.properties')) && notes.some((n) => n.includes('本机配置文件')));
   ok('manifest 落本机 local/local-files.json', fs.existsSync(path.join(ws, '.harness/local/local-files.json')) && readLocalFiles(ws).sources.backend.approved.includes('application-local.properties'));
 }
 {
@@ -2406,6 +2406,7 @@ section('client：工作区提醒');
   ok('模型映射文案已精简', clientSrc.includes('未配置的角色走会话默认') && clientSrc.includes('推理等级随模型能力变化'));
   ok('历史任务运行记录入口', clientSrc.includes('历史任务运行记录弹窗') && clientSrc.includes('运行记录 · ${histInsight.task}') && clientSrc.includes('setHistInsight(t)'));
   ok('运行记录主视图不展示失败次数', !clientSrc.includes("'失败'].map") && !clientSrc.includes('· 失败 ${d.totals'));
+  ok('本机配置使用普通用户文案', clientSrc.includes('本机开发配置') && clientSrc.includes('不会提交到代码仓库') && !clientSrc.includes('本机配置（git-ignored）'));
 }
 
 // ---------------------------------------------------------------- report

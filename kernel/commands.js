@@ -1199,7 +1199,7 @@ export function registerCommands(ctx) {
     { name: 'hk-apply', description: '执行 apply 实施阶段（Dev→CR→TE→审批2；含就绪预检与续接）', hint: '[任务名] [反馈]', handler: hkApply },
     { name: 'hk-archive', description: '归档任务本轮产物到 _archive 并清空活目录（全流程附带 Spec/Memory Merge 收尾）', hint: '<任务名>', handler: hkArchive },
     { name: 'hk-te', description: 'TE 环境串行租约（测试环境全局唯一）：acquire 授权/排队、release 释放/退队、status 查看', hint: '[acquire|release <任务名> | status]', handler: hkTe },
-    { name: 'hk-local', description: '本地配置（git-ignored）发现/确认/复制：首次确认后新 slot 自动补齐', hint: '[scan|status|approve all|path... | skip path... | mode copy|symlink | apply] [--repo <仓库>]', handler: hkLocal },
+    { name: 'hk-local', description: '本机开发配置发现/确认：首次确认后新工作区自动补齐', hint: '[scan|status|approve all|path... | skip path... | mode copy|symlink | apply] [--repo <仓库>]', handler: hkLocal },
     { name: 'hk-sync', description: '资产仓库 git 同步：自动提交 → pull --rebase → 纯追加文件自动三路合并 → push（其余冲突中止回滚转人工）', handler: hkSync },
     { name: 'hk-doctor', description: '检查 harness 工作区健康度（kit/角色/红线/流程）；--fix 修复确定性缺件', hint: '[--fix]', handler: hkDoctor },
   ];
