@@ -4,6 +4,33 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-11-22
+
+### Added
+
+- Historical tasks now have a run-record entry in the history board. Completed tasks read the
+  archived `metrics/R<N>.json` snapshot first, so one PM session that handled several tasks does not
+  mix their statistics. If no snapshot exists, the panel falls back to live sessions.
+- Local development-config discovery now shows the complete candidate list in a scrollable area and
+  lets you select files individually (`Sync selected`, `Sync all`, `Not now`). High-confidence files
+  are preselected; ordinary config files are opt-in.
+
+### Changed
+
+- The local-config section uses plain language (本机开发配置) and explains that these files stay on
+  this machine, are not committed, and are copied into new parallel workspaces. Internal terms such
+  as `git-ignored`, `candidate`, `manifest` and `slot` are no longer shown in the main UI.
+- Run records no longer display a raw tool-failure count; the snapshot still keeps `toolFailures`
+  for diagnostics, but the user-facing summary/table shows only model, turns, tokens and duration.
+
+### Fixed
+
+- `POST /harness-kit/local` could return "未知工作区" because the old handler only read `workspace`
+  from the query string while the client sent it in the request body. The server now reads the body
+  (and the client also sends the query parameter for compatibility with a not-yet-reloaded Host).
+- Local-config sync feedback is truncated to three notes for large file lists instead of producing
+  an unreadably long toast.
+
 ## [0.2.0] - 2026-11-22
 
 ### Added
@@ -186,6 +213,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.2.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.1
 [0.2.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.0
 [0.1.6]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.6
 [0.1.5]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.5
