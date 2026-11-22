@@ -29,7 +29,7 @@ import { listAllGitBranches } from './worktree.js';
 import { reconcileTestEnv, readTestEnv } from './te.js';
 import { readDecisions } from './worktree.js';
 import { discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
-import { collectTaskMetrics } from './metrics.js';
+import { collectTaskMetrics, readLatestTaskMetrics } from './metrics.js';
 
 /** 解析看板 markdown 表（7 列契约，见 commands.js boardTemplate）。
  *  容错与 commands.js parseBoardRow 同源：超列溢出并入「续接提示」，不足补 —。 */
@@ -881,11 +881,15 @@ export function registerPanelApi(ctx) {
       const hit = insightCache.get(key);
       if (hit && Date.now() - hit.at < 10_000) return sendJson(res, 200, { ok: true, metrics: hit.metrics });
       try {
-        const metrics = await collectTaskMetrics(ws.path, kit, task, {
+        let metrics = await collectTaskMetrics(ws.path, kit, task, {
           sessionQuery: ctx.get('sessionQuery'),
           tokenMeter: ctx.get('tokenMeter'),
           sessions: ctx.get('sessions'),
         });
+        if (metrics.coverage === 'unavailable') {
+          const archived = readLatestTaskMetrics(ws.path, task);
+          if (archived) metrics = { ...archived, source: 'archive' };
+        }
         const payload = { ...metrics, task };
         insightCache.set(key, { at: Date.now(), metrics: payload });
         sendJson(res, 200, { ok: true, metrics: payload });

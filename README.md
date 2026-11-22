@@ -9,7 +9,7 @@ asset repository that keeps every round's output. **AI executes, humans gate, as
 Used alone, it is your project memory and a second pair of eyes. Used by a team, it is a shared
 process and shared assets.
 
-`7 roles` · `4 flow profiles` · `10 commands` · `zero runtime dependencies` · `local-first`
+`7 roles` · `4 flow profiles` · `4 daily commands` · `zero runtime dependencies` · `local-first`
 
 English | [简体中文](README.zh-CN.md)
 
@@ -195,7 +195,8 @@ go only to the provider you configure.
 ├── deliverables/         # per-round artifacts + _archive/
 ├── specs/                # capability specs, appended per round
 ├── memory/               # lessons, one file per entry
-├── tasks/                # board + machine-local state (sessions, claims, worktrees, test lease)
+├── tasks/                # board + shared claims
+├── local/                # machine-local state (sessions, worktrees, lease, local config)
 ├── agents/ flows/        # project-level role and flow overrides
 └── scripts/ rules/       # refreshed with the plugin, not committed
 ```
@@ -207,24 +208,37 @@ go only to the provider you configure.
 - Test-environment lease: `/hk-te` keeps one task at a time on the single test environment
 - Model routing: `kit.json` maps logical names (`reasoning`, `coding`, `fast`, or a role name) to a
   concrete provider/model; unmapped names fall back to the session default
+- Zero-touch closeout: `/hk close` updates the target branch, merges a clean task branch locally,
+  releases the slot and deletes the merged branch. It never pushes; conflicts or ambiguous targets
+  stop before archiving. `--no-merge` archives documents only, `--dry-run` previews the plan.
+- Per-round run records: every archive writes `_archive/<task>/metrics/R<N>.json` with the actual
+  provider/model/effort, token components, active duration and tool failures. The panel shows the
+  same summary live. No prompts, message bodies or raw session ids are recorded.
 
 ---
 
-## Command reference (advanced)
+## Command reference
+
+Four daily entries:
+
+| Command | What it does |
+|---|---|
+| `/hk init [--assets <url\|init\|local>]` | Initialize or repair `.harness/`, bind the asset repository |
+| `/hk task [<task>] <description> [--file <path>] [--fix]` | Start a full-flow task; `--fix` starts the quick fix path |
+| `/hk close <task> [--merge\|--no-merge] [--dry-run]` | Archive a round, close the worktree and write run metrics |
+| `/hk doctor [--fix]` | Health check; `--fix` repairs deterministic gaps |
+
+Advanced aliases remain available:
 
 | Command | What it does |
 |---|---|
 | `/hk-setup [--add <git-url>]` | Register source repositories in `kit.json`, cloning missing ones |
-| `/hk-init [--assets <url\|init\|local>]` | Initialize or refresh `.harness/`, bind the asset repository |
-| `/hk-new [<task>] <description> [--file <path>]` | Start a full-flow task |
-| `/hk-propose <task>` | Run the propose phase |
-| `/hk-apply <task> [feedback]` | Run the apply phase |
-| `/hk-archive <task>` | Archive the round and run Spec/Memory merge |
-| `/hk-fix [<task>] <description> [--full\|--light]` | Run the lightweight fix path |
+| `/hk-new` / `/hk-fix` | Task creation aliases |
+| `/hk-propose` / `/hk-apply` | Manual recovery of the automatic propose/apply handoff |
+| `/hk-archive` | Alias of `/hk close` |
 | `/hk-te [acquire\|release <task> \| status]` | Serial test-environment lease |
-| `/hk-local [scan\|status\|approve all\|path… \| skip path… \| mode copy\|symlink \| apply]` | Discover, approve, and provision git-ignored local config files into worktree slots |
+| `/hk-local [...]` | Discover/approve git-ignored local config files |
 | `/hk-sync` | Sync the asset repository (commit → rebase → append merge → push) |
-| `/hk-doctor` | Check workspace health: kit, roles, rules, flows, scripts, board, model mappings |
 
 ---
 
@@ -235,7 +249,7 @@ go only to the provider you configure.
 **Plugins → Add plugin**, then enter:
 
 ```
-dsh-harness-kit@0.1.6
+dsh-harness-kit@0.2.0
 ```
 
 Enable the bundle after installation.
@@ -243,7 +257,7 @@ Enable the bundle after installation.
 ### Command line
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.1.6
+dsh plugin --profile desktop add dsh-harness-kit@0.2.0
 ```
 
 Quit DSH Desktop first; replace `desktop` with your profile name for other profiles.

@@ -6,7 +6,7 @@ Harness Kit 是 DeepSeek Harness 的多 Agent 工程流程插件：它把方案�
 
 一个人用，它是你的项目记忆和第二双眼睛；一个团队用，它是共享的流程和资产。
 
-`7 个角色` · `4 档流程` · `10 个命令` · `零运行时依赖` · `数据留在本地`
+`7 个角色` · `4 档流程` · `4 个日常入口` · `零运行时依赖` · `数据留在本地`
 
 [English](README.md) | 简体中文
 
@@ -46,13 +46,13 @@ Harness Kit 不只是"加流程"。创建完成后点「启动初始化编排」
 
 ### 2. 点「＋」立项
 
-- 选「需求」或「fix 直通」
+- 选「需求」或「快速修复」
 - 写一句话描述；任务名可以留空，自动生成英文短名
 - 可选附一份需求文件
 
 点「立项」后会自动打开一个**专属会话**开始执行：需求模式从 proposal 起草开始，fix 模式从缺陷文档与质量门开始。
 
-![新建任务：需求或 fix 直通，一句话描述即可立项](docs/assets/ui-new-task.png)
+![新建任务：需求或快速修复，一句话描述即可立项](docs/assets/ui-new-task.png)
 
 ### 3. 回到面板推进
 
@@ -149,7 +149,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 ### 审批点与护栏
 
 - 审批 1：方案阶段结束，人决定是否进入开发
-- 质量门：fix 直通由人裁决「轻量」或「--full」
+- 质量门：快速修复由人裁决「轻量」或「--full」
 - 审批 2：实施与测试结束，人决定是否归档
 - 护栏：质量门未裁决时禁止写源码区；破坏性 git 命令（`reset --hard`、`clean -f`、`push --force`）直接拦截
 
@@ -163,7 +163,8 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 ├── deliverables/         # 每轮交付物 + _archive/
 ├── specs/                # 能力规格，按轮次追加
 ├── memory/               # 踩坑记忆，一人一文件
-├── tasks/                # 看板 + 本机状态（会话绑定、认领、worktree、测试环境租约）
+├── tasks/                # 看板 + 共享认领记录
+├── local/                # 本机状态（会话绑定、worktree、租约、本地配置）
 ├── agents/ flows/        # 项目级角色/流程覆写
 └── scripts/ rules/       # 随插件版本刷新，不入资产仓库
 ```
@@ -173,24 +174,33 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 - 池化 worktree：多个任务同时开发时，按仓库分配复用工作区，避免分支互相污染
 - 测试环境租约：`/hk-te` 保证同一时间只有一个任务占用测试环境
 - 模型路由：`kit.json` 把逻辑名（`reasoning` / `coding` / `fast` 或角色名）映射到具体 provider/model，未映射时回退会话默认
+- 零人工收尾：`/hk close` 先同步目标基线，再把干净任务分支本地合入、释放槽位并删除已合入分支。不自动 push；冲突或目标异常在归档前停下。`--no-merge` 只归档文档，`--dry-run` 只预演。
+- 每轮运行统计：归档写入 `_archive/<任务>/metrics/R<N>.json`，记录实际 provider/model/推理等级、token 分项、活动耗时和工具失败；面板可实时查看同一份汇总。不记录 prompt、消息正文或原始 session id。
 
 ---
 
-## 命令速查（进阶）
+## 命令速查
+
+四个日常入口：
+
+| 命令 | 作用 |
+|---|---|
+| `/hk init [--assets <url\|init\|local>]` | 初始化/修复 `.harness/`，绑定资产仓库 |
+| `/hk task [<任务>] <描述> [--file <路径>] [--fix]` | 启动任务；`--fix` 走快速修复 |
+| `/hk close <任务> [--merge\|--no-merge] [--dry-run]` | 归档本轮、收尾工作区并写入运行统计 |
+| `/hk doctor [--fix]` | 体检；`--fix` 修复确定性缺件 |
+
+高级别名继续可用：
 
 | 命令 | 作用 |
 |---|---|
 | `/hk-setup [--add <git-url>]` | 登记代码仓库到 `kit.json`，缺少的自动 clone |
-| `/hk-init [--assets <url\|init\|local>]` | 初始化/刷新 `.harness/`，绑定资产仓库 |
-| `/hk-new [<任务>] <描述> [--file <路径>]` | 启动全流程任务 |
-| `/hk-propose <任务>` | 执行方案阶段 |
-| `/hk-apply <任务> [反馈]` | 执行实施阶段 |
-| `/hk-archive <任务>` | 归档本轮产物，执行 Spec/Memory Merge |
-| `/hk-fix [<任务>] <描述> [--full\|--light]` | 轻量修复直通 |
+| `/hk-new` / `/hk-fix` | 任务创建别名 |
+| `/hk-propose` / `/hk-apply` | 自动续接失败时的人工恢复入口 |
+| `/hk-archive` | `/hk close` 的别名 |
 | `/hk-te [acquire\|release <任务> \| status]` | 测试环境串行租约 |
-| `/hk-local [scan\|status\|approve all\|path… \| skip path… \| mode copy\|symlink \| apply]` | 发现/确认 git-ignored 本地配置，并补到 worktree slot |
+| `/hk-local [...]` | 发现/确认 git-ignored 本地配置 |
 | `/hk-sync` | 资产仓库同步（提交 → rebase → 追加合并 → push） |
-| `/hk-doctor` | 工作区体检：kit、角色、规则、流程、脚本、看板、模型映射 |
 
 ---
 
@@ -201,7 +211,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 **Plugins → Add plugin**，输入：
 
 ```
-dsh-harness-kit@0.1.6
+dsh-harness-kit@0.2.0
 ```
 
 安装后启用 bundle。
@@ -209,7 +219,7 @@ dsh-harness-kit@0.1.6
 ### 命令行
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.1.6
+dsh plugin --profile desktop add dsh-harness-kit@0.2.0
 ```
 
 需要先完全退出 DSH Desktop；其他 profile 把 `desktop` 换成实际名称。

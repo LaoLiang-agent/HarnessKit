@@ -4,6 +4,47 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-22
+
+### Added
+
+- Unified `/hk` entry with four daily verbs: `init`, `task` (`--fix`), `close`, and `doctor`
+  (`--fix`). Existing `/hk-*` commands remain available as advanced aliases.
+- Zero-touch closeout: `kit.json.worktree.autoClose` (default on for new workspaces) makes
+  `/hk close` synchronize the target branch, merge a clean task branch locally, release the slot and
+  delete the merged task branch. `targetSync` defaults to `safe` (fast-forward behind, keep when
+  ahead, clean local merge when diverged); `ff-only` and `off` are available for stricter setups.
+  Conflicts, a dirty target, or a diverged target stop before archiving and leave the task active.
+  `--no-merge` keeps the old archive-only behavior; `--dry-run` previews the plan. Nothing is pushed.
+- Archived tasks now include a per-round run snapshot at
+  `.harness/deliverables/_archive/<task>/metrics/R<N>.json` with provider, model, reasoning effort,
+  turns, token components, active duration and tool failures. A live "run record" view in the panel
+  uses the same collector. No prompts, message bodies or raw session ids are stored.
+- Machine-local state now lives under `.harness/local/` (sessions, worktrees, decisions, test lease,
+  local-file approvals, auto-advance marks) and is ignored as one directory. Legacy `tasks/*.json`
+  files migrate automatically.
+- `/hk-doctor --fix` repairs deterministic gaps: refreshes scripts/templates, normalizes the board,
+  rebuilds memory indexes and migrates legacy config. The panel can discover, approve and provision
+  git-ignored local config files without using `/hk-local`.
+
+### Changed
+
+- Init templates are named `root-AGENTS.tmpl`, `module-AGENTS.tmpl` and `app-AGENTS.tmpl`; old
+  `*-CLAUDE.tmpl` names remain a read-only fallback for existing workspaces. Init gaps are returned
+  as structured items (kind/repo/path/action) instead of only display strings.
+- Panel terminology now uses 流程 (flow), 方案审批 / 交付审批 and 快速修复; the settings view is
+  labelled 工作区 and team activity is labelled 团队. Worker model mappings are marked advanced.
+- Four-column legacy boards are migrated to the seven-column contract by the repair script.
+
+### Fixed
+
+- A task branch could be merged into a stale local target because closeout did not update the target
+  first; target sync and already-merged detection now run before the merge.
+- Merged task branches are deleted even when the main worktree is on another branch; conflicts fail
+  before archive documents are cleared.
+- Local-file approvals and session history survive across task rounds; session bindings keep history
+  so multi-session tasks can be summarized.
+
 ## [0.1.6] - 2026-11-22
 
 ### Fixed
@@ -145,6 +186,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.2.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.0
 [0.1.6]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.6
 [0.1.5]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.5
 [0.1.4]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.4

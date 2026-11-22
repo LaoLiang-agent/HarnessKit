@@ -40,7 +40,7 @@ function snapshotFromLive(session) {
     const events = typeof session.snapshotEvents === 'function'
       ? session.snapshotEvents()
       : (typeof session.ownEvents === 'function' ? session.ownEvents() : []);
-    return { header: session.header ?? {}, events };
+    return { header: session.header ?? {}, events, inherited: Number(session.inheritedEventCount ?? 0) };
   } catch { return null; }
 }
 
@@ -100,7 +100,7 @@ export async function collectTaskMetrics(ws, kit, task, services = {}) {
     if (canRead) {
       try {
         const s = await sessionQuery.readSession(id);
-        if (s?.events) snap = { header: s.session ?? s.header ?? {}, events: s.events };
+        if (s?.events) snap = { header: s.session ?? s.header ?? {}, events: s.events, inherited: Number(s.inheritedEventCount ?? 0) };
       } catch { notes.push(`会话 ${String(id).slice(0, 8)} 读取失败`); }
     }
     if (!snap && sessions && typeof sessions.get === 'function') {
@@ -129,7 +129,9 @@ export async function collectTaskMetrics(ws, kit, task, services = {}) {
 
   const agents = [];
   for (const [id, snap] of snapshots.entries()) {
-    const events = snap.events ?? [];
+    // 子会话可能继承父会话事件；只统计自身的 seq，避免 token 重复计算。
+    const inherited = Number.isFinite(snap.inherited) ? snap.inherited : 0;
+    const events = (snap.events ?? []).filter((e) => !Number.isFinite(Number(e?.seq)) || Number(e.seq) >= inherited);
     const usage = emptyUsage();
     let hasUsage = false;
     let provider = null;
@@ -246,6 +248,22 @@ function totalOf(agents) {
     activeDurationMs: sum('activeDurationMs'),
     wallClockMs: sum('wallClockMs'),
   };
+}
+
+/** 读取任务最新一轮归档统计（历史任务在会话不可读时的兜底）。 */
+export function readLatestTaskMetrics(ws, task) {
+  const dir = path.join(harnessDir(ws), 'deliverables', '_archive', task, 'metrics');
+  if (!fs.existsSync(dir)) return null;
+  const files = fs.readdirSync(dir)
+    .filter((f) => /^R\d+\.json$/.test(f))
+    .sort((a, b) => Number(b.match(/\d+/)[0]) - Number(a.match(/\d+/)[0]));
+  for (const name of files) {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+      if (data && typeof data === 'object') return data;
+    } catch { /* 跳过坏快照 */ }
+  }
+  return null;
 }
 
 /** 归档时写 metrics/<R>.json；已存在则保留（同一轮只写一次）。 */

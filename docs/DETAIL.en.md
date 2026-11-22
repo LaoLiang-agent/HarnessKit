@@ -26,12 +26,12 @@ the plan before anything is written.
    wizard checks `git` and `Python 3` first and shows install commands when something is missing.
    Initialization runs in the background and survives a refresh; then start the initialization
    orchestration to generate docs and indexes.
-2. **Create a task**: ＋ → Requirement or Fix → one sentence (the task name can stay empty). A
-   dedicated session opens automatically.
+2. **Create a task**: ＋ → Requirement or Quick fix → one sentence (the task name can stay empty).
+   A dedicated session opens automatically.
 3. **Work from the panel**: cards move between Planning / Implementing / To archive. **Needs you**
    lists approvals, archives and sync problems; **Continue session** jumps to the task session.
-   Archived work moves to the history board; 🕘 shows team activity; ⚙ edits source branches,
-   auto-sync and model mappings.
+   Archived work moves to the history board; 🕘 opens Team; ⚙ opens Workspace (source branches,
+   auto-sync and model mappings).
 
 Approvals are written by a human (`proposal.md` for approval 1, `bugfix.md` for the quality gate);
 the panel only reminds. Asset rebinding and removing source repositories stay in commands.
@@ -64,18 +64,38 @@ Four profiles plus the `fix` shortcut:
 - `quick`: small changes, with a self readiness check
 - `bugfix`: full defect-fix flow
 - `refactor`: blast-radius analysis first
-- `fix`: quality gate → Dev → (`--full` adds CR/TE, `--light` verifies only) → archive
+- `fix` (quick fix): quality gate → Dev → (`--full` adds CR/TE, `--light` verifies only) → archive
 
 Source writes are blocked until the quality gate is recorded; `reset --hard`, `clean -f` and
 `push --force` are rejected.
 
+## Closeout and run records
+
+Four daily entries cover the workflow: `/hk init`, `/hk task`, `/hk close`, `/hk doctor`. Existing
+`/hk-*` commands remain as advanced aliases.
+
+`/hk close` enables `worktree.autoClose` by default for new workspaces. It aligns the local target
+with `origin` according to `targetSync` (default `safe`, local only), merges a clean task branch
+locally, releases the slot and deletes the merged task branch. It never pushes. Conflicts, a dirty
+target or a diverged target stop before archiving, leaving the task active. `--no-merge` archives
+documents only; `--dry-run` previews.
+
+Each archive writes `.harness/deliverables/_archive/<task>/metrics/R<N>.json` with the actual
+provider/model/reasoning effort, turns, token components, active duration, tool failures and
+coverage. The panel's run record uses the same collector. Only metadata is stored: no prompts,
+message bodies or raw session ids. Historical tasks are not backfilled.
+
 ## Assets accumulate
 
 `.harness/` is the working copy of the asset repository: `kit.json`, `deliverables/`, `specs/`,
-`memory/`, `tasks/`, and project-level `agents/ flows/`. Every round settles specs and lessons;
-used solo this matters most, because the longer you use it, the thicker the assets and the less the
-next session has to re-explain. Templates and rules
-also live under `.harness/` and can be adapted and committed per team.
+`memory/`, `tasks/` (board and shared claims), `local/` (machine-local state), and project-level
+`agents/ flows/`. Every round settles specs and lessons; used solo this matters most, because the
+longer you use it, the thicker the assets and the less the next session has to re-explain. Templates
+and rules also live under `.harness/` and can be adapted and committed per team.
+
+`.harness/local/` holds session bindings, the worktree ledger, decisions, the test lease and local
+config approvals; the whole directory is ignored. Legacy `tasks/*.json` files migrate automatically
+on first read or `/hk init`.
 
 ## Requirements
 

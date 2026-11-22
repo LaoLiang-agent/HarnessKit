@@ -287,6 +287,10 @@ section('/hk 统一入口：init / task / close / doctor');
   ok('/hk task 等价 /hk-new', task.kind === 'success' && fs.existsSync(path.join(ws, '.harness/deliverables/unified-one/proposal.md')));
   const doctor = await run('hk', 'doctor', ws);
   ok('/hk doctor 等价体检', doctor.kind === 'success' && doctor.text.includes('Harness Kit 体检'));
+  const fix = await run('hk', 'task --fix quick-one 一句话修复', ws, []);
+  fs.appendFileSync(path.join(ws, '.harness/deliverables/quick-one/bugfix.md'), '\n\n裁决：轻量\n');
+  const close = await run('hk', 'close quick-one', ws);
+  ok('/hk close 等价归档并写统计', fix.kind === 'success' && close.kind === 'success' && !fs.existsSync(path.join(ws, '.harness/deliverables/quick-one')) && fs.existsSync(path.join(ws, '.harness/deliverables/_archive/quick-one/metrics/R0.json')));
   const unknown = await run('hk', 'nope', ws);
   ok('/hk 未知子命令给指引', unknown.kind === 'error' && unknown.text.includes('init / task / close / doctor'));
 }
@@ -1850,7 +1854,7 @@ section('自动续接引擎：定稿→propose、审批1→apply 扫描与一次
 // ------------------------------------------------------------- 任务运行统计
 section('任务运行统计：会话树、token、覆盖率、归档快照');
 {
-  const { collectTaskMetrics, writeTaskMetrics } = await import(path.join(bundleRoot, 'kernel/metrics.js'));
+  const { collectTaskMetrics, writeTaskMetrics, readLatestTaskMetrics } = await import(path.join(bundleRoot, 'kernel/metrics.js'));
   const { recordTaskSession, readTaskSessions } = await import(path.join(bundleRoot, 'kernel/bindings.js'));
   const ws = mkws();
   cleanups.push(ws);
@@ -1870,6 +1874,7 @@ section('任务运行统计：会话树、token、覆盖率、归档快照');
       { type: 'subagent/catalog', time: 1500, data: { childId: 's-child', label: 'Dev' } },
     ],
     's-child': [
+      { seq: 0, type: 'assistant/message', time: 3000, data: { message: { source: { provider: 'p2', model: 'm2' } }, usage: { inputTokens: 999, outputTokens: 999 } } },
       { type: 'request/header', time: 4000, data: { header: { config: { provider: 'p2', model: 'm2', reasoningEffort: 'low' } } } },
       { type: 'turn/start', time: 4000, data: { turn: 1 } },
       { type: 'assistant/message', time: 4500, data: { message: { source: { provider: 'p2', model: 'm2' } }, usage: { inputTokens: 50, outputTokens: 10 } } },
@@ -1882,7 +1887,7 @@ section('任务运行统计：会话树、token、覆盖率、归档快照');
       if (id === 's-child') return { target: { header: { id: 's-child' } }, descendants: [] };
       throw new Error('missing');
     },
-    readSession: async (id) => ({ session: { id }, events: events[id] ?? [] }),
+    readSession: async (id) => ({ session: { id }, inheritedEventCount: id === 's-child' ? 1 : 0, events: events[id] ?? [] }),
     inspectSession: async (id, read) => read({ header: { id } }),
   };
   const tokenMeter = { contextPressure: () => ({ pressureTokens: 50, contextWindow: 100 }) };
@@ -1897,6 +1902,7 @@ section('任务运行统计：会话树、token、覆盖率、归档快照');
   const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
   ok('归档统计快照写入 metrics/R0.json', fs.existsSync(file) && saved.task === 'metric-task' && saved.round === 'R0' && saved.coverage === 'complete');
   ok('同一轮统计不覆盖', writeTaskMetrics(ws, 'metric-task', 'R0', { ...m, coverage: 'partial' }).skipped === true && JSON.parse(fs.readFileSync(file, 'utf8')).coverage === 'complete');
+  ok('历史任务可读最新归档统计', readLatestTaskMetrics(ws, 'metric-task')?.round === 'R0' && readLatestTaskMetrics(ws, 'missing') === null);
   const empty = await collectTaskMetrics(ws, { sources: [] }, 'none', {});
   ok('无会话绑定 → unavailable', empty.coverage === 'unavailable' && empty.agents.length === 0);
 }
