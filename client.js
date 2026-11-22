@@ -288,6 +288,34 @@ window.__ModuleLoader__.load({
         note && h('div', { style: { marginTop: 4, fontSize: 11, color: V.sub } }, note));
     }
 
+    // 运行记录：公共视图，活动任务展开区与历史任务弹窗共用。
+    function InsightView({ ins, onRefresh, showButton = true }) {
+      const n = (x) => (typeof x === 'number' ? x.toLocaleString() : '—');
+      const button = showButton && h('button', {
+        style: S.btn(false),
+        onClick: onRefresh,
+      }, ins?.loading ? '读取中…' : (ins?.data ? '刷新运行记录' : '查看运行记录'));
+      if (!ins) return button ? h('div', { style: { marginTop: 4 } }, button) : null;
+      if (ins.loading) return h('div', { style: { marginTop: 4 } }, button, h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, '读取会话统计…'));
+      if (ins.error) return h('div', { style: { marginTop: 4 } }, button, h('div', { style: { fontSize: 11, color: V.err, marginTop: 4 } }, ins.error));
+      const d = ins.data;
+      if (!d) return h('div', { style: { marginTop: 4 } }, button, h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, '暂无运行统计'));
+      return h('div', { style: { marginTop: 4 } },
+        button,
+        h('div', { style: { fontSize: 11, color: d.coverage === 'complete' ? V.ok : V.warn, margin: '4px 0' } },
+          `覆盖率 ${d.coverage}${d.source === 'archive' ? ' · 归档快照' : ''} · ${d.totals?.agents ?? 0} 个 Agent · ${n(d.totals?.totalTokens)} tokens · ${Math.round((d.totals?.activeDurationMs || 0) / 1000)}s · 失败 ${d.totals?.toolFailures ?? 0}`),
+        h('table', { style: S.table },
+          h('thead', null, h('tr', null, ['Agent', '模型', '轮次', 'tokens', '耗时', '失败'].map((x) => h('th', { key: x, style: S.th }, x)))),
+          h('tbody', null, (d.agents ?? []).map((a) => h('tr', { key: a.label },
+            h('td', { style: S.td }, a.label),
+            h('td', { style: S.td }, `${a.provider || '—'}/${a.model || '—'}${a.reasoningEffort ? ` · ${a.reasoningEffort}` : ''}`),
+            h('td', { style: S.td }, n(a.turns)),
+            h('td', { style: S.td }, n(a.totalTokens)),
+            h('td', { style: S.td }, `${Math.round((a.activeDurationMs || 0) / 1000)}s`),
+            h('td', { style: S.td }, n(a.toolFailures)))))),
+        (d.notes ?? []).length > 0 && h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, d.notes.join('；')));
+    }
+
     function Panel({ uiWorkspace }) {
       const [data, setData] = useState(null);
       // 工作区选择记忆：打开插件时恢复上次选择的工作区（而非列表第一个）
@@ -304,6 +332,7 @@ window.__ModuleLoader__.load({
       const [histOpen, setHistOpen] = useState(false);
       const [histQuery, setHistQuery] = useState('');
       const [modal, setModal] = useState(null); // {name, desc, file}
+      const [histInsight, setHistInsight] = useState(null); // 历史任务运行记录弹窗
       const [browse, setBrowse] = useState(null); // 需求文件浏览：{dir, parent, entries, loading, error}
       const [busy, setBusy] = useState(false);
       // 工作区开通引导：null 不显示；'choice'|'new'|'open'。无工作区时自动进入 choice。
@@ -705,29 +734,7 @@ window.__ModuleLoader__.load({
             t.apply && t.apply !== '—' && h('div', null, h('b', null, 'Apply：'), t.apply),
             t.progress.deliverables.length > 0 && h('div', null, h('b', null, '产物：'), t.progress.deliverables.join('、')),
             t.hint && t.hint !== '—' && h('div', null, h('b', null, '续接：'), t.hint),
-            h('div', { style: { marginTop: 8 } },
-              h('button', { style: S.btn(false), onClick: () => loadInsight(t) }, insight[t.task]?.loading ? '读取中…' : (insight[t.task]?.data ? '刷新运行记录' : '查看运行记录')),
-              (() => {
-                const ins = insight[t.task];
-                if (!ins) return null;
-                if (ins.loading) return h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, '读取会话统计…');
-                if (ins.error) return h('div', { style: { fontSize: 11, color: V.err, marginTop: 4 } }, ins.error);
-                const d = ins.data;
-                const n = (x) => (typeof x === 'number' ? x.toLocaleString() : '—');
-                return h('div', { style: { marginTop: 6 } },
-                  h('div', { style: { fontSize: 11, color: d.coverage === 'complete' ? V.ok : V.warn, marginBottom: 4 } },
-                    `覆盖率 ${d.coverage} · ${d.totals.agents} 个 Agent · ${n(d.totals.totalTokens)} tokens · ${Math.round((d.totals.activeDurationMs || 0) / 1000)}s · 失败 ${d.totals.toolFailures}`),
-                  h('table', { style: S.table },
-                    h('thead', null, h('tr', null, ['Agent', '模型', '轮次', 'tokens', '耗时', '失败'].map((x) => h('th', { key: x, style: S.th }, x)))),
-                    h('tbody', null, (d.agents ?? []).map((a) => h('tr', { key: a.label },
-                      h('td', { style: S.td }, a.label),
-                      h('td', { style: S.td }, `${a.provider || '—'}/${a.model || '—'}${a.reasoningEffort ? ` · ${a.reasoningEffort}` : ''}`),
-                      h('td', { style: S.td }, n(a.turns)),
-                      h('td', { style: S.td }, n(a.totalTokens)),
-                      h('td', { style: S.td }, `${Math.round((a.activeDurationMs || 0) / 1000)}s`),
-                      h('td', { style: S.td }, n(a.toolFailures)))))),
-                  (d.notes ?? []).length > 0 && h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, d.notes.join('；')));
-              })()),
+            h(InsightView, { ins: insight[t.task], onRefresh: () => loadInsight(t) }),
             t.progress.pendingApproval && h('div', { style: { color: V.warn } }, `⛔ ${t.progress.pendingApproval} 等待人工审批（在会话中答复，并写入通过标记）`)),
         );
       };
@@ -778,12 +785,27 @@ window.__ModuleLoader__.load({
             histOpen && h('div', { style: { padding: '0 12px 12px' } },
               h('input', { style: { ...S.input, width: 220, marginBottom: 8 }, placeholder: '搜索任务名…', value: histQuery, onChange: (e) => setHistQuery(e.target.value) }),
               h('table', { style: S.table },
-                h('thead', null, h('tr', null, ['任务', '流程', '完成时间'].map((x) => h('th', { key: x, style: S.th }, x)))),
+                h('thead', null, h('tr', null, ['任务', '流程', '完成时间', ''].map((x, i) => h('th', { key: `${x}-${i}`, style: S.th }, x)))),
                 h('tbody', null, histRows.map((t) => h('tr', { key: t.task },
                   h('td', { style: S.td }, t.task),
                   h('td', { style: S.td }, t.profile),
-                  h('td', { style: S.td }, relDay(t.updated)))))))),
+                  h('td', { style: S.td }, relDay(t.updated)),
+                  h('td', { style: S.td }, h('button', {
+                    style: { ...S.btn(false), padding: '1px 8px', fontSize: 11 },
+                    onClick: () => { setHistInsight(t); loadInsight(t); },
+                  }, '运行记录')))))))),
         ),
+        // 历史任务运行记录弹窗（优先读归档快照，避免同一会话串多个任务）
+        histInsight && h('div', { style: S.overlayBox, onClick: () => setHistInsight(null) },
+          h('div', {
+            style: { ...S.modal, width: 760, maxWidth: '92vw', maxHeight: '82vh', overflow: 'auto' },
+            onClick: (e) => e.stopPropagation(),
+          },
+            h('div', { style: { ...S.hTitle, marginBottom: 8 } }, `运行记录 · ${histInsight.task}`),
+            h(InsightView, { ins: insight[histInsight.task], onRefresh: () => loadInsight(histInsight), showButton: false }),
+            h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: 10 } },
+              h('button', { style: S.btn(false), onClick: () => setHistInsight(null) }, '关闭')))),
+
         // 立项模态（需求 / fix 直通 两种模式；任务名可选，留空由 AI 按描述生成）
         modal && h('div', { style: S.overlayBox, onClick: () => { setModal(null); setBrowse(null); } },
           h('div', { style: S.modal, onClick: (e) => e.stopPropagation() },

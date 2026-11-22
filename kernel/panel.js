@@ -881,14 +881,18 @@ export function registerPanelApi(ctx) {
       const hit = insightCache.get(key);
       if (hit && Date.now() - hit.at < 10_000) return sendJson(res, 200, { ok: true, metrics: hit.metrics });
       try {
-        let metrics = await collectTaskMetrics(ws.path, kit, task, {
-          sessionQuery: ctx.get('sessionQuery'),
-          tokenMeter: ctx.get('tokenMeter'),
-          sessions: ctx.get('sessions'),
-        });
-        if (metrics.coverage === 'unavailable') {
-          const archived = readLatestTaskMetrics(ws.path, task);
-          if (archived) metrics = { ...archived, source: 'archive' };
+        // 已归档任务优先用归档快照：同一 PM 会话可能连续做了多个任务，实时聚合会串任务。
+        const archived = readLatestTaskMetrics(ws.path, task);
+        let metrics;
+        if (!fs.existsSync(path.join(harnessDir(ws.path), 'deliverables', task)) && archived) {
+          metrics = { ...archived, source: 'archive' };
+        } else {
+          metrics = await collectTaskMetrics(ws.path, kit, task, {
+            sessionQuery: ctx.get('sessionQuery'),
+            tokenMeter: ctx.get('tokenMeter'),
+            sessions: ctx.get('sessions'),
+          });
+          if (metrics.coverage === 'unavailable' && archived) metrics = { ...archived, source: 'archive' };
         }
         const payload = { ...metrics, task };
         insightCache.set(key, { at: Date.now(), metrics: payload });

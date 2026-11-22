@@ -1991,6 +1991,7 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     ok('Host 注入 connection 后才挂面板路由', indexSrc.includes("'webServer', 'workspaceRegistry', 'connection'"));
     const panelSrc = fs.readFileSync(path.join(bundleRoot, 'kernel/panel.js'), 'utf8');
     ok('所有面板路由统一经 guardPanelHandler', panelSrc.includes('handler: guardPanelHandler(route.handler, connection)'));
+    ok('历史任务统计优先归档快照', panelSrc.includes('readLatestTaskMetrics') && panelSrc.includes("!fs.existsSync(path.join(harnessDir(ws.path), 'deliverables', task))"));
   }
   // initGaps：根 AGENTS.md/CLAUDE.md + 子工程 build.json / AGENTS.md
   {
@@ -2403,6 +2404,7 @@ section('client：工作区提醒');
   ok('模型映射含推理等级选择（默认 low 逻辑）', clientSrc.includes('reasoning_effort') && clientSrc.includes('推理等级') && clientSrc.includes("e.id === 'low'"));
   ok('provider 下拉不显示未启用项', !clientSrc.includes('（未启用）') && !clientSrc.includes('已声明但未启用'));
   ok('模型映射文案已精简', clientSrc.includes('未配置的角色走会话默认') && clientSrc.includes('推理等级随模型能力变化'));
+  ok('历史任务运行记录入口', clientSrc.includes('历史任务运行记录弹窗') && clientSrc.includes('运行记录 · ${histInsight.task}') && clientSrc.includes('setHistInsight(t)'));
 }
 
 // ---------------------------------------------------------------- report
