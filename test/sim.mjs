@@ -450,6 +450,9 @@ section('全流程 propose/apply/archive');
   // archive requires test-report PASS
   const noTr = await run('hk-archive', 'feat-x', ws, []);
   ok('缺 test-report → 归档预检 FAIL', noTr.kind === 'error' && noTr.text.includes('test-report.md'));
+  fake(ws, '.harness/deliverables/feat-x/test-report.md', '# 测试报告\n\n## 结论\n\nBLOCK\n');
+  const blkTr = await run('hk-archive', 'feat-x', ws, []);
+  ok('BLOCK 结论提示人工验收写 PASS 而非手工归档', blkTr.kind === 'error' && blkTr.text.includes('人工') && blkTr.text.includes('不要手工复制'));
   fake(ws, '.harness/deliverables/feat-x/test-report.md', '# 测试报告\n\n## 结论\n\nPASS\n');
   fake(ws, '.harness/deliverables/feat-x/requirements.md', '# 需求\n\n## §7 Spec Delta\n\nADDED: 能力X\n');
   // spec 门禁内核化：specs 有违规（同码 Requirement）→ 归档被内核拦截；修复后放行

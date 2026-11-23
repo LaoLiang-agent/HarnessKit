@@ -676,7 +676,10 @@ async function hkArchive({ agent, rawInput, ctx }) {
     if (!fs.existsSync(trPath)) return err(`归档预检 FAIL：缺 test-report.md（apply 阶段未产出测试报告）。`);
     const verdict = lastConclusion(fs.readFileSync(trPath, 'utf8'));
     if (verdict !== 'PASS') {
-      return err(`归档预检 FAIL：test-report.md 最后结论为 ${verdict ?? '缺失'}，需 PASS 才能归档（BUG→回开发，需求级→回 propose，环境阻塞→升级给人）。`);
+      return err(
+        `归档预检 FAIL：test-report.md 最后结论为 ${verdict ?? '缺失'}，需 PASS 才能归档（BUG→回开发，需求级→回 propose，环境阻塞→升级给人）。\n` +
+        '如果人工已在对话中明确验收通过，请在 test-report.md 末尾追加一个独立的「## 结论」段并写 PASS（注明人工验收日期及原 BLOCK 原因），再重跑 `/hk close`；不要手工复制目录到 _archive。',
+      );
     }
   } else {
     // preflight 2 (fix flow): --full verdict requires real CR/TE docs
