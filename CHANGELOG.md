@@ -4,7 +4,7 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.3] - 2026-11-23
 
 ### Added
 
@@ -255,6 +255,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.2.3]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.3
 [0.2.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.2
 [0.2.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.1
 [0.2.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.0

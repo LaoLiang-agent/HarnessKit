@@ -211,7 +211,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 **Plugins → Add plugin**，输入：
 
 ```
-dsh-harness-kit@0.2.2
+dsh-harness-kit@0.2.3
 ```
 
 安装后启用 bundle。
@@ -219,7 +219,7 @@ dsh-harness-kit@0.2.2
 ### 命令行
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.2.2
+dsh plugin --profile desktop add dsh-harness-kit@0.2.3
 ```
 
 需要先完全退出 DSH Desktop；其他 profile 把 `desktop` 换成实际名称。
