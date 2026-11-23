@@ -1334,6 +1334,7 @@ export function registerPanelApi(ctx) {
               onProgress: (p) => setP({ stage: p.stage, detail: p.detail, done: false, error: null }),
             });
             if (!r.ok) {
+              logger?.warn?.(`harness-kit init failed for ${ws.path}: ${String(r.error).replace(/\s+/g, ' ').slice(0, 400)}`);
               setP({ stage: '失败', detail: '', done: true, error: r.error });
               return;
             }

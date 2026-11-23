@@ -2305,22 +2305,36 @@ section('setup.js：addSource / runInit(sources) / inspectDir');
     ok('显式 path 优先于 role 派生', r3.ok === true && readKitJson(ws).sources.some((x) => x.path === 'services/custom'));
   }
 
-  // runInit 携带 sources（面板向导负载）：登记子工程；失败源进 warnings 不阻断
+  // runInit 携带 sources（面板向导负载）：显式仓库失败必须整体失败，不能假成功
   {
     const ws = mkws();
     cleanups.push(ws);
     const r = await runInit(ws, {
       assets: 'local',
-      sources: [{ url: repoWeb }, { url: path.join(srcTmp, 'no-such-repo') }],
+      sources: [{ url: repoWeb, branch: 'master' }, { url: path.join(srcTmp, 'no-such-repo'), branch: 'dev' }],
     });
     const kit = readKitJson(ws);
-    ok('runInit(sources) 子工程登记成功', r.ok === true && kit.sources.some((x) => x.name === 'web-admin'));
-    ok('runInit(sources) 失败源进 warnings', r.warnings.length > 0 && r.sourceReports.some((x) => !x.ok));
-    const report = formatInitReport(r);
+    ok('runInit(sources) 失败源 → 整体失败', r.ok === false && /子工程克隆失败/.test(r.error) && kit.sources.some((x) => x.name === 'web-admin'));
+    ok('runInit(sources) 错误包含失败源', r.error.includes('no-such-repo'));
+    const success = await runInit(ws, { assets: 'local', sources: [{ url: repoWeb, branch: 'master' }] });
+    ok('runInit(sources) 已有目录幂等成功', success.ok === true);
+    const report = formatInitReport(success);
     ok('formatInitReport 含完成标题', report.includes('/hk-init 完成'));
-    // 幂等重跑（重发同样负载 → 重复登记被拒绝但 init 仍 ok）
-    const r2 = await runInit(ws, { assets: 'local', sources: [{ url: repoWeb }] });
+    const r2 = await runInit(ws, { assets: 'local', sources: [{ url: repoWeb, branch: 'master' }] });
     ok('runInit 幂等重跑不炸', r2.ok === true);
+  }
+
+  // 上次 clone 中断留下的非 git 目录：向导必须拒绝继续登记，而不是假成功
+  {
+    const ws = mkws();
+    cleanups.push(ws);
+    fake(ws, 'services/frontend/partial.txt', 'interrupted');
+    const r = await runInit(ws, {
+      assets: 'local',
+      sources: [{ url: repoWeb, name: 'web-admin', path: 'services/frontend', role: 'frontend', branch: 'master' }],
+    });
+    ok('runInit 拒绝非 git 残留目录', r.ok === false && /不是 git 仓库|中断/.test(r.error));
+    ok('runInit 残留目录不被登记', !readKitJson(ws).sources.some((x) => x.name === 'web-admin'));
   }
 
   // inspectDir 预检
@@ -2518,6 +2532,7 @@ section('client：工作区提醒');
   ok('提醒条复用面板 attention 接口', clientSrc.includes("fetch('/harness-kit/state')"));
   ok('模型映射含推理等级选择（默认 low 逻辑）', clientSrc.includes('reasoning_effort') && clientSrc.includes('推理等级') && clientSrc.includes("e.id === 'low'"));
   ok('新建工作区分支必填', clientSrc.includes("s.url.trim() && !s.branch.trim()") && clientSrc.includes('分支为空时不会创建并克隆子工程'));
+  ok('初始化进度丢失/超时兜底', clientSrc.includes('初始化进度丢失') && clientSrc.includes('30 分钟'));
   ok('provider 下拉不显示未启用项', !clientSrc.includes('（未启用）') && !clientSrc.includes('已声明但未启用'));
   ok('模型映射文案已精简', clientSrc.includes('未配置的角色走下一级或会话默认') && clientSrc.includes('推理等级随模型能力变化'));
   ok('历史任务运行记录入口', clientSrc.includes('历史任务运行记录弹窗') && clientSrc.includes('运行记录 · ${histInsight.task}') && clientSrc.includes('setHistInsight(t)'));

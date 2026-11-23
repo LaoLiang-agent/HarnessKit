@@ -65,7 +65,7 @@ export function copyNew(srcDir, dstDir, managed = false) {
  * 登记/克隆一个代码仓库（/hk-setup --add 的确定性层）。
  * @returns {Promise<{ok:true, lines:string[], source:object}|{ok:false, error:string}>}
  */
-export async function addSource(ws, { url, name, path: relPath, role, branch } = {}) {
+export async function addSource(ws, { url, name, path: relPath, role, branch } = {}, { strictPath = false } = {}) {
   const kit = readKit(ws) ?? defaultKit();
   name = name ?? path.basename(url).replace(/\.git$/, '');
   const explicitRole = role; // 只有显式指定的 role 才触发语义目录名；自动推断保持仓名目录（CLI 行为不变）
@@ -87,7 +87,7 @@ export async function addSource(ws, { url, name, path: relPath, role, branch } =
     const okExisting = fs.existsSync(existingAbs)
       && (await runGit(['rev-parse', '--git-dir'], { cwd: existingAbs })).code === 0;
     if (okExisting) {
-      return { ok: false, error: `仓库 ${name}（${existing.path}）已登记且目录存在，无需重复添加。` };
+      return { ok: false, code: 'already-present', error: `仓库 ${name}（${existing.path}）已登记且目录存在，无需重复添加。` };
     }
     // 已登记但本地无代码（资产仓库带来的登记）→ 沿用其登记坐标补 clone
     relPath = existing.path;
@@ -102,6 +102,18 @@ export async function addSource(ws, { url, name, path: relPath, role, branch } =
   const cloneBranch = requestedBranch ?? existing?.branch ?? null;
 
   const abs = path.join(ws, relPath);
+  let targetExisted = fs.existsSync(abs);
+  const cloneOpts = {
+    cwd: ws,
+    timeoutMs: 600_000,
+    // Windows 的 Git Credential Manager 可能弹出一个被 DSH 挡住的窗口，让 clone 悬挂十几分钟。
+    // 这里禁用交互式凭据提示，凭据缺失时快速失败并返回可读错误。
+    env: { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
+  };
+  const cleanupFailedClone = () => {
+    if (targetExisted) return;
+    try { fs.rmSync(abs, { recursive: true, force: true }); } catch { /* 进程可能仍占用，留给人工处理 */ }
+  };
   if (fs.existsSync(abs)) {
     const isRepo = (await runGit(['rev-parse', '--git-dir'], { cwd: abs })).code === 0;
     if (isRepo) {
@@ -109,17 +121,29 @@ export async function addSource(ws, { url, name, path: relPath, role, branch } =
     } else if (fs.readdirSync(abs).length === 0) {
       // 空目录（上次中断残留）→ 清掉重 clone
       fs.rmdirSync(abs);
+      targetExisted = false;
       lines.push(`路径 \`${relPath}\` 是空目录（中断残留），已清理并重新 clone。`);
-      const r = await runGit(['clone', ...(cloneBranch ? ['--branch', cloneBranch] : []), url, relPath], { cwd: ws, timeoutMs: 600_000 });
-      if (r.code !== 0) return { ok: false, error: `git clone 失败（exit ${r.code}）：\n${r.stderr || r.stdout}` };
+      const r = await runGit(['clone', ...(cloneBranch ? ['--branch', cloneBranch] : []), url, relPath], cloneOpts);
+      if (r.code !== 0) {
+        cleanupFailedClone();
+        return { ok: false, error: `git clone 失败（exit ${r.code}）：\n${r.stderr || r.stdout}` };
+      }
+    } else if (strictPath) {
+      return {
+        ok: false,
+        error: `路径 \`${relPath}\` 已存在但不是 git 仓库，可能是上次 clone 中断的残留。请先删除或移走该目录后重试；不要在这种目录上继续登记。`,
+      };
     } else {
       // 非 git 的已有目录：按既有约定直接登记（不 clone），但要提示（可能是本地代码/中断残留）
       lines.push(`路径 \`${relPath}\` 已存在但不是 git 仓库，跳过 clone 直接登记（如需克隆请先清理该目录）。`);
     }
   } else {
     lines.push(`执行：git clone ${cloneBranch ? `--branch ${cloneBranch} ` : ''}${url} ${relPath}`);
-    const r = await runGit(['clone', ...(cloneBranch ? ['--branch', cloneBranch] : []), url, relPath], { cwd: ws, timeoutMs: 600_000 });
-    if (r.code !== 0) return { ok: false, error: `git clone 失败（exit ${r.code}）：\n${r.stderr || r.stdout}` };
+    const r = await runGit(['clone', ...(cloneBranch ? ['--branch', cloneBranch] : []), url, relPath], cloneOpts);
+    if (r.code !== 0) {
+      cleanupFailedClone();
+      return { ok: false, error: `git clone 失败（exit ${r.code}）：\n${r.stderr || r.stdout}` };
+    }
     lines.push('clone 完成。');
   }
 
@@ -219,7 +243,11 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
         created.push('.harness/（已有资产接管空远端，待推送）');
       }
     } else {
-      const r = await runGit(['clone', ...(branch ? ['--branch', branch] : []), url, '.harness'], { cwd: ws, timeoutMs: 600_000 });
+      const r = await runGit(['clone', ...(branch ? ['--branch', branch] : []), url, '.harness'], {
+        cwd: ws,
+        timeoutMs: 600_000,
+        env: { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
+      });
       if (r.code !== 0) return { ok: false, error: `git clone 资产仓库失败（exit ${r.code}）：\n${r.stderr || r.stdout}` };
       const b = await runGit(['branch', '--show-current'], { cwd: hd });
       assetsBinding = { mode: 'clone', url, branch: b.stdout.trim() || branch || 'master' };
@@ -491,13 +519,30 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
   kit.assets = { ...(kit.assets ?? {}), ...assetsBinding };
   writeKit(ws, kit);
 
-  // 2c. 面板初始化向导登记的代码仓库（等价于逐个 /hk-setup --add；clone 失败的单项转为警告继续）
+  // 2c. 面板初始化向导登记的代码仓库（等价于逐个 /hk-setup --add）。
+  // 向导里显式填写的仓库必须真正落地；clone 失败不能被当成“初始化完成”的警告继续。
   const sourceReports = [];
+  const sourceFailures = [];
   for (const [i, spec] of sources.entries()) {
     progress('克隆子工程', `${spec?.name || spec?.url || '?'}（${i + 1}/${sources.length}）→ ${spec?.path || 'services/…'}`);
-    const r = await addSource(ws, spec);
+    const r = await addSource(ws, spec, { strictPath: true });
     sourceReports.push(r);
-    if (!r.ok) warnings.push(`子工程 ${spec?.url ?? spec?.name ?? '?'}：${r.error}`);
+    if (!r.ok && r.code !== 'already-present') {
+      sourceFailures.push({ spec, error: r.error });
+      warnings.push(`子工程 ${spec?.url ?? spec?.name ?? '?'}：${r.error}`);
+    }
+  }
+  if (sourceFailures.length > 0) {
+    const detail = sourceFailures.map(({ spec, error }) => {
+      const label = spec?.name || spec?.url || '?';
+      const branch = spec?.branch ? `（分支 ${spec.branch}）` : '';
+      const reason = String(error).replace(/\s+/g, ' ').slice(0, 240);
+      return `- ${label}${branch}：${reason}`;
+    }).join('\n');
+    return {
+      ok: false,
+      error: `子工程克隆失败，工作区初始化未完成：\n${detail}\n\n修复后重跑初始化；如果目录是上次 clone 的中断残留，先删除该目录再重试。`,
+    };
   }
   if (sources.length > 0) kit = readKit(ws) ?? kit;
 

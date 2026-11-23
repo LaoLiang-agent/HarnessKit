@@ -1396,10 +1396,30 @@ window.__ModuleLoader__.load({
           if (!j.ok) throw new Error(j.error || '初始化失败');
           const final = await new Promise((resolve, reject) => {
             let settled = false;
+            let missingSince = null;
+            const deadline = Date.now() + 30 * 60 * 1000;
             const timer = setInterval(async () => {
               try {
+                if (Date.now() > deadline) {
+                  if (!settled) {
+                    settled = true;
+                    clearInterval(timer);
+                    reject(new Error('初始化超过 30 分钟仍未完成。请检查 DSH 是否重启、网络/凭据是否阻塞；到「配置」页查看进度或重跑初始化。'));
+                  }
+                  return;
+                }
                 const p = await fetch(`/harness-kit/workspace/init-progress?workspace=${encodeURIComponent(reg.id)}`, { cache: 'no-store' }).then((r) => r.json());
-                if (!p.ok || !p.progress) return;
+                if (!p.ok || !p.progress) {
+                  if (!missingSince) missingSince = Date.now();
+                  // 宿主重启会丢掉内存中的初始化进度；不要无限显示“初始化中”。
+                  if (!settled && Date.now() - missingSince > 15_000) {
+                    settled = true;
+                    clearInterval(timer);
+                    reject(new Error('初始化进度丢失（DSH 可能已重启）。请到「配置」页查看当前状态，或重跑初始化；已克隆的目录会跳过。'));
+                  }
+                  return;
+                }
+                missingSince = null;
                 setProgress(p.progress);
                 if (p.progress.done && !settled) {
                   settled = true;

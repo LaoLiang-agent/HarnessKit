@@ -26,6 +26,12 @@ All notable changes to Harness Kit are documented here. The format follows
   blank previously produced a misleading "initialized" state without the expected service clone.
   When an existing source is re-cloned without an explicit branch, the registered branch is used
   instead of the remote default branch.
+- Workspace initialization now fails as a whole when an explicitly requested source cannot be cloned,
+  instead of completing with only a warning and no frontend/backend entry in `kit.json`. The wizard
+  also rejects a non-git directory left by an interrupted clone and asks the user to remove it first.
+- Source and asset clones run with interactive Git credential prompts disabled, so a hidden Windows
+  Credential Manager window can no longer leave initialization hanging. The panel also stops polling
+  and reports a lost/stale initialization instead of showing "initializing" forever.
 
 ## [0.2.1] - 2026-11-22
 

@@ -3,9 +3,13 @@
 // reports the command and outcome in the command result text.
 import { spawn } from 'node:child_process';
 
-export function run(cmd, args, { cwd, timeoutMs = 120_000 } = {}) {
+export function run(cmd, args, { cwd, timeoutMs = 120_000, env } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, args, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: env ? { ...process.env, ...env } : process.env,
+    });
     let stdout = '';
     let stderr = '';
     let settled = false;
