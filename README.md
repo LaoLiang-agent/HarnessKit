@@ -251,7 +251,7 @@ Advanced aliases remain available:
 **Plugins → Add plugin**, then enter:
 
 ```
-dsh-harness-kit@0.2.1
+dsh-harness-kit@0.2.2
 ```
 
 Enable the bundle after installation.
@@ -259,7 +259,7 @@ Enable the bundle after installation.
 ### Command line
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.2.1
+dsh plugin --profile desktop add dsh-harness-kit@0.2.2
 ```
 
 Quit DSH Desktop first; replace `desktop` with your profile name for other profiles.
