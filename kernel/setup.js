@@ -96,6 +96,11 @@ export async function addSource(ws, { url, name, path: relPath, role, branch } =
     lines.push(`登记已在资产仓库存在（${existing.path}），本地无代码 → 补 clone。`);
   }
 
+  // 补 clone 时优先沿用资产仓库已登记的分支；显式传入的分支永远优先。
+  // 修复：分支为空时之前不带 --branch，克隆默认分支后又按 existing.branch 登记，导致登记分支与实际 checkout 不一致。
+  const requestedBranch = typeof branch === 'string' && branch.trim() ? branch.trim() : null;
+  const cloneBranch = requestedBranch ?? existing?.branch ?? null;
+
   const abs = path.join(ws, relPath);
   if (fs.existsSync(abs)) {
     const isRepo = (await runGit(['rev-parse', '--git-dir'], { cwd: abs })).code === 0;
@@ -105,20 +110,20 @@ export async function addSource(ws, { url, name, path: relPath, role, branch } =
       // 空目录（上次中断残留）→ 清掉重 clone
       fs.rmdirSync(abs);
       lines.push(`路径 \`${relPath}\` 是空目录（中断残留），已清理并重新 clone。`);
-      const r = await runGit(['clone', ...(branch ? ['--branch', branch] : []), url, relPath], { cwd: ws, timeoutMs: 600_000 });
+      const r = await runGit(['clone', ...(cloneBranch ? ['--branch', cloneBranch] : []), url, relPath], { cwd: ws, timeoutMs: 600_000 });
       if (r.code !== 0) return { ok: false, error: `git clone 失败（exit ${r.code}）：\n${r.stderr || r.stdout}` };
     } else {
       // 非 git 的已有目录：按既有约定直接登记（不 clone），但要提示（可能是本地代码/中断残留）
       lines.push(`路径 \`${relPath}\` 已存在但不是 git 仓库，跳过 clone 直接登记（如需克隆请先清理该目录）。`);
     }
   } else {
-    lines.push(`执行：git clone ${branch ? `--branch ${branch} ` : ''}${url} ${relPath}`);
-    const r = await runGit(['clone', ...(branch ? ['--branch', branch] : []), url, relPath], { cwd: ws, timeoutMs: 600_000 });
+    lines.push(`执行：git clone ${cloneBranch ? `--branch ${cloneBranch} ` : ''}${url} ${relPath}`);
+    const r = await runGit(['clone', ...(cloneBranch ? ['--branch', cloneBranch] : []), url, relPath], { cwd: ws, timeoutMs: 600_000 });
     if (r.code !== 0) return { ok: false, error: `git clone 失败（exit ${r.code}）：\n${r.stderr || r.stdout}` };
     lines.push('clone 完成。');
   }
 
-  let resolvedBranch = branch ?? existing?.branch;
+  let resolvedBranch = cloneBranch;
   if (!resolvedBranch) {
     const b = await runGit(['branch', '--show-current'], { cwd: abs });
     resolvedBranch = b.code === 0 && b.stdout.trim() ? b.stdout.trim() : 'master';

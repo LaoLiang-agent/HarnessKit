@@ -31,7 +31,7 @@ the plan before anything is written.
 3. **Work from the panel**: cards move between Planning / Implementing / To archive. **Needs you**
    lists approvals, archives and sync problems; **Continue session** jumps to the task session.
    Archived work moves to the history board; 🕘 opens Team; ⚙ opens Workspace (source branches,
-   auto-sync and model mappings).
+   auto-sync and model mappings, with team defaults and per-machine overrides).
 
 Approvals are written by a human (`proposal.md` for approval 1, `bugfix.md` for the quality gate);
 the panel only reminds. Asset rebinding and removing source repositories stay in commands.
@@ -93,9 +93,10 @@ message bodies or raw session ids. Historical tasks are not backfilled.
 longer you use it, the thicker the assets and the less the next session has to re-explain. Templates
 and rules also live under `.harness/` and can be adapted and committed per team.
 
-`.harness/local/` holds session bindings, the worktree ledger, decisions, the test lease and local
-config approvals; the whole directory is ignored. Legacy `tasks/*.json` files migrate automatically
-on first read or `/hk init`.
+`.harness/local/` holds session bindings, the worktree ledger, decisions, the test lease, local
+config approvals and per-machine Worker model overrides (`models.json`); the whole directory is
+ignored. Team model defaults stay in `kit.json`; local overrides win and are never shared. Legacy
+`tasks/*.json` files migrate automatically on first read or `/hk init`.
 
 ## Requirements
 

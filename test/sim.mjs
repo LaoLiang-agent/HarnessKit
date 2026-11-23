@@ -676,6 +676,47 @@ section('模型路由解析');
   const sec = dispatchSection(kit, [{ role: 'solution-architect', logical: 'reasoning' }, { role: 'developer', logical: 'reasoning' }]);
   ok('dispatchSection 含两级键说明与来源标注', sec.includes('两级键') && sec.includes('角色映射 solution-architect') && sec.includes('逻辑模型 reasoning'));
 }
+{
+  // 本机覆盖：local 角色 > team 角色 > local 逻辑 > team 逻辑 > 会话默认
+  const { resolveWorkerModel, describeWorkerModel, collectModelRoutes } = await import(path.join(bundleRoot, 'kernel/models.js'));
+  const team = { models: {
+    reasoning: { provider: 'team', model: 'm-reason' },
+    'solution-architect': { provider: 'team', model: 'm-sa' },
+    developer: { provider: 'team', model: 'm-dev' },
+  } };
+  const local = {
+    'solution-architect': { provider: 'local', model: 'l-sa' },
+    reasoning: { provider: 'local', model: 'l-reason' },
+  };
+  const sa = resolveWorkerModel(team, 'solution-architect', 'reasoning', local);
+  ok('本机角色覆盖团队角色', sa.via === 'local-role' && sa.entry.provider === 'local' && sa.entry.model === 'l-sa');
+  const dev = resolveWorkerModel(team, 'developer', 'reasoning', local);
+  ok('团队角色优先于本机逻辑', dev.via === 'role' && dev.entry.model === 'm-dev');
+  const te = resolveWorkerModel(team, 'test-engineer', 'reasoning', local);
+  ok('无团队角色时本机逻辑覆盖', te.via === 'local-logical' && te.entry.model === 'l-reason');
+  const unknown = resolveWorkerModel(team, 'code-reviewer', 'fast', local);
+  ok('都未映射返回 null', unknown === null);
+  const desc = describeWorkerModel(team, 'solution-architect', 'reasoning', local);
+  ok('本机覆盖标注来源', desc.includes('本机角色映射') && desc.includes('provider=local'));
+  ok('本机逻辑覆盖标注来源', describeWorkerModel(team, 'test-engineer', 'reasoning', local).includes('本机逻辑模型 reasoning'));
+  const routes = collectModelRoutes(team, local);
+  ok('路由授权合并团队+本机', routes.some((r) => r.provider === 'local' && r.model === 'l-sa')
+    && routes.some((r) => r.provider === 'team' && r.model === 'm-dev'));
+}
+{
+  // 本机模型文件：路径、忽略、读写、坏数据容错
+  const { writeLocalModels, readLocalModels, localModelsPath } = await import(path.join(bundleRoot, 'kernel/local-models.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const p = localModelsPath(ws);
+  ok('本机模型文件路径', p === path.join(ws, '.harness/local/models.json'));
+  writeLocalModels(ws, { developer: { provider: 'p', model: 'm', reasoning_effort: 'high' } });
+  ok('本机模型写入/读取', readLocalModels(ws).developer?.model === 'm' && readLocalModels(ws).developer?.reasoning_effort === 'high');
+  const gi = fs.readFileSync(path.join(ws, '.harness/.gitignore'), 'utf8');
+  ok('local/ 自动加入 gitignore', gi.split('\n').some((l) => l.trim() === 'local/'));
+  fake(ws, '.harness/local/models.json', '{bad json');
+  ok('坏本机模型文件容错为空', Object.keys(readLocalModels(ws)).length === 0);
+}
 
 // ---------------------------------------------------------------- 并行 worktree
 section('池化工作区（主树优先 + slot 池）');
@@ -2130,6 +2171,14 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     ok('kit.json 落盘（分支/autoSync/models/reasoning）', kit.sources[0].branch === 'release' && kit.assets.autoSync === true && kit.models.dev.model === 'k3' && kit.models.dev.provider === 'ds' && kit.models.dev.reasoning_effort === 'low');
     const r2 = updateKit(ws, { models: { dev: null } });
     ok('models null 删除映射', r2.ok && JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8')).models.dev === undefined);
+    const rl = updateKit(ws, { localModels: { dev: { provider: 'local', model: 'm-local', reasoning_effort: 'high' } } });
+    const localFile = path.join(ws, '.harness/local/models.json');
+    const localJson = JSON.parse(fs.readFileSync(localFile, 'utf8'));
+    ok('localModels 写入 local/models.json', rl.ok && localJson.models.dev.model === 'm-local' && localJson.models.dev.provider === 'local');
+    ok('localModels 不写 kit.json', JSON.parse(fs.readFileSync(path.join(ws, '.harness/kit.json'), 'utf8')).models.dev === undefined);
+    ok('坏 local model 映射报错', updateKit(ws, { localModels: { dev: { provider: 'p' } } }).error !== undefined);
+    updateKit(ws, { localModels: {} });
+    ok('清空 localModels 删除本机文件', !fs.existsSync(localFile));
     // 流程配置（原 config.json 的 apply-mode）：applyMode 并入 kit.json；mainlineBranch 已废弃
     ok('applyMode 非法值拒绝', updateKit(ws, { applyMode: 'nope' }).error !== undefined);
     const r3 = updateKit(ws, { applyMode: 'review' });
@@ -2176,6 +2225,10 @@ section('setup.js：addSource / runInit(sources) / inspectDir');
   git('init -q', repoWeb);
   fs.writeFileSync(path.join(repoWeb, 'README.md'), '# web\n');
   git('add -A && git commit -qm init', repoWeb);
+  git('checkout -qb dev', repoWeb);
+  fs.writeFileSync(path.join(repoWeb, 'dev.txt'), 'dev branch\n');
+  git('add -A && git commit -qm dev', repoWeb);
+  git('checkout -q master', repoWeb);
 
   // addSource 默认值推导（名称/路径/角色）+ 克隆落地 + kit.json 登记
   {
@@ -2209,6 +2262,20 @@ section('setup.js：addSource / runInit(sources) / inspectDir');
     ok('已登记但本地无目录 → 补 clone 到登记坐标', r.ok === true && fs.existsSync(path.join(ws, 'services/legacy-front/README.md')) && readKitJson(ws).sources.filter((x) => x.name === 'web-admin').length === 1);
     const again = await addSource(ws, { url: repoWeb });
     ok('补 clone 后重复添加 → 拒绝（目录已存在）', again.ok === false && /已登记且目录存在/.test(again.error));
+  }
+
+  // 补 clone 未显式传 branch → 沿用资产登记分支（不能克隆默认 master）
+  {
+    const ws = mkws();
+    cleanups.push(ws);
+    await run('hk-init', '', ws);
+    const kitFile = path.join(ws, '.harness/kit.json');
+    const kit = JSON.parse(fs.readFileSync(kitFile, 'utf8'));
+    kit.sources = [{ name: 'web-admin', url: repoWeb, path: 'services/legacy-dev', role: 'frontend', branch: 'dev' }];
+    fs.writeFileSync(kitFile, JSON.stringify(kit, null, 2));
+    const r = await addSource(ws, { url: repoWeb }); // branch 省略
+    ok('补 clone 沿用登记分支 dev', r.ok === true && fs.existsSync(path.join(ws, 'services/legacy-dev/dev.txt')));
+    ok('补 clone 登记分支仍为 dev', readKitJson(ws).sources.find((x) => x.name === 'web-admin')?.branch === 'dev');
   }
 
   // path 派生（2026-11-17）：显式 role 唯一 → services/<role>；重名/无显式 role → services/<仓名>
@@ -2450,8 +2517,9 @@ section('client：工作区提醒');
   ok('侧栏图标带提醒红点', clientSrc.includes('hk-alert-dot'));
   ok('提醒条复用面板 attention 接口', clientSrc.includes("fetch('/harness-kit/state')"));
   ok('模型映射含推理等级选择（默认 low 逻辑）', clientSrc.includes('reasoning_effort') && clientSrc.includes('推理等级') && clientSrc.includes("e.id === 'low'"));
+  ok('新建工作区分支必填', clientSrc.includes("s.url.trim() && !s.branch.trim()") && clientSrc.includes('分支为空时不会创建并克隆子工程'));
   ok('provider 下拉不显示未启用项', !clientSrc.includes('（未启用）') && !clientSrc.includes('已声明但未启用'));
-  ok('模型映射文案已精简', clientSrc.includes('未配置的角色走会话默认') && clientSrc.includes('推理等级随模型能力变化'));
+  ok('模型映射文案已精简', clientSrc.includes('未配置的角色走下一级或会话默认') && clientSrc.includes('推理等级随模型能力变化'));
   ok('历史任务运行记录入口', clientSrc.includes('历史任务运行记录弹窗') && clientSrc.includes('运行记录 · ${histInsight.task}') && clientSrc.includes('setHistInsight(t)'));
   ok('运行记录主视图不展示失败次数', !clientSrc.includes("'失败'].map") && !clientSrc.includes('· 失败 ${d.totals'));
   ok('本机配置使用普通用户文案', clientSrc.includes('本机开发配置') && clientSrc.includes('不会提交到代码仓库') && !clientSrc.includes('本机配置（git-ignored）'));

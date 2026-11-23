@@ -424,7 +424,7 @@ harness-kit/
 > - **flows**：`standard/quick/bugfix/refactor` 四 Profile + `_router.yml` 路由表 + `new.yml`（Bootstrap 编排：解读→起草→Profile 判定→⛔模糊点反问→⛔定稿）；全流程阶段按 `phase: propose|apply` 打标，`compileFlowPrompt` 按 phase 过滤只渲染当前阶段。
 > - **命令**：`/hk-new`（proposal 脚手架 + `--file` 需求文件拷入 + 看板 PENDING 登记 + Bootstrap steer）；`/hk-propose`（状态须 approved → 按 proposal `**profile**` 行取 profile，模板枚举行自动排除 → 只渲染 propose 阶段）；`/hk-apply`（审批 1 记录 + 就绪预检：standard/refactor 查 readiness-report、quick 查 design 就绪自评、bugfix 查结论，最后结论非 PASS 拒绝 → 只渲染 apply 阶段，支持反馈续接）；`/hk-archive`（fix：缺裁决 FAIL、`--full` 一致性校验 code-review+test-report；全流程：缺「审批 1：通过」FAIL、test-report 结论须 PASS，归档后 steer Spec/Memory Merge 收尾剧本）。
 > - **状态机**：`state.js` 双规划文档规则——`proposal.md` 存在 → 审批 1 marker（`审批\s*1…通过|PASS`）解锁；否则 `bugfix.md` 质量门裁决解锁（兼容 fix 直通与全流程 bugfix 两种 bugfix.md）。
-> - **模型路由**：`kernel/models.js`——角色 frontmatter/阶段 `model:` 为逻辑名，`kit.json models` 映射 `{provider, model, reasoning_effort?}`；派发说明随剧本注入（含 `list_subagent_models` 预校验、不可用降级会话默认并告知）；`resolveModel/describeModel/dispatchSection` 三个纯函数。默认 `models: {}` 全部走会话默认，映射由用户按工作区配置。
+> - **模型路由**：`kernel/models.js`——角色 frontmatter/阶段 `model:` 为逻辑名，`kit.json models`（团队默认）与 `.harness/local/models.json`（本机覆盖，gitignored）映射 `{provider, model, reasoning_effort?}`；优先级 local 角色 > team 角色 > local 逻辑名 > team 逻辑名 > 会话默认；派发说明随剧本注入（含 `list_subagent_models` 预校验、不可用降级会话默认并告知）；`resolveModel/describeModel/dispatchSection` 三个纯函数。默认 `models: {}` 全部走会话默认。
 > - **hk-doctor** 增列：八个流程定义状态 + 模型映射表。
 > - **脚手架补齐**（真机验收反馈）：`/hk-init` 幂等物化 `codebase-guide/overview.md` 与 `specs/_index.md` 预置骨架——对应旧框架「模板预置 + 人/AI 逐步补全」约定（`codebase_guide_init.py` 明确不生成二者），消除存量工程首批任务时 BA/SA/RR 输入引用悬空。
 > - **格式契约补齐**（2026-11-11 真机归档反馈）：移植旧框架 spec/memory 格式契约——新增内容包模板 `spec-template.md`（frontmatter：domain/prefix/id_max_r/id_max_s/retired…）与 `memory-entry.md`（frontmatter id/date/scope/tags + 症状/根因/修复/流程优化排除/防复发/复发检测，文件名 `YYYY-MM-DD_<scope>_<slug>.md`），`/hk-init` 物化为 `.harness/specs/spec-template.md` 与 `.harness/memory/templates/entry.md`；`memory/index.md` 骨架扩为含命名约定/何时写不写/流程优先决策门，`specs/_index.md` 骨架补跨域流程节；`/hk-archive` 收尾提示词锚定两个模板。此前演示任务由 PM 自由发挥的轻量格式（无 frontmatter/日期前缀）属契约缺失所致。
@@ -473,7 +473,7 @@ harness-kit/
 
 **卡片视觉密度**：阶段进度用 8 圆点进度条（●绿完成 / ◐蓝呼吸当前 / ○灰未到 / ◆菱形审批点，hover tooltip 显示阶段名+产物），不用文字 chip；文字仅任务名（14 半粗）+ 流程徽标胶囊 + 当前状态行（角色·相对时间，12 灰）；每卡单一主按钮（蓝实心），次操作收 ⋯。色彩只取主题 token，红仅给阻塞项；动效仅圆点呼吸+按钮 loading；空状态做正式插画位+立项 CTA。操作反馈：toast 成功 3s 自消、失败红色滞留。
 
-**配置视图**（顶栏 ⚙，独立视图+返回）：三层——① 只读信息（资产仓库 url/branch/mode、同步健康、上次同步、pack 版本+漂移摘要）；② 可配项（各端基线分支 `sources[].branch`、`assets.autoSync`、Worker 模型映射），分组卡片独立保存；③ 危险操作（资产换绑/解绑、增删 source）维持命令行，面板只显示不提供表单。
+**配置视图**（顶栏 ⚙，独立视图+返回）：三层——① 只读信息（资产仓库 url/branch/mode、同步健康、上次同步、pack 版本+漂移摘要）；② 可配项（各端基线分支 `sources[].branch`、`assets.autoSync`、Worker 模型映射——团队默认写 `kit.json`，本机覆盖写 `local/models.json`），分组卡片独立保存；③ 危险操作（资产换绑/解绑、增删 source）维持命令行，面板只显示不提供表单。
 
 **团队协作三件套**（用户裁定 ✅）：
 

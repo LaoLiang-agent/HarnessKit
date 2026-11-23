@@ -927,14 +927,26 @@ window.__ModuleLoader__.load({
       const [local, setLocal] = useState(null);
       const [localSel, setLocalSel] = useState({});
       const [localBusy, setLocalBusy] = useState(false);
-      const [models, setModels] = useState(() => Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
+      const [teamModels, setTeamModels] = useState(() => Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
+      const [localModels, setLocalModels] = useState(() => Object.entries(k.localModels ?? {}).map(([name, m]) => toModelRow(name, m)));
+      const [modelScope, setModelScope] = useState('local');
+      const editingModels = modelScope === 'local' ? localModels : teamModels;
+      const setEditingModels = (next) => (modelScope === 'local' ? setLocalModels(next) : setTeamModels(next));
+      const localOverrideNames = new Set(localModels.map((m) => m.name).filter(Boolean));
+      const teamDefaultNames = new Set(teamModels.map((m) => m.name).filter(Boolean));
+      const copyTeamDefaults = () => {
+        const merged = new Map(teamModels.map((m) => [m.name, m]));
+        for (const m of localModels) if (m.name) merged.set(m.name, m);
+        setLocalModels([...merged.values()]);
+      };
       const [applyMode, setApplyMode] = useState(k.applyMode ?? 'auto');
       useEffect(() => {
         setBranches(Object.fromEntries((k.sources ?? []).map((s) => [s.name, s.branch ?? ''])));
         setAutoSync(k.assets?.autoSync === true);
         setAutoClose(k.worktree?.autoClose === true);
         setTargetSync(k.worktree?.targetSync ?? 'safe');
-        setModels(Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
+        setTeamModels(Object.entries(k.models ?? {}).map(([name, m]) => toModelRow(name, m)));
+        setLocalModels(Object.entries(k.localModels ?? {}).map(([name, m]) => toModelRow(name, m)));
         setApplyMode(k.applyMode ?? 'auto');
         setLocalSel({});
       }, [ws.id]);
@@ -1095,12 +1107,36 @@ window.__ModuleLoader__.load({
           h('button', { style: S.btn(busy, true), disabled: busy, onClick: () => saveConfig({ autoSync }, autoSync ? '已开启自动同步' : '已关闭自动同步') }, '保存')),
         h('div', { style: S.section },
           h('div', { style: S.secTitle }, '高级：Worker 模型映射'),
+          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
+            '本机覆盖优先于团队默认：本机角色 > 团队角色 > 本机逻辑名 > 团队逻辑名 > 会话默认。'),
+          h('div', { style: { display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' } },
+            [['local', '仅本机（推荐）'], ['team', '团队默认']].map(([scope, label]) =>
+              h('button', {
+                key: scope,
+                style: {
+                  ...S.btn(false), padding: '3px 10px', fontSize: 12, borderRadius: 14,
+                  background: modelScope === scope ? V.brand : 'transparent',
+                  color: modelScope === scope ? V.brandInvert : V.text,
+                },
+                onClick: () => setModelScope(scope),
+              }, label))),
+          h('div', { style: { fontSize: 12, color: modelScope === 'local' ? V.ok : V.warn, marginBottom: 8 } },
+            modelScope === 'local'
+              ? '只写入 .harness/local/models.json：不会提交、不会同步给团队。留空 = 全部使用团队默认。'
+              : '写入 kit.json：会随团队资产仓库共享，改动前先和团队确认。'),
+          modelScope === 'local' && teamModels.length > 0 && h('div', { style: { display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' } },
+            h('button', { style: S.btn(false), onClick: copyTeamDefaults }, '从团队默认复制'),
+            localModels.length > 0 && h('button', { style: S.btn(false), onClick: () => { setLocalModels([]); saveConfig({ localModels: {} }, '本机模型覆盖已清空'); } }, '清空本机覆盖')),
+          modelScope === 'local' && localModels.length === 0 && teamModels.length > 0 &&
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+              `当前没有本机覆盖，全部使用团队默认（${teamModels.length} 条）。`),
           h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-            '键支持角色名（优先）或逻辑名（fast / coding / reasoning）；未配置的角色走会话默认。'),
+            '键支持角色名（优先）或逻辑名（fast / coding / reasoning）；未配置的角色走下一级或会话默认。'),
           h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
             '推理等级随模型能力变化；新增默认 low，模型不支持时用该模型默认。'),
-          models.length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } }, '尚未配置，全部角色走默认模型'),
-          models.map((m, i) => h('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' } },
+          editingModels.length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+            modelScope === 'local' ? '尚未添加本机覆盖，团队默认继续生效。' : '尚未配置团队默认，全部角色走默认模型。'),
+          editingModels.map((m, i) => h('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' } },
             // 角色名下拉：流程角色（BA/SA/Dev/CR/TE 等，宿主扫 agents/ 目录）+ 已映射的逻辑模型名 + 自由输入
             h(Combobox, {
               style: { width: 130 },
@@ -1109,13 +1145,17 @@ window.__ModuleLoader__.load({
                 ...(config.roles ?? []).map((r) => r.role),
                 ...(config.presetModels ?? []).map((x) => x.name),
               ])],
-              onChange: (v) => setModels(models.map((x, j) => j === i ? { ...x, name: v } : x)),
+              onChange: (v) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, name: v } : x)),
             }),
+            modelScope === 'team' && localOverrideNames.has(m.name) &&
+              h('span', { style: { fontSize: 11, color: V.warn, whiteSpace: 'nowrap' } }, '本机已覆盖'),
+            modelScope === 'local' && teamDefaultNames.has(m.name) &&
+              h('span', { style: { fontSize: 11, color: V.brand, whiteSpace: 'nowrap' } }, '覆盖团队'),
             // provider 下拉：宿主已注册的全部 LLM provider；切换时清空 model（避免脏组合）；已配置但不可用的值保留显示并标灰
             h('select', {
               style: { ...S.select, width: 110 },
               value: m.provider ?? '',
-              onChange: (e) => setModels(models.map((x, j) => j === i ? { ...x, provider: e.target.value, model: '', reasoning_effort: '' } : x)),
+              onChange: (e) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, provider: e.target.value, model: '', reasoning_effort: '' } : x)),
             }, [
               h('option', { key: '', value: '' }, '（会话默认）'),
               ...(catalog ?? []).map((c) => h('option', { key: c.provider, value: c.provider }, c.provider)),
@@ -1126,7 +1166,7 @@ window.__ModuleLoader__.load({
               style: { flex: 1 },
               value: m.model, placeholder: 'model',
               options: (catalog ?? []).find((c) => c.provider === (m.provider || ''))?.models?.map((mo) => mo.id) ?? [],
-              onChange: (v) => setModels(models.map((x, j) => j === i ? { ...x, model: v, reasoning_effort: defaultEffort(x.provider, v) } : x)),
+              onChange: (v) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, model: v, reasoning_effort: defaultEffort(x.provider, v) } : x)),
             }),
             // 推理等级：选项来自当前模型能力；不同厂商不是同一套枚举（DeepSeek off/low/high/max，
             // 其他模型可能 minimal/low/medium/high 或没有），不在这里硬编码“通用等级”。
@@ -1134,26 +1174,28 @@ window.__ModuleLoader__.load({
               style: { ...S.select, width: 100 },
               title: m.reasoning_effort ? `reasoning_effort=${m.reasoning_effort}` : '该模型未声明推理等级，使用默认',
               value: m.reasoning_effort ?? '',
-              onChange: (e) => setModels(models.map((x, j) => j === i ? { ...x, reasoning_effort: e.target.value } : x)),
+              onChange: (e) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, reasoning_effort: e.target.value } : x)),
             }, [
               h('option', { key: '', value: '' }, '默认'),
               ...reasoningEfforts(m.provider, m.model).map((e) => h('option', { key: e.id, value: e.id }, e.name || e.id)),
               ...(m.reasoning_effort && !reasoningEfforts(m.provider, m.model).some((e) => e.id === m.reasoning_effort)
                 ? [h('option', { key: '__missing', value: m.reasoning_effort }, `⚠ ${m.reasoning_effort}`)] : []),
             ]),
-            h('button', { style: S.iconBtn, title: '删除', onClick: () => setModels(models.filter((_, j) => j !== i)) }, '×'))),
+            h('button', { style: S.iconBtn, title: '删除', onClick: () => setEditingModels(editingModels.filter((_, j) => j !== i)) }, '×'))),
           (catalog ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } }, '未发现可用模型清单（宿主未注册 LLM 或接口不可用），仍可手动输入'),
           h('div', { style: { display: 'flex', gap: 8, marginTop: 8 } },
-            h('button', { style: S.btn(false), onClick: () => setModels([...models, { name: '', provider: '', model: '', reasoning_effort: '' }]) }, '＋ 添加映射'),
+            h('button', { style: S.btn(false), onClick: () => setEditingModels([...editingModels, { name: '', provider: '', model: '', reasoning_effort: '' }]) }, '＋ 添加映射'),
             h('button', {
-              style: S.btn(busy || models.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)), true),
-              disabled: busy || models.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)),
-              onClick: () => saveConfig({ models: Object.fromEntries(models.map((m) => [m.name.trim(), {
-                ...(m.provider.trim() ? { provider: m.provider.trim() } : {}),
-                model: m.model.trim(),
-                ...(m.reasoning_effort ? { reasoning_effort: m.reasoning_effort } : {}),
-              }])) }, '模型映射已保存'),
-            }, '保存'))),
+              style: S.btn(busy || editingModels.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)), true),
+              disabled: busy || editingModels.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)),
+              onClick: () => saveConfig({
+                [modelScope === 'local' ? 'localModels' : 'models']: Object.fromEntries(editingModels.map((m) => [m.name.trim(), {
+                  ...(m.provider.trim() ? { provider: m.provider.trim() } : {}),
+                  model: m.model.trim(),
+                  ...(m.reasoning_effort ? { reasoning_effort: m.reasoning_effort } : {}),
+                }])),
+              }, modelScope === 'local' ? '本机模型覆盖已保存' : '团队模型映射已保存'),
+            }, modelScope === 'local' ? '保存本机覆盖' : '保存团队默认'))),
         // ③ 初始化与子工程（面板化的 /hk-init、/hk-setup --add）
         h('div', { style: S.section },
           h('div', { style: S.secTitle }, '初始化与子工程'),
@@ -1413,7 +1455,8 @@ window.__ModuleLoader__.load({
         || (mode === 'url' && !assetUrl.trim())
         || !!(info && info.inspect && info.inspect.path && !info.inspect.isDir)
         // 角色强制确认（2026-11-17 定）：登记的每个仓库必须显式选角色，不再静默自动推断
-        || sources.some((s) => s.url.trim() && !s.role.trim());
+        || sources.some((s) => s.url.trim() && !s.role.trim())
+        || sources.some((s) => s.url.trim() && !s.branch.trim());
 
       // 环境检查卡片：缺失项直接给安装命令，安装后点「重新检查」
       const envCard = h('div', { style: S.section },
@@ -1482,7 +1525,13 @@ window.__ModuleLoader__.load({
               h('select', { style: { ...S.select, borderColor: s.role.trim() ? undefined : V.warn }, value: s.role, onChange: (e) => setSrc(i, { role: e.target.value }) },
                 h('option', { value: '' }, '请选择角色…'),
                 ROLE_OPTIONS.map((r) => h('option', { key: r, value: r }, r))),
-              h('input', { style: { ...S.input, width: 90 }, value: s.branch, placeholder: '分支', onChange: (e) => setSrc(i, { branch: e.target.value }) })))),
+              h('input', {
+                style: { ...S.input, width: 100, borderColor: s.url.trim() && !s.branch.trim() ? V.warn : undefined },
+                value: s.branch, placeholder: '分支*', title: '必填，例如 dev',
+                onChange: (e) => setSrc(i, { branch: e.target.value }),
+              })))),
+          sources.some((s) => s.url.trim() && !s.branch.trim()) && h('div', { style: { fontSize: 11, color: V.warn, marginTop: 4 } },
+            '每个代码仓库都必须填写分支（如 dev）；分支为空时不会创建并克隆子工程。'),
           h('button', { style: S.btn(false), onClick: () => setSources((ss) => [...ss, { ...EMPTY_SOURCE }]) }, '＋ 添加仓库')),
         // 提交区
         err && h('div', { style: { fontSize: 12, color: V.err, marginBottom: 10, whiteSpace: 'pre-wrap' } }, err),
@@ -1565,14 +1614,14 @@ window.__ModuleLoader__.load({
           h('select', { style: { ...S.select, borderColor: s.role.trim() ? undefined : V.warn }, value: s.role, onChange: set('role') },
             h('option', { value: '' }, '角色（必选）'),
             ROLE_OPTIONS.map((r) => h('option', { key: r, value: r }, r))),
-          h('input', { style: { ...S.input, width: 80 }, value: s.branch, placeholder: '分支', onChange: set('branch') })),
+          h('input', { style: { ...S.input, width: 100, borderColor: s.url.trim() && !s.branch.trim() ? V.warn : undefined }, value: s.branch, placeholder: '分支*', title: '必填，例如 dev', onChange: set('branch') })),
         h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 6 } },
-          '名称默认取 git 仓名（任务跑起来后不可改）；角色是流程语义标签，必选。'),
+          '名称默认取 git 仓名（任务跑起来后不可改）；角色和分支必填。'),
         h('div', { style: { display: 'flex', gap: 8 } },
           h('button', { style: S.btn(false), onClick: () => setOpen(false) }, '收起'),
           h('button', {
-            style: S.btn(busy || !s.url.trim() || !s.role.trim(), true), disabled: busy || !s.url.trim() || !s.role.trim(),
-            title: !s.role.trim() ? '请先选择角色' : undefined,
+            style: S.btn(busy || !s.url.trim() || !s.role.trim() || !s.branch.trim(), true), disabled: busy || !s.url.trim() || !s.role.trim() || !s.branch.trim(),
+            title: !s.role.trim() ? '请先选择角色' : (!s.branch.trim() ? '请填写分支（如 dev）' : undefined),
             onClick: () => {
               const spec = { url: s.url.trim() };
               for (const k of ['name', 'path', 'role', 'branch']) if (s[k].trim()) spec[k] = s[k].trim();

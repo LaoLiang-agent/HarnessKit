@@ -1,7 +1,7 @@
 // M4/M4b 面板数据通道：webServer 路由向 Client 面板暴露状态、配置与命令转发。
 // - GET  /harness-kit/state     工作区看板 + 流程进度 + 认领 + 同步健康 + 注意力项
-// - GET  /harness-kit/config    kit.json 配置视图（?workspace=）
-// - POST /harness-kit/config    {workspace, patch} 更新 kit.json（基线分支/autoSync/models）
+// - GET  /harness-kit/config    kit.json + local/models.json 配置视图（?workspace=）
+// - POST /harness-kit/config    {workspace, patch} 更新 kit.json / local/models.json
 // - GET  /harness-kit/activity  资产仓库团队动态（git log，?workspace=）
 // - POST /harness-kit/sync      {workspace} 立即同步（Host 直跑，不占会话）
 // - POST /harness-kit/command   {workspace, line} 把 /hk-* 命令转发给该工作区的活动会话（成功自动登记任务↔会话）
@@ -30,6 +30,8 @@ import { reconcileTestEnv, readTestEnv } from './te.js';
 import { readDecisions } from './worktree.js';
 import { discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
 import { collectTaskMetrics, readLatestTaskMetrics } from './metrics.js';
+import { readLocalModels, writeLocalModels, clearLocalModels } from './local-models.js';
+import { normalizeModelMap } from './models.js';
 
 /** 解析看板 markdown 表（7 列契约，见 commands.js boardTemplate）。
  *  容错与 commands.js parseBoardRow 同源：超列溢出并入「续接提示」，不足补 —。 */
@@ -317,13 +319,21 @@ export function parseGitLog(text) {
 
 /**
  * 受控更新 kit.json（M4b 配置视图第 2 层）。
- * patch: { sources?: [{name, branch}], autoSync?: boolean, models?: {logical: {provider?, model, reasoning_effort?}} }
- * 返回 { ok: true, kit } 或 { error }。
+ * patch: { sources?: [{name, branch}], autoSync?: boolean, models?: {logical: {provider?, model, reasoning_effort?}},
+ *          localModels?: {logical: {provider?, model, reasoning_effort?}} }
+ * 返回 { ok: true, kit, localModels? } 或 { error }。
+ * models 写团队 kit.json；localModels 写 .harness/local/models.json（不提交、不同步）。
  */
 export function updateKit(ws, patch) {
   const kit = readKit(ws);
   if (!kit) return { error: '尚未初始化：请先运行 /hk-init' };
   if (patch == null || typeof patch !== 'object') return { error: 'patch 必须是对象' };
+  let localPatch;
+  if (patch.localModels !== undefined) {
+    const norm = normalizeModelMap(patch.localModels, 'localModels');
+    if (norm.error) return { error: norm.error };
+    localPatch = norm.models;
+  }
 
   if (patch.sources !== undefined) {
     if (!Array.isArray(patch.sources)) return { error: 'sources 必须是数组' };
@@ -387,6 +397,11 @@ export function updateKit(ws, patch) {
     }
   }
   writeKit(ws, kit);
+  if (localPatch !== undefined) {
+    if (Object.keys(localPatch).length === 0) clearLocalModels(ws);
+    else writeLocalModels(ws, localPatch);
+    return { ok: true, kit, localModels: localPatch };
+  }
   return { ok: true, kit };
 }
 
@@ -509,9 +524,12 @@ export function modelSuggest(models, provider) {
   return (models ?? []).filter((mo) => !provider || mo.provider === provider).flatMap((mo) => mo.models ?? []).map((m) => m.id);
 }
 
-/** 设置页角色名下拉数据源：kit.json models 已映射的逻辑名（角色名的既有用法）。 */
-function logicalModelNames(kit) {
-  try { return Object.keys(kit?.models ?? {}).map((name) => ({ name })); } catch { return []; }
+/** 设置页角色名下拉数据源：团队 + 本机已映射的键（角色名或逻辑名）。 */
+function logicalModelNames(kit, localModels = null) {
+  try {
+    return [...new Set([...Object.keys(kit?.models ?? {}), ...Object.keys(localModels ?? {})])]
+      .map((name) => ({ name }));
+  } catch { return []; }
 }
 
 async function computeSyncHealth(ws) {
@@ -823,6 +841,7 @@ export function registerPanelApi(ctx) {
           if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
           const kit = readKit(ws.path);
           if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
+          const localModels = readLocalModels(ws.path);
           sendJson(res, 200, {
             ok: true,
             kit: {
@@ -830,6 +849,7 @@ export function registerPanelApi(ctx) {
               hosts: kit.hosts ?? [],
               sources: kit.sources ?? [],
               models: kit.models ?? {},
+              localModels,
               assets: kit.assets ?? { mode: 'local' },
               worktree: kit.worktree ?? {},
               // 流程配置（原 .harness/config.json，2026-11-18 迁入 kit.json）
@@ -838,7 +858,7 @@ export function registerPanelApi(ctx) {
             },
             sync: syncHealth(ws.path),
             catalog: await listModelCatalog(llm),
-            presetModels: logicalModelNames(kit),
+            presetModels: logicalModelNames(kit, localModels),
             roles: listRoles(ws.path, kit).map((r) => ({ role: r.role, name: r.meta?.name ?? r.role, logical: r.meta?.model ?? null, origin: r.origin })),
           });
         } catch (cause) {
@@ -1278,7 +1298,12 @@ export function registerPanelApi(ctx) {
             if (!s || typeof s !== 'object') return sendJson(res, 400, { ok: false, error: 'sources 元素必须是对象' });
             const url = typeof s.url === 'string' ? s.url.trim() : '';
             if (!url) return sendJson(res, 400, { ok: false, error: '每个子工程必须提供 url' });
-            const spec = { url };
+            const sourceBranch = typeof s.branch === 'string' ? s.branch.trim() : '';
+            if (!sourceBranch) {
+              const label = (typeof s.name === 'string' && s.name.trim()) || url;
+              return sendJson(res, 400, { ok: false, error: `子工程 ${label} 必须填写分支（如 dev）；分支为空时不会创建并克隆子工程` });
+            }
+            const spec = { url, branch: sourceBranch };
             for (const k of ['name', 'path', 'role', 'branch']) {
               if (typeof s[k] === 'string' && s[k].trim()) spec[k] = s[k].trim();
             }

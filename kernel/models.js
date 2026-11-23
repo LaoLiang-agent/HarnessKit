@@ -4,10 +4,43 @@
 // Availability is validated by the Lead at dispatch time (list_subagent_models),
 // so this module only resolves the mapping deterministically.
 
-/** Resolve a logical model name to { provider?, model, reasoning_effort? } or null. */
-export function resolveModel(kit, logical) {
+/** 校验并规范化 {key: {provider?, model, reasoning_effort?}} 映射。 */
+export function normalizeModelMap(input, label = 'models') {
+  if (input == null) return { models: {} };
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    return { error: `${label} 必须是对象` };
+  }
+  const models = {};
+  for (const [rawKey, value] of Object.entries(input)) {
+    const key = String(rawKey).trim();
+    if (!key) return { error: `${label} 的键不能为空` };
+    if (value == null) continue;
+    if (typeof value !== 'object' || Array.isArray(value)) {
+      return { error: `${label}.${key} 需为 {provider?, model, reasoning_effort?}` };
+    }
+    const model = typeof value.model === 'string' ? value.model.trim() : '';
+    if (!model) return { error: `${label}.${key} 需提供非空 model` };
+    if (value.provider !== undefined && value.provider !== null && typeof value.provider !== 'string') {
+      return { error: `${label}.${key}.provider 必须是字符串` };
+    }
+    if (value.reasoning_effort !== undefined && value.reasoning_effort !== null
+      && (typeof value.reasoning_effort !== 'string' || !value.reasoning_effort.trim())) {
+      return { error: `${label}.${key}.reasoning_effort 必须是非空字符串` };
+    }
+    const entry = {};
+    if (typeof value.provider === 'string' && value.provider.trim()) entry.provider = value.provider.trim();
+    entry.model = model;
+    if (typeof value.reasoning_effort === 'string' && value.reasoning_effort.trim()) {
+      entry.reasoning_effort = value.reasoning_effort.trim();
+    }
+    models[key] = entry;
+  }
+  return { models };
+}
+
+function resolveEntry(models, logical) {
   if (!logical || typeof logical !== 'string') return null;
-  const entry = kit?.models?.[logical];
+  const entry = models?.[logical];
   if (!entry || typeof entry !== 'object' || !entry.model) return null;
   return {
     ...(entry.provider ? { provider: entry.provider } : {}),
@@ -16,9 +49,19 @@ export function resolveModel(kit, logical) {
   };
 }
 
+/** Resolve a logical model name to { provider?, model, reasoning_effort? } or null. */
+export function resolveModel(kit, logical) {
+  return resolveEntry(kit?.models, logical);
+}
+
 /** Human-readable dispatch description for prompts/status output. */
-export function describeModel(kit, logical) {
+export function describeModel(kit, logical, localModels = null) {
   if (!logical) return '会话默认（角色未声明逻辑模型）';
+  const local = resolveEntry(localModels, logical);
+  if (local) {
+    const eff = local.reasoning_effort ? `, reasoning_effort=${local.reasoning_effort}` : '';
+    return `${logical} → 本机覆盖 provider=${local.provider ?? '（会话默认 provider）'}, model=${local.model}${eff}`;
+  }
   const r = resolveModel(kit, logical);
   if (!r) return `${logical}（kit.json models 未映射 → 会话默认）`;
   const eff = r.reasoning_effort ? `, reasoning_effort=${r.reasoning_effort}` : '';
@@ -26,42 +69,54 @@ export function describeModel(kit, logical) {
 }
 
 /**
- * 角色级模型映射：kit.json models 允许用「角色名」（business-analyst 等）做键，
- * 优先级高于逻辑模型名（fast/coding/reasoning）。返回 {entry, via}：
- * via='role' 命中角色映射；via='logical' 命中逻辑名映射；null 都未映射。
+ * 角色级模型映射：本机覆盖优先于团队默认，每级允许用「角色名」（business-analyst 等）
+ * 或逻辑模型名（fast/coding/reasoning）做键。返回 {entry, via, source}：
+ * via=local-role/role/local-logical/logical；null 都未映射。
  */
-export function resolveWorkerModel(kit, role, logical) {
+export function resolveWorkerModel(kit, role, logical, localModels = null) {
+  // 本机覆盖优先于团队默认；每一级仍按角色名 > 逻辑名。
+  const byLocalRole = resolveEntry(localModels, role);
+  if (byLocalRole) return { entry: byLocalRole, via: 'local-role', source: 'local' };
   const byRole = resolveModel(kit, role);
-  if (byRole) return { entry: byRole, via: 'role' };
+  if (byRole) return { entry: byRole, via: 'role', source: 'team' };
+  const byLocalLogical = resolveEntry(localModels, logical);
+  if (byLocalLogical) return { entry: byLocalLogical, via: 'local-logical', source: 'local' };
   const byLogical = resolveModel(kit, logical);
-  if (byLogical) return { entry: byLogical, via: 'logical' };
+  if (byLogical) return { entry: byLogical, via: 'logical', source: 'team' };
   return null;
 }
 
 /**
- * 从 kit.json models 映射收集子智能体路由授权（去重）。
+ * 从团队 + 本机模型映射收集子智能体路由授权（去重）。
  * DSH 默认子模型限父会话当前模型且宿主无 GUI 开关（subagentModelSelection 出厂关）——
  * HarnessKit 按工作区映射自动授权：映射了的路由就是人想用的（2026-11-16 iot-harness RR 降级事故）。
  */
-export function collectModelRoutes(kit) {
+export function collectModelRoutes(kit, localModels = null) {
   const seen = new Map();
-  for (const m of Object.values(kit?.models ?? {})) {
-    if (m && typeof m.provider === 'string' && m.provider && typeof m.model === 'string' && m.model) {
-      seen.set(`${m.provider}/${m.model}`, { provider: m.provider, model: m.model });
+  for (const map of [kit?.models ?? {}, localModels ?? {}]) {
+    for (const m of Object.values(map)) {
+      if (m && typeof m.provider === 'string' && m.provider && typeof m.model === 'string' && m.model) {
+        seen.set(`${m.provider}/${m.model}`, { provider: m.provider, model: m.model });
+      }
     }
   }
   return [...seen.values()];
 }
 
-/** 派发描述：角色级优先，标注命中来源，便于人核对为什么用了这个模型。 */
-export function describeWorkerModel(kit, role, logical) {
-  const r = resolveWorkerModel(kit, role, logical);
+/** 派发描述：本机覆盖 > 团队默认；每级角色名优先于逻辑名，并标注命中来源。 */
+export function describeWorkerModel(kit, role, logical, localModels = null) {
+  const r = resolveWorkerModel(kit, role, logical, localModels);
   if (!r) {
     if (!logical) return '会话默认（角色未声明逻辑模型）';
-    return `${logical}（kit.json models 未映射 → 会话默认）`;
+    return `${logical}（kit.json/local 均未映射 → 会话默认）`;
   }
   const { provider, model, reasoning_effort } = r.entry;
-  const via = r.via === 'role' ? `角色映射 ${role}` : `逻辑模型 ${logical}`;
+  const via = {
+    'local-role': `本机角色映射 ${role}`,
+    role: `角色映射 ${role}`,
+    'local-logical': `本机逻辑模型 ${logical}`,
+    logical: `逻辑模型 ${logical}`,
+  }[r.via];
   // subagent 工具要求 provider/model 必须成对（缺一即报错）；映射缺 provider 时无法成对传递，
   // 视为会话默认派发——不显式传任何模型参数（2026-11-16 iot-harness 真实踩坑：PM 只传 model 触发校验报错）
   if (!provider) {
@@ -75,7 +130,7 @@ export function describeWorkerModel(kit, role, logical) {
  * Render the "## 派发方式" appendix with per-worker model routing.
  * workers: [{ role, logical }] — logical from role frontmatter / stage override.
  */
-export function dispatchSection(kit, workers) {
+export function dispatchSection(kit, workers, localModels = null) {
   const lines = [
     '## 派发方式',
     '- 你自己承担 PM 职责：拆解、派发、汇总、向人汇报。',
@@ -87,13 +142,13 @@ export function dispatchSection(kit, workers) {
     '- 任何时候信息不足或口径模糊：先向人反问，不要自行补全。',
     '',
     '### 模型路由（派发时必须执行）',
-    '- kit.json models 支持两级键：角色名（business-analyst 等）优先，其次逻辑模型名（fast/coding/reasoning）；下方每行已标注命中来源。',
+    '- 模型来源：`.harness/local/models.json`（仅本机，优先）> `kit.json models`（团队默认）；每级内支持两级键：角色名（business-analyst 等）优先，其次逻辑模型名（fast/coding/reasoning）；下方每行已标注命中来源。',
   ];
   if (workers.length === 0) {
     lines.push('- 本流程无 Worker 阶段，全部 PM 自行执行。');
   } else {
     for (const w of workers) {
-      lines.push(`- **${w.role}** → ${describeWorkerModel(kit, w.role, w.logical)}`);
+      lines.push(`- **${w.role}** → ${describeWorkerModel(kit, w.role, w.logical, localModels)}`);
     }
   }
   lines.push(

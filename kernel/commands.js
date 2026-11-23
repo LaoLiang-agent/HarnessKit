@@ -19,6 +19,7 @@ import { discoverAll, discoverSource, readLocalFiles, writeLocalFiles, provision
 import { recordTaskSession } from './bindings.js';
 import { addSource, runInit, formatInitReport, guessRole, boardTemplate } from './setup.js';
 import { dispatchSection, describeWorkerModel } from './models.js';
+import { readLocalModels } from './local-models.js';
 import { collectTaskMetrics, writeTaskMetrics } from './metrics.js';
 
 const ok = (text) => ({ kind: 'success', text });
@@ -124,17 +125,18 @@ function flowWorkers(flow, phase) {
 function buildWorkerContext(ws, kit, flow, phase) {
   const refs = [];
   const modelRows = [];
+  const localModels = readLocalModels(ws);
   for (const w of flowWorkers(flow, phase)) {
     const r = resolveRole(ws, kit, w.role);
     const logical = w.stageModel ?? r?.meta?.model ?? null;
     refs.push(
       r
-        ? `- ${w.role}：派发前用 read 工具读 \`${r.file}\`（${r.origin === 'workspace' ? '工作区覆写' : '内容包默认'}）全文，内嵌进 Worker prompt；模型：${describeWorkerModel(kit, w.role, logical)}`
-        : `- ⚠️ ${w.role}：角色定义缺失，按通用职责派发；模型：${describeWorkerModel(kit, w.role, logical)}`,
+        ? `- ${w.role}：派发前用 read 工具读 \`${r.file}\`（${r.origin === 'workspace' ? '工作区覆写' : '内容包默认'}）全文，内嵌进 Worker prompt；模型：${describeWorkerModel(kit, w.role, logical, localModels)}`
+        : `- ⚠️ ${w.role}：角色定义缺失，按通用职责派发；模型：${describeWorkerModel(kit, w.role, logical, localModels)}`,
     );
     modelRows.push({ role: w.role, logical });
   }
-  return { refs: refs.join('\n'), modelRows };
+  return { refs: refs.join('\n'), modelRows, localModels };
 }
 
 /**
@@ -329,7 +331,7 @@ async function hkFix({ agent, rawInput }) {
       workerRefs,
     ].join('\n'),
     rules: [readCoreRules(kit), wtNotice, mirrorNotice, TE_NOTICE].filter(Boolean).join('\n\n'),
-    dispatchSection: dispatchSection(kit, wctx.modelRows),
+    dispatchSection: dispatchSection(kit, wctx.modelRows, wctx.localModels),
   });
 
   steer(agent, prompt);
@@ -440,7 +442,7 @@ async function hkNew({ agent, rawInput }) {
       router ? `\`\`\`yaml\n${fs.readFileSync(router.file, 'utf8').trim()}\n\`\`\`` : '（缺 flows/_router.yml：按默认 standard 处理，并在汇报中注明）',
     ].join('\n'),
     rules: readCoreRules(kit),
-    dispatchSection: dispatchSection(kit, []),
+    dispatchSection: dispatchSection(kit, [], readLocalModels(ws)),
   });
 
   steer(agent, prompt);
@@ -491,7 +493,7 @@ async function hkPropose({ agent, rawInput }) {
       wctx.refs,
     ].join('\n'),
     rules: [readCoreRules(kit), mirrorNotice].filter(Boolean).join('\n\n'),
-    dispatchSection: dispatchSection(kit, wctx.modelRows),
+    dispatchSection: dispatchSection(kit, wctx.modelRows, wctx.localModels),
   });
 
   updateBoard(ws, task, 'IN_PROGRESS');
@@ -580,7 +582,7 @@ async function hkApply({ agent, rawInput }) {
       wctx.refs,
     ].join('\n'),
     rules: [readCoreRules(kit), wtNotice, TE_NOTICE].filter(Boolean).join('\n\n'),
-    dispatchSection: dispatchSection(kit, wctx.modelRows),
+    dispatchSection: dispatchSection(kit, wctx.modelRows, wctx.localModels),
   });
 
   steer(agent, prompt);
@@ -1095,7 +1097,12 @@ async function hkDoctor({ agent, rawInput }) {
 
   const models = kit.models && typeof kit.models === 'object' ? Object.entries(kit.models) : [];
   lines.push(
-    `- 模型映射：${models.length === 0 ? '（空 → 全部走会话默认；在 kit.json models 中配置 logical→{provider,model}）' : models.map(([k, v]) => `${k}→${v?.provider ? `${v.provider}/` : ''}${v?.model ?? '?'}`).join('、')}`,
+    `- 团队模型映射：${models.length === 0 ? '（空 → 全部走会话默认；在 kit.json models 中配置 logical→{provider,model}）' : models.map(([k, v]) => `${k}→${v?.provider ? `${v.provider}/` : ''}${v?.model ?? '?'}`).join('、')}`,
+  );
+  const localModels = readLocalModels(ws);
+  const localEntries = Object.entries(localModels);
+  lines.push(
+    `- 本机模型覆盖：${localEntries.length === 0 ? '（无；使用团队默认）' : localEntries.map(([k, v]) => `${k}→${v?.provider ? `${v.provider}/` : ''}${v?.model ?? '?'}`).join('、')}（.harness/local/models.json，仅本机、不提交）`,
   );
 
   // init assets materialization state：与 /hk-init 物化契约逐项对账（缺件 → 重跑 /hk-init create-only 补齐）

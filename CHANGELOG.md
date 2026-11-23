@@ -4,6 +4,29 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Per-machine Worker model overrides in `.harness/local/models.json` (gitignored, never committed or
+  synced). The panel's model editor now has separate `仅本机` and `团队默认` scopes, shows when a local
+  entry shadows a team entry, and can copy team defaults before editing.
+- Worker model resolution now takes a local override before the team mapping:
+  local role > team role > local logical name > team logical name > session default.
+  Subagent route authorization and `/hk doctor` also include local overrides.
+
+### Changed
+
+- The model-mapping section explains which file is written: local edits stay on this machine, while
+  `团队默认` writes `kit.json` and is shared through the asset repository.
+
+### Fixed
+
+- New-workspace source repositories now require a branch in the wizard and the init API. Leaving it
+  blank previously produced a misleading "initialized" state without the expected service clone.
+  When an existing source is re-cloned without an explicit branch, the registered branch is used
+  instead of the remote default branch.
+
 ## [0.2.1] - 2026-11-22
 
 ### Added

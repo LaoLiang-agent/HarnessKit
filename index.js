@@ -10,6 +10,7 @@ import { installGuards } from './kernel/guards.js';
 import { registerPanelApi } from './kernel/panel.js';
 import { readKit } from './kernel/paths.js';
 import { collectModelRoutes } from './kernel/models.js';
+import { readLocalModels } from './kernel/local-models.js';
 
 export const inject = ['commands', 'tools'];
 
@@ -18,7 +19,7 @@ export function apply(ctx) {
   installGuards(ctx, ctx.get('logger'));
 
   // 子智能体模型路由自动授权：DSH 默认子模型限父会话当前模型，宿主级 subagentModelSelection
-  // 出厂关且无 GUI——HarnessKit 在会话创建时按工作区 kit.json models 映射追加授权策略事件
+  // 出厂关且无 GUI——HarnessKit 在会话创建时按工作区 kit.json + local/models.json 映射追加授权策略事件
   // （与宿主 SubagentModelSelectionConfig 同一挂点 agent/created；子会话自动继承父策略）。
   try {
     ctx.on('agent/created', ({ agent }) => {
@@ -28,7 +29,7 @@ export function apply(ctx) {
         if (typeof cwd !== 'string' || cwd === '') return;
         if (!fs.existsSync(path.join(cwd, '.harness', 'kit.json'))) return;
         const kit = readKit(cwd);
-        const routes = collectModelRoutes(kit);
+        const routes = collectModelRoutes(kit, readLocalModels(cwd));
         if (routes.length === 0) return;
         // 已挂策略的会话（含子会话继承）由投影幂等忽略重复 append
         session?.append?.('subagent/model-selection-policy', { allowedModels: routes });

@@ -44,7 +44,7 @@ gains missing keys. If CodeGraph is not installed, the scripts try to install it
 
 - pick a local directory (it can be empty)
 - choose the asset repository: local, a new git repository, or an existing team repository
-- register source repositories (URL, role, branch), or add them later
+- register source repositories (URL, role and branch are required), or add them later
 - click **Create and initialize**
 
 The wizard runs an **environment check** first: if `git` or `Python 3` is missing, it shows the
@@ -73,7 +73,7 @@ starts from the defect document and the quality gate.
   phase automatically (set `autoAdvance: false` in `.harness/kit.json` to disable)
 - archive finished work into the collapsible history board
 - 🕘 team activity shows who archived what and when
-- ⚙ configuration edits source branches, auto-sync and model mappings
+- ⚙ configuration edits source branches, auto-sync and team/per-machine model mappings
 
 ![War room: needs-you list, planning/implementing/to-archive lanes and history board](docs/assets/ui-war-room.png)
 
@@ -136,8 +136,9 @@ environment.
 
 ### Model cost: spend where it matters
 
-Use strong models for design and difficult review, fast models for routine work. The mapping lives
-in `.harness/kit.json`, includes an optional reasoning effort per binding, and is not tied to one provider.
+Use strong models for design and difficult review, fast models for routine work. Team defaults live
+in `.harness/kit.json`; each machine can override them in `.harness/local/models.json` (ignored, never
+synced). Every binding can set a reasoning effort and is not tied to one provider.
 
 ### Assets compound, especially solo
 
@@ -191,12 +192,12 @@ go only to the provider you configure.
 
 ```
 .harness/
-├── kit.json              # sources, model mapping, asset repository binding
+├── kit.json              # sources, team model defaults, asset repository binding
 ├── deliverables/         # per-round artifacts + _archive/
 ├── specs/                # capability specs, appended per round
 ├── memory/               # lessons, one file per entry
 ├── tasks/                # board + shared claims
-├── local/                # machine-local state (sessions, worktrees, lease, local config)
+├── local/                # machine-local state (sessions, worktrees, lease, local config, model overrides)
 ├── agents/ flows/        # project-level role and flow overrides
 └── scripts/ rules/       # refreshed with the plugin, not committed
 ```
@@ -206,7 +207,8 @@ go only to the provider you configure.
 - Pooled worktrees: concurrent tasks reuse a worktree slot per repository instead of fighting over
   one branch
 - Test-environment lease: `/hk-te` keeps one task at a time on the single test environment
-- Model routing: `kit.json` maps logical names (`reasoning`, `coding`, `fast`, or a role name) to a
+- Model routing: team defaults in `kit.json`, per-machine overrides in `.harness/local/models.json`;
+  each level maps a role name (preferred) or logical name (`reasoning`, `coding`, `fast`) to a
   concrete provider/model; unmapped names fall back to the session default
 - Zero-touch closeout: `/hk close` updates the target branch, merges a clean task branch locally,
   releases the slot and deletes the merged branch. It never pushes; conflicts or ambiguous targets
