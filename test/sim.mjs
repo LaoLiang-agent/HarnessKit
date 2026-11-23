@@ -2589,6 +2589,31 @@ section('flows：审批材料必须可见且带文件链接');
 }
 
 // ---------------------------------------------------------------- 会话内工作区提醒
+section('插件版本更新检查');
+{
+  const { parseVersion, isNewerVersion, checkPluginUpdate, resetUpdateCache } = await import(path.join(bundleRoot, 'kernel/update.js'));
+  ok('版本解析容忍 v 前缀', parseVersion('v0.2.3')?.join('.') === '0.2.3');
+  ok('版本比较：新/同/旧', isNewerVersion('0.2.4', '0.2.3') && !isNewerVersion('0.2.3', '0.2.3') && !isNewerVersion('0.2.2', '0.2.3'));
+  resetUpdateCache();
+  let calls = 0;
+  let now = Date.now();
+  const fetchImpl = async () => {
+    calls += 1;
+    return { ok: true, json: async () => ({ version: '99.0.0' }) };
+  };
+  const first = await checkPluginUpdate({ fetchImpl, now: () => now });
+  ok('检查到新版本', first.ok === true && first.latest === '99.0.0' && first.updateAvailable === true);
+  now += 30 * 60 * 1000;
+  await checkPluginUpdate({ fetchImpl, now: () => now });
+  ok('1 小时内使用缓存', calls === 1);
+  now += 31 * 60 * 1000;
+  await checkPluginUpdate({ fetchImpl, now: () => now });
+  ok('超过 1 小时重新检查', calls === 2);
+  resetUpdateCache();
+  const failed = await checkPluginUpdate({ fetchImpl: async () => ({ ok: false, status: 503 }), now: () => Date.now() });
+  ok('registry 失败静默', failed.ok === false && failed.updateAvailable === false);
+}
+
 section('client：工作区提醒');
 {
   const clientSrc = fs.readFileSync(path.join(bundleRoot, 'client.js'), 'utf8');
@@ -2596,6 +2621,8 @@ section('client：工作区提醒');
   ok('侧栏图标带提醒红点', clientSrc.includes('hk-alert-dot'));
   ok('提醒条复用面板 attention 接口', clientSrc.includes("fetch('/harness-kit/state')"));
   ok('模型映射含推理等级选择（默认 low 逻辑）', clientSrc.includes('reasoning_effort') && clientSrc.includes('推理等级') && clientSrc.includes("e.id === 'low'"));
+  ok('插件更新检查入口与提示', clientSrc.includes('/harness-kit/update-check') && clientSrc.includes('Harness Kit 有新版本') && clientSrc.includes('插件版本'));
+  ok('手动检查更新有加载与 toast 反馈', clientSrc.includes('onCheckUpdate({ notify: true })') && clientSrc.includes("updateChecking ? '检查中…'"));
   ok('新建工作区分支必填', clientSrc.includes("s.url.trim() && !s.branch.trim()") && clientSrc.includes('分支为空时不会创建并克隆子工程'));
   ok('新建任务弹窗不因点击遮罩关闭', (() => {
     const start = clientSrc.indexOf("modal && h('div', { style: S.overlayBox");

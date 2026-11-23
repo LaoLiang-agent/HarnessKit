@@ -6,10 +6,19 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The panel checks npm for a newer Harness Kit version (one-hour success cache, three-second
+  timeout, silent failure) and shows an update pill plus a dismissible banner. A plugin version
+  section in Workspace settings shows current/latest versions. The plugin only prompts; updating
+  remains an explicit action in Plugins → Harness Kit → Update.
+
 ### Fixed
 
 - The New Task dialog no longer closes when clicking outside it. Only the explicit Cancel button
   dismisses the dialog, so a partially filled task is not lost by an accidental backdrop click.
+- The plugin-version check no longer stays on "checking" when the Host route is unavailable or the
+  request fails; it shows "check failed" and can be retried without affecting the plugin.
 
 ## [0.2.3] - 2026-11-23
 

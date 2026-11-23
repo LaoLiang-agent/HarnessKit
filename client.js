@@ -334,6 +334,12 @@ window.__ModuleLoader__.load({
       const [histInsight, setHistInsight] = useState(null); // 历史任务运行记录弹窗
       const [browse, setBrowse] = useState(null); // 需求文件浏览：{dir, parent, entries, loading, error}
       const [busy, setBusy] = useState(false);
+      const [updateInfo, setUpdateInfo] = useState(null);
+      const [updateChecking, setUpdateChecking] = useState(false);
+      const [showUpdate, setShowUpdate] = useState(false);
+      const [dismissedUpdate, setDismissedUpdate] = useState(() => {
+        try { return localStorage.getItem('harness-kit.dismissedUpdate') || null; } catch { return null; }
+      });
       // 工作区开通引导：null 不显示；'choice'|'new'|'open'。无工作区时自动进入 choice。
       const [obMode, setObMode] = useState(null);
       const [obPath, setObPath] = useState(''); // 「打开」被拒后转「新建」时预填的目录
@@ -357,6 +363,50 @@ window.__ModuleLoader__.load({
         const t = setInterval(fetchState, 3000);
         return () => clearInterval(t);
       }, [fetchState]);
+
+      const checkUpdate = useCallback(async ({ notify = false } = {}) => {
+        setUpdateChecking(true);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        try {
+          const r = await fetch('/harness-kit/update-check', { cache: 'no-store', signal: controller.signal });
+          let j;
+          try { j = await r.json(); } catch { throw new Error(`HTTP ${r.status}`); }
+          if (!r.ok || !j.ok || !j.update) throw new Error(j.error || `HTTP ${r.status}`);
+          setUpdateInfo(j.update);
+          if (notify) {
+            toast(j.update.updateAvailable
+              ? `发现新版本 ${j.update.latest}（当前 ${j.update.current}），请到 Plugins → Harness Kit → Update 更新`
+              : `已是最新版本 ${j.update.current ?? ''}`.trim(), true);
+          }
+          return j.update;
+        } catch (e) {
+          // 旧 Host 没有这个路由时不能一直停在“检查中”，明确显示检查失败。
+          const failed = { ok: false, current: null, latest: null, updateAvailable: false, error: String(e?.message || e) };
+          setUpdateInfo(failed);
+          if (notify) toast(`更新检查失败：${failed.error}`, false);
+          return failed;
+        } finally {
+          clearTimeout(timer);
+          setUpdateChecking(false);
+        }
+      }, [toast]);
+      useEffect(() => {
+        checkUpdate();
+        const timer = setInterval(checkUpdate, 60 * 60 * 1000);
+        return () => clearInterval(timer);
+      }, [checkUpdate]);
+      useEffect(() => {
+        if (updateInfo?.updateAvailable && updateInfo.latest !== dismissedUpdate) setShowUpdate(true);
+      }, [updateInfo, dismissedUpdate]);
+      const dismissUpdate = () => {
+        const latest = updateInfo?.latest;
+        if (latest) {
+          setDismissedUpdate(latest);
+          try { localStorage.setItem('harness-kit.dismissedUpdate', latest); } catch { /* ignore */ }
+        }
+        setShowUpdate(false);
+      };
 
       const workspaces = data?.workspaces ?? [];
       // 解析顺序：显式选择 > 记忆的上次工作区 > 列表第一个（记忆值已从列表移除时自然回落）
@@ -590,6 +640,11 @@ window.__ModuleLoader__.load({
           syncMeta.label,
           ws.sync?.state === 'behind' && ` ${ws.sync.behind}↓`,
           ws.sync?.state === 'diverged' && ` ${ws.sync.behind}↓${ws.sync.ahead}↑`),
+        ws && updateInfo?.updateAvailable && h('button', {
+          style: { ...S.btn(false), fontSize: 12, color: V.brand },
+          title: `Harness Kit 最新 ${updateInfo.latest}，当前 ${updateInfo.current}`,
+          onClick: () => setShowUpdate(true),
+        }, `↑ ${updateInfo.latest} 可用`),
         // embedded（.harness 随工作区根仓库管理）：同步对象是根仓库，面板不能替用户动代码仓库，
         // 不提供「立即同步」（旧版点了只会得到"/hk-sync 不适用"报错）；提示由注意力项给出。
         ws && ws.sync?.layout !== 'embedded' && h('button', { style: S.btn(busy), disabled: busy, onClick: syncNow }, '立即同步'),
@@ -644,7 +699,7 @@ window.__ModuleLoader__.load({
           h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0' } },
             h('button', { style: S.iconBtn, onClick: () => setView('main') }, '←'),
             h('span', { style: S.hTitle }, `工作区 · ${ws.title || ws.id}`)),
-          !config ? h('div', { style: S.empty }, '加载中…') : h(ConfigView, { config, syncMeta, ws, busy, saveConfig, runInit: runInitPanel, onOrchestrate: () => run('/hk-init'), catalog: config.catalog ?? [], toast }),
+          !config ? h('div', { style: S.empty }, '加载中…') : h(ConfigView, { config, syncMeta, ws, busy, saveConfig, runInit: runInitPanel, onOrchestrate: () => run('/hk-init'), catalog: config.catalog ?? [], toast, updateInfo, updateChecking, onCheckUpdate: checkUpdate, onShowUpdate: () => setShowUpdate(true) }),
         ), h('div', { style: S.toastWrap }, toasts.map((tst) => h('div', { key: tst.id, style: S.toast(tst.ok), onClick: () => !tst.ok && setToasts((ts) => ts.filter((x) => x.id !== tst.id)) }, tst.text))));
       }
 
@@ -740,6 +795,25 @@ window.__ModuleLoader__.load({
 
       return h('div', { style: S.wrap, className: 'hk-root' }, header,
         h('div', { style: S.body },
+          updateInfo?.updateAvailable && showUpdate && h('div', {
+            style: {
+              marginTop: 12, padding: '8px 12px', borderRadius: 8,
+              border: `1px solid color-mix(in srgb, ${V.brand} 35%, transparent)`,
+              background: `color-mix(in srgb, ${V.brand} 10%, transparent)`,
+              display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12,
+            },
+          },
+            h('span', null, '⬆'),
+            h('div', { style: { flex: 1, minWidth: 220 } },
+              h('div', null, `Harness Kit 有新版本 ${updateInfo.latest}（当前 ${updateInfo.current}）`),
+              h('div', { style: { fontSize: 11, color: V.sub, marginTop: 2 } },
+                '请到 Plugins → Harness Kit → Update 更新。')),
+            h('a', {
+              href: 'https://github.com/LaoLiang-agent/HarnessKit/releases',
+              target: '_blank', rel: 'noreferrer',
+              style: { color: V.brand, fontSize: 11 },
+            }, '查看更新说明'),
+            h('button', { style: S.btn(false), onClick: dismissUpdate }, '知道了')),
           // 初始化进行中横幅（2026-11-17）：页面中途关掉/重开后依旧可见，防止无感知重复初始化
           ws?.init && !ws.init.done && h('div', { style: { ...S.attn('warn'), marginTop: 12 } },
             h('span', null, '🔧'),
@@ -900,7 +974,7 @@ window.__ModuleLoader__.load({
     }
 
     // ---------- 配置视图组件 ----------
-    function ConfigView({ config, syncMeta, ws, busy, saveConfig, runInit, onOrchestrate, catalog, toast }) {
+    function ConfigView({ config, syncMeta, ws, busy, saveConfig, runInit, onOrchestrate, catalog, toast, updateInfo, updateChecking, onCheckUpdate, onShowUpdate }) {
       const k = config.kit;
       const initGap = (ws?.attention ?? []).find((a) => a.kind === 'init-incomplete') ?? null;
       const modelEntry = (provider, model) => (catalog ?? [])
@@ -1007,6 +1081,17 @@ window.__ModuleLoader__.load({
           kv('上次检查', config.sync?.checkedAt ? new Date(config.sync.checkedAt).toLocaleString() : '—'),
           kv('内容包', k.pack),
           kv('宿主', (k.hosts ?? []).join('、'))),
+        h('div', { style: S.section },
+          h('div', { style: S.secTitle }, '插件版本'),
+          kv('当前版本', updateInfo?.current),
+          kv('最新版本', updateChecking ? '检查中…' : (updateInfo?.disabled ? '已关闭' : (updateInfo?.latest ?? (updateInfo && !updateInfo.ok ? '检查失败' : '检查中…')))),
+          updateInfo?.updateAvailable && h('div', { style: { fontSize: 12, color: V.brand, marginBottom: 8 } },
+            `新版本 ${updateInfo.latest} 可用。请到 Plugins → Harness Kit → Update 更新。`),
+          updateInfo && !updateInfo.ok && !updateInfo.disabled && h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 8 } },
+            '更新检查失败不会影响插件使用，可能是网络或 registry 不可达。'),
+          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+            h('button', { style: S.btn(updateChecking), disabled: updateChecking, onClick: () => onCheckUpdate({ notify: true }) }, updateChecking ? '检查中…' : '检查更新'),
+            updateInfo?.updateAvailable && h('button', { style: S.btn(false), onClick: onShowUpdate }, '查看更新提示'))),
         // M2：池化工作区概览（本机台账）
         ws?.slots && Object.keys(ws.slots).length > 0 && h('div', { style: S.section },
           h('div', { style: S.secTitle }, '工作区池（本机）'),

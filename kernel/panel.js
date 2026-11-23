@@ -11,6 +11,7 @@
 // - POST /harness-kit/workspace/open    {path, title?} 打开已有 Harness 工作区（须含 .harness/kit.json）
 // - POST /harness-kit/workspace/init    {workspace, assets?, sources?} 面板初始化向导（/hk-init + /hk-setup --add 等价，幂等）
 // - GET  /harness-kit/env       向导环境预检（git / Python 3 + 对应平台安装指引，不自动安装）
+// - GET  /harness-kit/update-check  npm 最新版本检查（1 小时缓存；只提示，不自动升级）
 // 纯函数（parseBoard / taskProgress / nextAction / laneOf / parseClaims /
 // attentionItems / parseGitLog / updateKit）与 HTTP 接线分离，供 sim 测试。
 import fs from 'node:fs';
@@ -32,6 +33,7 @@ import { discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } fr
 import { collectTaskMetrics, readLatestTaskMetrics } from './metrics.js';
 import { readLocalModels, writeLocalModels, clearLocalModels } from './local-models.js';
 import { normalizeModelMap } from './models.js';
+import { checkPluginUpdate } from './update.js';
 
 /** 解析看板 markdown 表（7 列契约，见 commands.js boardTemplate）。
  *  容错与 commands.js parseBoardRow 同源：超列溢出并入「续接提示」，不足补 —。 */
@@ -880,6 +882,19 @@ export function registerPanelApi(ctx) {
         return;
       }
       sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+    },
+  });
+
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/update-check',
+    async handler(req, res) {
+      if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      try {
+        sendJson(res, 200, { ok: true, update: await checkPluginUpdate() });
+      } catch (cause) {
+        sendJson(res, 200, { ok: true, update: { ok: false, current: null, latest: null, updateAvailable: false, error: cause.message } });
+      }
     },
   });
 

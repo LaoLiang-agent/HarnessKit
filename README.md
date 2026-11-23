@@ -254,7 +254,7 @@ Advanced aliases remain available:
 dsh-harness-kit@0.2.3
 ```
 
-Enable the bundle after installation.
+Enable the bundle after installation. The panel checks npm for a newer version once an hour and shows a top-bar prompt; updating remains a manual action in Plugins.
 
 ### Command line
 
