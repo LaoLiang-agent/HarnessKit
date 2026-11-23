@@ -4,7 +4,7 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.4] - 2026-11-23
 
 ### Added
 
@@ -19,6 +19,9 @@ All notable changes to Harness Kit are documented here. The format follows
   dismisses the dialog, so a partially filled task is not lost by an accidental backdrop click.
 - The plugin-version check no longer stays on "checking" when the Host route is unavailable or the
   request fails; it shows "check failed" and can be retried without affecting the plugin.
+- `/hk close` now explains that a human acceptance of a BLOCK test report must be recorded as a
+  separate formal `## 结论` PASS in `test-report.md` before archiving. PM instructions explicitly
+  forbid bypassing close by manually copying the active deliverable directory into `_archive`.
 
 ## [0.2.3] - 2026-11-23
 
@@ -271,6 +274,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.2.4]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.4
 [0.2.3]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.3
 [0.2.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.2
 [0.2.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.1

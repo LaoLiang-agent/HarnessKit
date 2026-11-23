@@ -211,7 +211,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 **Plugins → Add plugin**，输入：
 
 ```
-dsh-harness-kit@0.2.3
+dsh-harness-kit@0.2.4
 ```
 
 安装后启用 bundle。插件面板每小时检查一次 npm 最新版本；有新版本时顶栏会提示，更新仍需在 Plugins 页手动确认。
@@ -219,7 +219,7 @@ dsh-harness-kit@0.2.3
 ### 命令行
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.2.3
+dsh plugin --profile desktop add dsh-harness-kit@0.2.4
 ```
 
 需要先完全退出 DSH Desktop；其他 profile 把 `desktop` 换成实际名称。
