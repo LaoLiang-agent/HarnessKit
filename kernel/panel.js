@@ -1049,12 +1049,12 @@ export function registerPanelApi(ctx) {
     async handler(req, res) {
       if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
       try {
-        const { workspace } = JSON.parse(await readBody(req) || '{}');
+        const { workspace, allowDeletions } = JSON.parse(await readBody(req) || '{}');
         const ws = findWs(registry, workspace);
         if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
         const kit = readKit(ws.path);
         if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
-        const r = await syncAssets(ws.path, kit);
+        const r = await syncAssets(ws.path, kit, { allowDeletions: allowDeletions === true });
         syncCache.delete(ws.path); // 同步后强制下次重检
         sendJson(res, r.kind === 'success' ? 200 : 409, { ok: r.kind === 'success', text: r.text });
       } catch (cause) {

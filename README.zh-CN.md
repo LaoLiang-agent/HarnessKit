@@ -200,7 +200,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 | `/hk-archive` | `/hk close` 的别名 |
 | `/hk-te [acquire\|release <任务> \| status]` | 测试环境串行租约 |
 | `/hk-local [...]` | 发现/确认 git-ignored 本地配置 |
-| `/hk-sync` | 资产仓库同步（提交 → rebase → 追加合并 → push） |
+| `/hk-sync [--allow-deletions]` | 资产仓库同步（提交 → rebase → 追加合并 → push）；默认拦截核心资产批量删除/浅克隆，防误推 |
 
 ---
 

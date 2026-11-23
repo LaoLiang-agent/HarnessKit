@@ -240,7 +240,7 @@ Advanced aliases remain available:
 | `/hk-archive` | Alias of `/hk close` |
 | `/hk-te [acquire\|release <task> \| status]` | Serial test-environment lease |
 | `/hk-local [...]` | Discover/approve git-ignored local config files |
-| `/hk-sync` | Sync the asset repository (commit → rebase → append merge → push) |
+| `/hk-sync [--allow-deletions]` | Sync the asset repository (commit → rebase → append merge → push); blocks mass deletions of core assets/shallow clones by default |
 
 ---
 

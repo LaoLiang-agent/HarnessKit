@@ -4,6 +4,19 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `/hk-sync` now refuses to commit a mass deletion of core asset files (`specs/`, `memory/`,
+  `tasks/`, `codebase-guide/`: 10+ files, or 3+ files above 5% of the repository), and refuses
+  shallow/sparse asset checkouts. This prevents an incomplete local `.harness` clone from pushing
+  deletions over the team repository, while normal `deliverables/` archive moves stay allowed. An
+  explicit `/hk-sync --allow-deletions` is required for intentional bulk cleanup.
+- `/hk-sync` now blocks when the local `.harness` branch does not match
+  `kit.json.assets.branch`, preventing a `master` working tree from pushing its commits to `dev`
+  (or the reverse).
+
 ## [0.2.2] - 2026-11-23
 
 ### Added

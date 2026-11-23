@@ -885,12 +885,13 @@ const TE_NOTICE = [
 ].join('\n');
 
 // ---------------------------------------------------------------- /hk-sync
-async function hkSync({ agent }) {
+async function hkSync({ agent, rawInput }) {
   const ws = wsRoot(agent);
   const kit = readKit(ws);
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
+  const { flags } = parseArgs(rawInput ?? '');
   await reconcileArchivedQuiet(ws, kit);
-  return syncAssets(ws, kit);
+  return syncAssets(ws, kit, { allowDeletions: flags['allow-deletions'] === true });
 }
 
 // ---------------------------------------------------------------- /hk-local
@@ -1207,7 +1208,7 @@ export function registerCommands(ctx) {
     { name: 'hk-archive', description: '归档任务本轮产物到 _archive 并清空活目录（全流程附带 Spec/Memory Merge 收尾）', hint: '<任务名>', handler: hkArchive },
     { name: 'hk-te', description: 'TE 环境串行租约（测试环境全局唯一）：acquire 授权/排队、release 释放/退队、status 查看', hint: '[acquire|release <任务名> | status]', handler: hkTe },
     { name: 'hk-local', description: '本机开发配置发现/确认：首次确认后新工作区自动补齐', hint: '[scan|status|approve all|path... | skip path... | mode copy|symlink | apply] [--repo <仓库>]', handler: hkLocal },
-    { name: 'hk-sync', description: '资产仓库 git 同步：自动提交 → pull --rebase → 纯追加文件自动三路合并 → push（其余冲突中止回滚转人工）', handler: hkSync },
+    { name: 'hk-sync', description: '资产仓库 git 同步：自动提交 → pull --rebase → 纯追加文件自动三路合并 → push（其余冲突中止回滚转人工；--allow-deletions 放行批量删除）', hint: '[--allow-deletions]', handler: hkSync },
     { name: 'hk-doctor', description: '检查 harness 工作区健康度（kit/角色/红线/流程）；--fix 修复确定性缺件', hint: '[--fix]', handler: hkDoctor },
   ];
   for (const def of defs) {

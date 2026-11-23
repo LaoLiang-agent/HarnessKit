@@ -1718,6 +1718,71 @@ section('hk-sync 资产同步');
   ok('rebase 已中止（无进行中状态）、本地改动保留、远端未被污染', !fs.existsSync(path.join(ws, '.harness/.git/rebase-merge')) && !fs.existsSync(path.join(ws, '.harness/.git/rebase-apply')) && git('show HEAD:kit.json', path.join(ws, '.harness')).includes('"version":3') && git('show main:kit.json', bare).includes('"version":2') && git('rev-parse HEAD', path.join(ws, '.harness')) !== headBefore);
 }
 {
+  // 本地分支与 kit.json assets.branch 不一致 → 阻止，避免把 master 提交推到 dev
+  const tmp = mkws();
+  cleanups.push(tmp);
+  const seed = path.join(tmp, 'seed');
+  fs.mkdirSync(seed, { recursive: true });
+  fs.writeFileSync(path.join(seed, 'seed.md'), 'x\n');
+  git('init -q -b main && git add -A && git commit -qm seed', seed);
+  const bare = path.join(tmp, 'remote.git');
+  git(`clone -q --bare ${seed} ${bare}`, tmp);
+  const ws = mkws();
+  cleanups.push(ws);
+  git(`clone -q ${bare} .harness`, ws);
+  git('config user.email t@t && git config user.name t', path.join(ws, '.harness'));
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [], assets: { mode: 'clone', url: bare, branch: 'dev' } }));
+  const before = git('rev-list --count refs/heads/main', bare).trim();
+  const r = await run('hk-sync', '', ws);
+  ok('本地分支与配置分支不一致 → 阻止同步', r.kind === 'error' && r.text.includes('当前在') && r.text.includes('git switch dev'));
+  ok('分支不一致时远端未新增提交', git('rev-list --count refs/heads/main', bare).trim() === before);
+}
+
+{
+  // 批量删除保护：本地资产不完整时 sync 不能把删除推上去
+  const tmp = mkws();
+  cleanups.push(tmp);
+  const bare = path.join(tmp, 'remote.git');
+  const seed = path.join(tmp, 'seed');
+  fs.mkdirSync(path.join(seed, 'specs'), { recursive: true });
+  for (let i = 0; i < 20; i += 1) fs.writeFileSync(path.join(seed, `specs/spec-${i}.md`), `# ${i}\n`);
+  git('init -q -b main && git add -A && git commit -qm seed', seed);
+  git(`clone -q --bare ${seed} ${bare}`, tmp);
+  const ws = mkws();
+  cleanups.push(ws);
+  git(`clone -q ${bare} .harness`, ws);
+  git('config user.email t@t && git config user.name t', path.join(ws, '.harness'));
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [], assets: { mode: 'clone', url: bare, branch: 'main' } }));
+  for (let i = 0; i < 10; i += 1) fs.rmSync(path.join(ws, `.harness/specs/spec-${i}.md`));
+  const before = git('rev-list --count refs/heads/main', bare).trim();
+  const blocked = await run('hk-sync', '', ws);
+  ok('批量删除 → 阻止同步并提示确认', blocked.kind === 'error' && blocked.text.includes('已阻止同步') && blocked.text.includes('--allow-deletions'));
+  ok('阻止后远端未新增提交', git('rev-list --count refs/heads/main', bare).trim() === before);
+  const allowed = await run('hk-sync', '--allow-deletions', ws);
+  ok('显式 --allow-deletions 放行', allowed.kind === 'success' && git('rev-list --count refs/heads/main', bare).trim() !== before);
+}
+
+{
+  // deliverables 的归档移动不应触发核心资产批量删除拦截
+  const tmp = mkws();
+  cleanups.push(tmp);
+  const bare = path.join(tmp, 'remote.git');
+  const seed = path.join(tmp, 'seed');
+  fs.mkdirSync(path.join(seed, 'deliverables/task-a'), { recursive: true });
+  for (let i = 0; i < 12; i += 1) fs.writeFileSync(path.join(seed, `deliverables/task-a/file-${i}.md`), `# ${i}\n`);
+  git('init -q -b main && git add -A && git commit -qm seed', seed);
+  git(`clone -q --bare ${seed} ${bare}`, tmp);
+  const ws = mkws();
+  cleanups.push(ws);
+  git(`clone -q ${bare} .harness`, ws);
+  git('config user.email t@t && git config user.name t', path.join(ws, '.harness'));
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [], assets: { mode: 'clone', url: bare, branch: 'main' } }));
+  fs.rmSync(path.join(ws, '.harness/deliverables/task-a'), { recursive: true, force: true });
+  const r = await run('hk-sync', '', ws);
+  ok('deliverables 批量归档移动不被误拦', r.kind === 'success' && git('ls-tree -r --name-only main', bare).includes('deliverables/task-a/file-0.md') === false);
+}
+
+{
   // hk-archive + assets.autoSync=true → 归档后自动同步
   const tmp = mkws();
   cleanups.push(tmp);

@@ -17,6 +17,49 @@ export function isAppendOnly(rel) {
 const ok = (text) => ({ kind: 'success', text });
 const fail = (text) => ({ kind: 'error', text });
 
+// 资产同步防误删：一次同步删除太多已跟踪文件，通常不是正常业务变更，而是本地 clone
+// 不完整/工作区被误删/打开了错误目录。宁可挡住让人确认，也不要自动 commit+push。
+const MASS_DELETE_MIN = 10;
+const MASS_DELETE_RATIO = 0.05;
+const CORE_ASSET_DIRS = ['specs/', 'memory/', 'tasks/', 'codebase-guide/'];
+
+/**
+ * 同步前安全检查（导出供测试）。
+ * @returns {Promise<{ok:true, tracked:number, deleted:string[]}|{ok:false, text:string}>}
+ */
+export async function checkSyncSafety(hd, { allowDeletions = false } = {}) {
+  const g = (args) => runGit(args, { cwd: hd, timeoutMs: 30_000 });
+  const shallow = await g(['rev-parse', '--is-shallow-repository']);
+  if (shallow.code === 0 && shallow.stdout.trim() === 'true') {
+    return { ok: false, text: '资产仓库是浅克隆（shallow clone），可能缺少历史资产，已阻止同步。请重新完整 clone `.harness` 后再试。' };
+  }
+  const sparse = await g(['config', '--bool', 'core.sparseCheckout']);
+  if (sparse.code === 0 && sparse.stdout.trim() === 'true') {
+    return { ok: false, text: '资产仓库启用了 sparse checkout，工作区可能只包含部分资产，已阻止同步。请关闭 sparse checkout 或重新完整 clone。' };
+  }
+  const trackedOut = await g(['ls-files']);
+  const tracked = trackedOut.code === 0 ? trackedOut.stdout.split('\n').filter(Boolean).length : 0;
+  const delOut = await Promise.all([
+    g(['diff', '--name-only', '--diff-filter=D']),
+    g(['diff', '--cached', '--name-only', '--diff-filter=D']),
+  ]);
+  const deleted = [...new Set(delOut.flatMap((r) => (r.code === 0 ? r.stdout.split('\n').filter(Boolean) : [])))];
+  if (allowDeletions || deleted.length === 0) return { ok: true, tracked, deleted };
+  // 只对核心资产做“批量删除”硬拦截：deliverables 的任务目录归档删除是正常操作，
+  // 不应因为一次移动 10+ 个交付物文件而误伤。clone 不完整通常会同时丢掉 specs/memory/tasks。
+  const coreDeletes = deleted.filter((f) => CORE_ASSET_DIRS.some((d) => f.startsWith(d)));
+  const ratio = tracked > 0 ? coreDeletes.length / tracked : 0;
+  const mass = coreDeletes.length >= MASS_DELETE_MIN || (coreDeletes.length >= 3 && ratio >= MASS_DELETE_RATIO);
+  if (!mass) return { ok: true, tracked, deleted };
+  const sample = coreDeletes.slice(0, 8).map((f) => `- \`${f}\``).join('\n');
+  return {
+    ok: false,
+    text: `检测到 ${coreDeletes.length} 个核心资产文件被删除（specs/memory/tasks/codebase-guide，占仓库 ${Math.round(ratio * 100)}%），已阻止同步。\n` +
+      `deliverables 的归档移动不在此拦截范围；这通常意味着资产仓库 clone 不完整、工作区文件被误删，或打开了错误的目录。\n${sample}${coreDeletes.length > 8 ? '\n- …' : ''}\n\n` +
+      `请先检查 \`git status\`；确认是正常批量删除后，运行 \`/hk-sync --allow-deletions\`。`,
+  };
+}
+
 /**
  * 资产布局探测（.harness 的 git 归属）：
  * - 'repo'     ：.harness 自带 .git（独立资产仓库，/hk-sync 作用对象）
@@ -42,7 +85,7 @@ export async function assetsLayout(ws) {
   return { layout: 'embedded', repoRoot, rel };
 }
 
-export async function syncAssets(ws, kit) {
+export async function syncAssets(ws, kit, { allowDeletions = false } = {}) {
   const hd = path.join(ws, '.harness');
   const g = (args) => runGit(args, { cwd: hd, timeoutMs: 300_000 });
 
@@ -67,7 +110,18 @@ export async function syncAssets(ws, kit) {
     return fail('资产仓库尚无远端：`cd .harness && git remote add origin <团队资产仓库 URL>` 后重试 `/hk-sync`。');
   }
   const remote = remotes.includes('origin') ? 'origin' : remotes[0];
-  const branch = kit?.assets?.branch || (await g(['branch', '--show-current'])).stdout.trim() || 'master';
+  const currentBranch = (await g(['branch', '--show-current'])).stdout.trim();
+  const branch = kit?.assets?.branch || currentBranch || 'master';
+  if (currentBranch && currentBranch !== branch) {
+    return fail(
+      `资产仓库当前在 \`${currentBranch}\` 分支，但 kit.json 要求同步到 \`${branch}\`；` +
+        `为避免把 \`${currentBranch}\` 的提交误推到 \`${branch}\`，已阻止同步。` +
+        `请先执行 \`cd .harness && git switch ${branch}\`（或修正 kit.json 的 assets.branch）后重试。`,
+    );
+  }
+
+  const safety = await checkSyncSafety(hd, { allowDeletions });
+  if (!safety.ok) return fail(safety.text);
 
   const steps = [];
 
