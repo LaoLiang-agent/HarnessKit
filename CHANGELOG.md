@@ -4,6 +4,13 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- The New Task dialog no longer closes when clicking outside it. Only the explicit Cancel button
+  dismisses the dialog, so a partially filled task is not lost by an accidental backdrop click.
+
 ## [0.2.3] - 2026-11-23
 
 ### Added

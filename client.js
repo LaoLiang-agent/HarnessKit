@@ -806,7 +806,7 @@ window.__ModuleLoader__.load({
               h('button', { style: S.btn(false), onClick: () => setHistInsight(null) }, '关闭')))),
 
         // 立项模态（需求 / fix 直通 两种模式；任务名可选，留空由 AI 按描述生成）
-        modal && h('div', { style: S.overlayBox, onClick: () => { setModal(null); setBrowse(null); } },
+        modal && h('div', { style: S.overlayBox },
           h('div', { style: S.modal, onClick: (e) => e.stopPropagation() },
             h('div', { style: { ...S.hTitle, marginBottom: 10 } }, '新建任务'),
             h('div', { style: { display: 'flex', gap: 6, marginBottom: 14 } },

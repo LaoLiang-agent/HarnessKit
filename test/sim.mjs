@@ -2597,6 +2597,11 @@ section('client：工作区提醒');
   ok('提醒条复用面板 attention 接口', clientSrc.includes("fetch('/harness-kit/state')"));
   ok('模型映射含推理等级选择（默认 low 逻辑）', clientSrc.includes('reasoning_effort') && clientSrc.includes('推理等级') && clientSrc.includes("e.id === 'low'"));
   ok('新建工作区分支必填', clientSrc.includes("s.url.trim() && !s.branch.trim()") && clientSrc.includes('分支为空时不会创建并克隆子工程'));
+  ok('新建任务弹窗不因点击遮罩关闭', (() => {
+    const start = clientSrc.indexOf("modal && h('div', { style: S.overlayBox");
+    const body = clientSrc.indexOf("h('div', { style: S.modal", start);
+    return start >= 0 && body > start && !clientSrc.slice(start, body).includes('setModal(null)') && clientSrc.includes("}, '取消')");
+  })());
   ok('初始化进度丢失/超时兜底', clientSrc.includes('初始化进度丢失') && clientSrc.includes('30 分钟'));
   ok('provider 下拉不显示未启用项', !clientSrc.includes('（未启用）') && !clientSrc.includes('已声明但未启用'));
   ok('模型映射文案已精简', clientSrc.includes('未配置的角色走下一级或会话默认') && clientSrc.includes('推理等级随模型能力变化'));
