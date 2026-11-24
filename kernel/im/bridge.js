@@ -37,11 +37,11 @@ class PendingApproval {
 
 /** IM 审批桥接器 */
 export class ApprovalBridge {
-  constructor({ ws, logger, userQuestions }) {
+  constructor({ ws, logger, userQuestions, config }) {
     this.ws = ws;
     this.logger = logger ?? console;
     this.userQuestions = userQuestions;
-    this.config = readImConfig(ws);
+    this.config = config ?? readImConfig(ws);
     this.transports = new Map();
     this.pendingApprovals = new Map(); // approvalId -> PendingApproval
     this.disposers = [];

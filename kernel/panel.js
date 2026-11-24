@@ -1559,26 +1559,35 @@ export function registerPanelApi(ctx) {
         if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
         const config = readImConfig(ws.path);
         const channelConfig = config.channels?.[channel];
-        if (!channelConfig?.enabled) return sendJson(res, 400, { ok: false, error: `渠道 ${channel} 未启用` });
+        if (!channelConfig) return sendJson(res, 400, { ok: false, error: `未知渠道：${channel}` });
         if (channel === 'feishu') {
           if (!channelConfig.appId || !channelConfig.appSecret) {
             return sendJson(res, 400, { ok: false, error: '飞书配置缺少 appId 或 appSecret' });
           }
-          // 临时创建 bridge 发送测试卡片
-          const bridge = new ApprovalBridge({ ws: ws.path, logger, userQuestions: null });
-          await bridge.init();
-          const transport = bridge.transports.get('feishu');
-          if (!transport) return sendJson(res, 500, { ok: false, error: '飞书 transport 未初始化' });
-          const target = channelConfig.targetOpenId;
-          if (!target) return sendJson(res, 400, { ok: false, error: '未绑定目标用户（请先给机器人发一条消息）' });
-          const card = JSON.stringify({
-            config: { wide_screen_mode: true },
-            header: { title: { tag: 'plain_text', content: 'Harness Kit 测试' }, template: 'blue' },
-            elements: [{ tag: 'div', text: { tag: 'lark_md', content: '这是一条测试消息，如果你看到它，说明飞书配置正确。' } }],
-          });
-          const messageId = await transport.sendCard(target, card);
-          await bridge.dispose();
-          sendJson(res, 200, { ok: true, messageId });
+          // 测试允许在“未启用”状态下进行：临时只启用该渠道，避免必须先去 UI 勾选
+          const testConfig = {
+            ...config,
+            channels: Object.fromEntries(Object.entries(config.channels).map(([key, value]) => [
+              key, key === channel ? { ...value, enabled: true } : { ...value, enabled: false },
+            ])),
+          };
+          const bridge = new ApprovalBridge({ ws: ws.path, logger, userQuestions: null, config: testConfig });
+          try {
+            await bridge.init();
+            const transport = bridge.transports.get('feishu');
+            if (!transport) return sendJson(res, 500, { ok: false, error: '飞书 transport 未初始化' });
+            const target = channelConfig.targetOpenId;
+            if (!target) return sendJson(res, 400, { ok: false, error: '未绑定目标用户（请先给机器人发一条消息）' });
+            const card = JSON.stringify({
+              config: { wide_screen_mode: true },
+              header: { title: { tag: 'plain_text', content: 'Harness Kit 测试' }, template: 'blue' },
+              elements: [{ tag: 'div', text: { tag: 'lark_md', content: '这是一条测试消息，如果你看到它，说明飞书配置正确。' } }],
+            });
+            const messageId = await transport.sendCard(target, card);
+            sendJson(res, 200, { ok: true, messageId });
+          } finally {
+            await bridge.dispose().catch(() => {});
+          }
           return;
         }
         sendJson(res, 400, { ok: false, error: `渠道 ${channel} 暂不支持测试` });
