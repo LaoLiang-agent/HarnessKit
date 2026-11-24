@@ -1270,6 +1270,18 @@ window.__ModuleLoader__.load({
       const [imAudit, setImAudit] = useState([]);
       const [imBusy, setImBusy] = useState(false);
       const [feishuGuideOpen, setFeishuGuideOpen] = useState(false);
+      // 统一读取 JSON：Host 路由未加载/返回空响应时给出可操作提示，而不是 JSON 解析异常
+      const readJsonResponse = async (res) => {
+        const text = await res.text().catch(() => '');
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch { /* 非 JSON，下面统一报错 */ }
+        if (!res.ok) {
+          const detail = data?.error || text.trim().slice(0, 160) || '空响应';
+          throw new Error(`HTTP ${res.status}：${detail}`);
+        }
+        if (!data) throw new Error(`服务返回空响应（HTTP ${res.status}），请重启 DSH 后重试`);
+        return data;
+      };
       const loadImConfig = useCallback(() => {
         fetch(`/harness-kit/im-config?workspace=${encodeURIComponent(ws.id)}`, { cache: 'no-store' })
           .then((r) => r.json())
@@ -1295,7 +1307,7 @@ window.__ModuleLoader__.load({
         fetch('/harness-kit/im-config', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ workspace: ws.id, config: imConfig }),
-        }).then((r) => r.json()).then((j) => {
+        }).then(readJsonResponse).then((j) => {
           toast(j.ok ? 'IM 配置已保存' : (j.error || '保存失败'), j.ok);
         }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
       };
@@ -1309,7 +1321,7 @@ window.__ModuleLoader__.load({
         fetch('/harness-kit/im-feishu-openid', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ appId: f.appId, appSecret: f.appSecret }),
-        }).then((r) => r.json()).then((j) => {
+        }).then(readJsonResponse).then((j) => {
           if (!j.ok) throw new Error(j.error || '获取 Open ID 失败');
           setImChannel('feishu', { targetOpenId: j.openId });
           const extra = (j.users?.length ?? 0) > 1 ? '（应用可见多个用户，已填第一个；建议把应用可用范围只设为自己）' : '';
@@ -1324,13 +1336,13 @@ window.__ModuleLoader__.load({
         fetch('/harness-kit/im-config', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ workspace: ws.id, config: imConfig }),
-        }).then((r) => r.json()).then((saved) => {
+        }).then(readJsonResponse).then((saved) => {
           if (!saved.ok) throw new Error(saved.error || '保存失败');
           return fetch('/harness-kit/im-test', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ workspace: ws.id, channel }),
           });
-        }).then((r) => r.json()).then((j) => {
+        }).then(readJsonResponse).then((j) => {
           toast(j.ok ? `测试消息已发送（${j.messageId ?? 'ok'}）` : (j.error || '发送失败'), j.ok);
         }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
       };
@@ -1550,7 +1562,7 @@ window.__ModuleLoader__.load({
                 h('button', {
                   style: { ...S.btn(false), fontSize: 12, marginBottom: 10 },
                   onClick: () => setFeishuGuideOpen(!feishuGuideOpen),
-                }, feishuGuideOpen ? '收起配置步骤 ▲' : '查看小白配置步骤（含权限/事件/发布）▼'),
+                }, feishuGuideOpen ? '收起配置步骤 ▲' : '查看配置步骤（含权限/事件/发布）▼'),
                 feishuGuideOpen && h('div', { style: { background: V.bg, border: `1px solid ${V.border}`, borderRadius: 6, padding: 10, marginBottom: 10, fontSize: 12, lineHeight: 1.75, color: V.text } },
                   h('div', { style: { fontWeight: 600, marginBottom: 6 } }, '飞书后台配置步骤（按顺序做）'),
                   h('div', { style: { color: V.sub, marginBottom: 6 } }, '官方图文教程（含后台截图）：',
