@@ -156,8 +156,26 @@ export function installImBridge(ctx) {
 
       turnSignal?.removeEventListener('abort', forwardTurnAbort);
       if (result.source === 'web') {
+        // Web 整组提交时，按题合并此前已在飞书答过的部分：
+        // 同一题以先答的那一侧为准，其余题用 Web 的答案。
+        const web = result.result;
+        if (web?.answers && Array.isArray(web.answers)) {
+          let mergedCount = 0;
+          web.answers = web.answers.map((a, i) => {
+            const im = pending.answers[i];
+            if (!im) return a;
+            mergedCount += 1;
+            return {
+              id: im.id ?? a.id,
+              selected: im.selected ?? [],
+              ...(im.custom ? { custom: im.custom } : {}),
+            };
+          });
+          if (mergedCount > 0) logger?.info?.(`[im-bridge] 合并 ${mergedCount} 个飞书已答项`);
+        }
         // Web 先回答，取消 IM 审批
         await bridge.cancelApproval(pending.approvalId, '已在 DSH 处理');
+        return web;
       } else {
         // IM 先回答：结束本题生命周期，让 DSH Web 的问题卡自行消失
         const reason = Object.assign(new Error('the question was answered on IM'), {
