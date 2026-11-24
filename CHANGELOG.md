@@ -4,6 +4,45 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-25
+
+### Added
+
+- Feishu approval bridge for HK approvals and clarifications: the bot sends interactive cards to
+  the configured private chat, supports option buttons, free-text questions and options that need
+  supplementary text, and resolves the same `ask_user_question` request from either DSH or Feishu.
+- Feishu settings in a dedicated IM tab: app ID/secret, one-click Open ID lookup, configuration
+  guide, test message gating, and per-workspace config stored locally with `0600` permissions.
+- Mobile-friendly cards: option text is shown in the card body and buttons use short numbered
+  labels; `(Recommended)` is displayed as `（推荐）`.
+- IM audit log with a 15-day default retention window (selectable 15/30/90 days) and an optional
+  diagnostic view in settings.
+- WeCom and DingTalk transport placeholders; Feishu is the first implemented channel.
+
+### Changed
+
+- DSH question dialogs keep their original `header / question / options` format. IM-only summaries
+  use a separate `imDetail` field, which the bridge consumes and strips before the Web UI sees it.
+- Answering in Feishu now ends the DSH question's lifetime, so the Web card closes after the answer.
+- When DSH submits a multi-question batch after some questions were already answered in Feishu, the
+  Feishu answers are merged per question (first answer per question wins).
+
+### Fixed
+
+- Feishu test messages work while the channel is disabled, and enabling is blocked until the test
+  succeeds.
+- Feishu answers no longer leave the DSH question card stuck on the first question; late or repeated
+  Feishu card actions are ignored after the approval is settled.
+- IM configuration no longer depends on a global whitelist; only the configured private-chat user
+  can answer.
+
+### Known limitation
+
+- For one multi-question approval, finish on one surface. If DSH only records some answers and
+  Feishu then completes the whole batch, DSH's local partial answers are not visible to the Host and
+  cannot be merged; Feishu's complete batch wins. Split such decisions into separate
+  `ask_user_question` calls when arbitrary per-question mixing is required.
+
 ## [0.2.5] - 2026-11-24
 
 ### Added
@@ -289,6 +328,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.3.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.0
 [0.2.5]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.5
 [0.2.4]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.4
 [0.2.3]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.3

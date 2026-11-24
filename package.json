@@ -1,6 +1,6 @@
 {
   "name": "dsh-harness-kit",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Multi-agent engineering workflow for DeepSeek Harness: roles, flows, guards and workspace assets.",
   "private": false,
   "license": "MIT",

@@ -153,6 +153,17 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 - 审批 2：实施与测试结束，人决定是否归档
 - 护栏：质量门未裁决时禁止写源码区；破坏性 git 命令（`reset --hard`、`clean -f`、`push --force`）直接拦截
 
+#### 远程审批（飞书，0.3.0）
+
+人不在电脑前时，审批可以转到飞书私聊：
+
+1. 在设置页「IM 通知」把飞书渠道打开，按引导创建企业自建应用（机器人能力、`im:message` / `im:message:readonly` / `contact:contact.base:readonly`，长连接订阅 `im.message.receive_v1` 与 `card.action.trigger`）
+2. 填 App ID / App Secret，点「获取 Open ID」自动带出你的用户 ID
+3. 先「发送测试消息」，成功后才能勾选启用
+4. 之后 HK 审批/澄清会同时出现在 DSH 弹窗和飞书卡片，任意一端先答先得；同一审批请在一端答完，多题审批支持“飞书先答部分 + DSH 答完剩余”的合并
+
+配置只存本机 `.harness/local/im-config.json`（`0600`），不提交、不同步。企微/钉钉目前是占位。
+
 ### 资产仓库
 
 `.harness/` 就是资产仓库的工作副本：
@@ -211,7 +222,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 **Plugins → Add plugin**，输入：
 
 ```
-dsh-harness-kit@0.2.5
+dsh-harness-kit@0.3.0
 ```
 
 安装后启用 bundle。插件面板每小时检查一次 npm 最新版本；有新版本时顶栏会提示，更新仍需在 Plugins 页手动确认。
@@ -219,7 +230,7 @@ dsh-harness-kit@0.2.5
 ### 命令行
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.2.5
+dsh plugin --profile desktop add dsh-harness-kit@0.3.0
 ```
 
 需要先完全退出 DSH Desktop；其他 profile 把 `desktop` 换成实际名称。

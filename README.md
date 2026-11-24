@@ -183,6 +183,11 @@ go only to the provider you configure.
 - Approval 1: the plan is ready; a human decides whether to start implementation
 - Quality gate: for the `fix` shortcut a human chooses "light" or `--full`
 - Approval 2: implementation and testing are done; a human decides whether to archive
+- Remote approvals (Feishu, 0.3.0): configure the IM tab, create a self-built Feishu app with bot
+  capability and long-connection events, fill App ID/Secret, fetch your Open ID, send a test
+  message, then enable. HK approvals appear in both DSH and Feishu; the first answer wins. Finish
+  one multi-question approval on one surface; "Feishu answers some, DSH finishes the rest" is
+  merged, but the reverse is not supported because DSH partial answers stay client-side.
 - Guards: source writes are blocked until the quality gate is recorded; destructive git commands
   (`reset --hard`, `clean -f`, `push --force`) are rejected
 
@@ -251,7 +256,7 @@ Advanced aliases remain available:
 **Plugins → Add plugin**, then enter:
 
 ```
-dsh-harness-kit@0.2.5
+dsh-harness-kit@0.3.0
 ```
 
 Enable the bundle after installation. The panel checks npm for a newer version once an hour and shows a top-bar prompt; updating remains a manual action in Plugins.
@@ -259,7 +264,7 @@ Enable the bundle after installation. The panel checks npm for a newer version o
 ### Command line
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.2.5
+dsh plugin --profile desktop add dsh-harness-kit@0.3.0
 ```
 
 Quit DSH Desktop first; replace `desktop` with your profile name for other profiles.
