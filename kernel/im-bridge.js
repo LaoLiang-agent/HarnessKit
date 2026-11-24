@@ -1,6 +1,7 @@
 // IM 桥接安装：监听 user-questions/request waterfall，识别 HK 标记，发卡片到 IM
 // 这是 kernel/im/ 模块与 DSH userQuestions 服务的接线层
 
+import fs from 'node:fs';
 import { ApprovalBridge } from './im/bridge.js';
 import { readImConfig, hasEnabledChannel } from './im/config.js';
 import { wsRoot } from './paths.js';
@@ -37,10 +38,14 @@ export function installImBridge(ctx) {
   const userQuestions = ctx.get('userQuestions');
   const disposers = [];
   const bridges = new Map(); // ws -> ApprovalBridge
+  const handledRequests = new WeakMap(); // request -> Promise，避免 global/agent 双监听重复处理
+  const debug = (msg) => { try { fs.appendFileSync('/tmp/hk-im-debug.log', `${new Date().toISOString()} ${msg}\n`); } catch { /* ignore */ } };
+  debug('installImBridge');
 
   // 监听 user-questions/request waterfall。
   // 该事件按 Agent scope 过滤：必须注册在 agent.ctx 上，根 ctx 的全局监听收不到。
-  const handleQuestion = async (request, next) => {
+  const processQuestion = async (request, next) => {
+    debug(`request ids=${(request?.questions ?? []).map((q) => q.id).join(',')} agent=${request?.agent?.id ?? 'none'}`);
     const { agent, questions } = request;
     if (!agent || !questions || questions.length === 0) {
       return next();
@@ -157,6 +162,15 @@ export function installImBridge(ctx) {
     }
   };
 
+  // global 与 agent-scoped 都注册；同一个 request 只处理一次（谁先到用谁）
+  const handleQuestion = (request, next) => {
+    const existing = handledRequests.get(request);
+    if (existing) return existing;
+    const pending = processQuestion(request, next);
+    handledRequests.set(request, pending);
+    return pending;
+  };
+
   const agentDisposers = new Map();
   const attach = (agent) => {
     if (!agent?.ctx || agentDisposers.has(agent)) return;
@@ -164,6 +178,7 @@ export function installImBridge(ctx) {
     agentDisposers.set(agent, off);
     disposers.push(off);
   };
+  disposers.push(ctx.on('user-questions/request', handleQuestion));
   disposers.push(ctx.on('agent/created', ({ agent }) => attach(agent)));
   disposers.push(ctx.on('agent/disposed', ({ agent }) => {
     agentDisposers.get(agent)?.();
