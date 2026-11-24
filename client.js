@@ -1269,6 +1269,7 @@ window.__ModuleLoader__.load({
       const [imConfig, setImConfig] = useState(null);
       const [imAudit, setImAudit] = useState([]);
       const [imBusy, setImBusy] = useState(false);
+      const [feishuGuideOpen, setFeishuGuideOpen] = useState(false);
       const loadImConfig = useCallback(() => {
         fetch(`/harness-kit/im-config?workspace=${encodeURIComponent(ws.id)}`, { cache: 'no-store' })
           .then((r) => r.json())
@@ -1298,6 +1299,23 @@ window.__ModuleLoader__.load({
           toast(j.ok ? 'IM 配置已保存' : (j.error || '保存失败'), j.ok);
         }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
       };
+      const fetchFeishuOpenId = () => {
+        const f = imConfig?.channels?.feishu ?? {};
+        if (!f.appId || !f.appSecret) {
+          toast('请先填写 App ID 和 App Secret', false);
+          return;
+        }
+        setImBusy(true);
+        fetch('/harness-kit/im-feishu-openid', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ appId: f.appId, appSecret: f.appSecret }),
+        }).then((r) => r.json()).then((j) => {
+          if (!j.ok) throw new Error(j.error || '获取 Open ID 失败');
+          setImChannel('feishu', { targetOpenId: j.openId });
+          toast(`已获取 ${j.name ? `${j.name} 的` : ''}Open ID`, true);
+        }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
+      };
+
       const testImChannel = (channel) => {
         if (!imConfig) return;
         setImBusy(true);
@@ -1527,7 +1545,35 @@ window.__ModuleLoader__.load({
                   h('span', { style: { fontSize: 11, color: V.sub } }, '（推荐）'),
                   imConfig.channels?.feishu?.enabled && h('span', { style: { fontSize: 11, color: V.ok } }, '● 已启用')),
                 h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-                  '需要飞书自建应用：开通 im:message、im:message:readonly 权限，订阅 im.message.receive_v1 事件与 card.action.trigger 回调，使用长连接模式。'),
+                  '需要一个飞书自建应用（免费）。配置一次即可长期使用；长连接模式不需要公网 IP。'),
+                h('button', {
+                  style: { ...S.btn(false), fontSize: 12, marginBottom: 10 },
+                  onClick: () => setFeishuGuideOpen(!feishuGuideOpen),
+                }, feishuGuideOpen ? '收起配置步骤 ▲' : '查看小白配置步骤（含权限/事件/发布）▼'),
+                feishuGuideOpen && h('div', { style: { background: V.bg, border: `1px solid ${V.border}`, borderRadius: 6, padding: 10, marginBottom: 10, fontSize: 12, lineHeight: 1.75, color: V.text } },
+                  h('div', { style: { fontWeight: 600, marginBottom: 6 } }, '飞书后台配置步骤（按顺序做）'),
+                  h('div', { style: { color: V.sub, marginBottom: 6 } }, '官方图文教程（含后台截图）：',
+                    h('a', { href: 'https://open.feishu.cn/document/home/introduction-to-custom-app-development/self-built-application-development-process', target: '_blank', rel: 'noreferrer', style: { color: V.brand } }, '创建应用'), ' · ',
+                    h('a', { href: 'https://open.feishu.cn/document/ukTMukTMukTM/uQjN3QjL0YzN04CN2cDN', target: '_blank', rel: 'noreferrer', style: { color: V.brand } }, '权限管理'), ' · ',
+                    h('a', { href: 'https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case', target: '_blank', rel: 'noreferrer', style: { color: V.brand } }, '长连接配置')),
+                  h('div', null, '1. 打开 ', h('a', { href: 'https://open.feishu.cn/app', target: '_blank', rel: 'noreferrer', style: { color: V.brand } }, '飞书开放平台 → 开发者后台'), '，登录后点「创建应用」→「企业自建应用」，填名称和图标。'),
+                  h('div', null, '2. 左侧「添加应用能力」→ 开启「机器人」。'),
+                  h('div', null, '3. 左侧「权限管理」→ 搜索并开通：'),
+                  h('div', { style: { paddingLeft: 14, color: V.sub } },
+                    h('div', null, '• im:message（发送消息）'),
+                    h('div', null, '• im:message:readonly（读取单聊/群聊消息）'),
+                    h('div', null, '• contact:contact.base:readonly（读取用户基础信息，用于一键获取 Open ID）')),
+                  h('div', { style: { color: V.warn } }, '   开通权限后必须「创建版本并发布」才生效。'),
+                  h('div', null, '4. 左侧「事件与回调」→「事件配置」→ 订阅方式选「使用长连接接收事件」→ 点「添加事件」，搜索并添加 im.message.receive_v1（接收消息）。'),
+                  h('div', null, '5. 同一页切到「回调配置」→ 订阅方式选「使用长连接接收回调」→ 点「添加回调」，搜索并添加 card.action.trigger（卡片回传交互）。'),
+                  h('div', null, '6. 左侧「版本管理与发布」→「创建版本」→ 申请发布；可用范围选「部分成员」，只勾选你自己（或测试人员）。'),
+                  h('div', null, '7. 左侧「凭证与基础信息」→ 复制 App ID 和 App Secret，填到下面的输入框。'),
+                  h('div', null, '8. 点「一键获取 Open ID」；如果提示没有用户，先在飞书里搜索这个机器人并发一条私聊消息，再点一次。'),
+                  h('div', null, '9. 点「保存飞书配置」→「发送测试消息」。飞书收到测试卡片即配置成功。'),
+                  h('div', { style: { marginTop: 6, color: V.sub } },
+                    '常见问题：① 收不到消息 → 检查事件订阅是否为长连接、应用是否已发布；② 权限报错 → 开通权限后重新发布版本；③ 一键获取失败 → 确认 contact:contact.base:readonly 已开通且可用范围包含你。'),
+                  h('div', { style: { marginTop: 4, color: V.sub } },
+                    '说明：飞书后台按钮位置可能随版本变化，以上步骤对应 2026-11 版；以官方页面为准。')),
                 h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },
                   h('input', { type: 'checkbox', checked: imConfig.channels?.feishu?.enabled === true, onChange: (e) => setImChannel('feishu', { enabled: e.target.checked }) }),
                   '启用飞书审批通知'),
@@ -1539,10 +1585,10 @@ window.__ModuleLoader__.load({
                   h('input', { style: { ...S.input, flex: 1 }, type: 'password', placeholder: '••••••••', value: imConfig.channels?.feishu?.appSecret ?? '', onChange: (e) => setImChannel('feishu', { appSecret: e.target.value }) })),
                 h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
                   h('span', { style: { minWidth: 96, fontSize: 12, color: V.sub } }, '目标 Open ID'),
-                  h('input', { style: { ...S.input, flex: 1 }, placeholder: 'ou_xxx（审批卡片发送对象）', value: imConfig.channels?.feishu?.targetOpenId ?? '', onChange: (e) => setImChannel('feishu', { targetOpenId: e.target.value }) })),
-                h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
-                  h('span', { style: { minWidth: 96, fontSize: 12, color: V.sub } }, '审批人白名单'),
-                  h('input', { style: { ...S.input, flex: 1 }, placeholder: 'ou_xxx,ou_yyy（逗号分隔，留空=仅目标用户）', value: (imConfig.channels?.feishu?.whitelist ?? []).join(','), onChange: (e) => setImChannel('feishu', { whitelist: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }) })),
+                  h('input', { style: { ...S.input, flex: 1 }, placeholder: 'ou_xxx（审批卡片发送对象）', value: imConfig.channels?.feishu?.targetOpenId ?? '', onChange: (e) => setImChannel('feishu', { targetOpenId: e.target.value }) }),
+                  h('button', { style: S.btn(imBusy || !imConfig.channels?.feishu?.appId || !imConfig.channels?.feishu?.appSecret), disabled: imBusy || !imConfig.channels?.feishu?.appId || !imConfig.channels?.feishu?.appSecret, onClick: fetchFeishuOpenId }, '一键获取')),
+                h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 6 } },
+                  '只允许你本人处理审批，不需要配置白名单。目标 Open ID 就是你的飞书用户 ID。'),
                 h('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
                   h('button', { style: S.btn(imBusy, true), disabled: imBusy, onClick: saveImConfig }, '保存飞书配置'),
                   h('button', { style: S.btn(imBusy), disabled: imBusy, onClick: () => testImChannel('feishu') }, '发送测试消息'))),

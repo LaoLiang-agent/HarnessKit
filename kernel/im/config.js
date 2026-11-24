@@ -24,21 +24,18 @@ export function defaultImConfig() {
         appId: '',
         appSecret: '',
         targetOpenId: '',
-        whitelist: [],
       },
       wecom: {
         enabled: false,
         botId: '',
         botSecret: '',
         targetUserId: '',
-        whitelist: [],
       },
       dingtalk: {
         enabled: false,
         appKey: '',
         appSecret: '',
         targetUserId: '',
-        whitelist: [],
       },
     },
     // 审批过期时间（分钟）

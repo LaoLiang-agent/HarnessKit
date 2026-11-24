@@ -1492,6 +1492,61 @@ export function registerPanelApi(ctx) {
     },
   });
 
+  // 飞书 Open ID 一键获取：用 App ID/Secret 换 tenant_access_token，再列应用可见用户。
+  // 需要应用开通 contact:contact.base:readonly（或 contact:contact:readonly）。
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/im-feishu-openid',
+    async handler(req, res) {
+      if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      try {
+        const { appId, appSecret } = JSON.parse(await readBody(req) || '{}');
+        if (typeof appId !== 'string' || !appId.trim() || typeof appSecret !== 'string' || !appSecret.trim()) {
+          return sendJson(res, 400, { ok: false, error: '请先填写 App ID 和 App Secret' });
+        }
+        const timeout = AbortSignal.timeout(12000);
+        const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+          body: JSON.stringify({ app_id: appId.trim(), app_secret: appSecret.trim() }),
+          signal: timeout,
+        });
+        const token = await tokenRes.json();
+        if (token.code !== 0) {
+          return sendJson(res, 400, { ok: false, error: `获取 tenant_access_token 失败：${token.msg ?? token.code}` });
+        }
+        const usersRes = await fetch('https://open.feishu.cn/open-apis/contact/v3/users?page_size=20&user_id_type=open_id', {
+          headers: { authorization: `Bearer ${token.tenant_access_token}` },
+          signal: AbortSignal.timeout(12000),
+        });
+        const users = await usersRes.json();
+        if (users.code !== 0) {
+          const hint = /99991672|permission|scope/i.test(String(users.msg ?? ''))
+            ? '请到「权限管理」开通 contact:contact.base:readonly（或 contact:contact:readonly）后重新发布应用'
+            : '';
+          return sendJson(res, 400, { ok: false, error: `获取用户失败：${users.msg ?? users.code}${hint ? `。${hint}` : ''}` });
+        }
+        const items = users.data?.items ?? [];
+        if (items.length === 0) {
+          return sendJson(res, 404, { ok: false, error: '应用可见范围内没有用户。请确认应用可用范围包含你自己，或先给机器人发一条私聊消息' });
+        }
+        // 优先选当前应用创建者/第一个可见用户；返回完整列表供 UI 选择
+        const first = items[0];
+        sendJson(res, 200, {
+          ok: true,
+          openId: first.open_id,
+          name: first.name ?? null,
+          users: items.slice(0, 20).map((u) => ({ openId: u.open_id, name: u.name ?? null })),
+        });
+      } catch (cause) {
+        const message = cause?.name === 'TimeoutError' || cause?.name === 'AbortError'
+          ? '请求飞书超时，请检查网络后重试'
+          : (cause?.message ?? String(cause));
+        sendJson(res, 500, { ok: false, error: message });
+      }
+    },
+  });
+
   // IM 测试发送：验证飞书配置是否正确
   mount({
     kind: 'exact',

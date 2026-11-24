@@ -139,12 +139,9 @@ export class ApprovalBridge {
     await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [selectedLabel] }, operatorId);
   }
 
-  /** 是否允许该操作者处理此审批 */
+  /** 是否允许该操作者处理此审批：仅私聊目标本人（不做白名单） */
   _isAllowed(pending, actor) {
     if (!actor) return false;
-    const whitelist = this.config.channels[pending.channel]?.whitelist ?? [];
-    if (whitelist.length > 0) return whitelist.includes(actor);
-    // 未配置白名单：私聊时 targetOpenId 就是用户 open_id，只允许本人；群聊默认拒绝
     return actor === pending.targetOpenId;
   }
 
