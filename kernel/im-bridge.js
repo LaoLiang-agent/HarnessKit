@@ -38,8 +38,9 @@ export function installImBridge(ctx) {
   const disposers = [];
   const bridges = new Map(); // ws -> ApprovalBridge
 
-  // 监听 user-questions/request waterfall
-  const dispose = ctx.on('user-questions/request', async (request, next) => {
+  // 监听 user-questions/request waterfall。
+  // 该事件按 Agent scope 过滤：必须注册在 agent.ctx 上，根 ctx 的全局监听收不到。
+  const handleQuestion = async (request, next) => {
     const { agent, questions } = request;
     if (!agent || !questions || questions.length === 0) {
       return next();
@@ -144,9 +145,22 @@ export function installImBridge(ctx) {
       logger?.error?.('[im-bridge] 创建 IM 审批失败:', err?.message ?? err);
       return next();
     }
-  });
+  };
 
-  disposers.push(dispose);
+  const agentDisposers = new Map();
+  const attach = (agent) => {
+    if (!agent?.ctx || agentDisposers.has(agent)) return;
+    const off = agent.ctx.on('user-questions/request', handleQuestion);
+    agentDisposers.set(agent, off);
+    disposers.push(off);
+  };
+  disposers.push(ctx.on('agent/created', ({ agent }) => attach(agent)));
+  disposers.push(ctx.on('agent/disposed', ({ agent }) => {
+    agentDisposers.get(agent)?.();
+    agentDisposers.delete(agent);
+  }));
+  // 插件热加载时，当前已有 agent 也要挂上
+  for (const agent of ctx.get('agents')?.list?.() ?? []) attach(agent);
 
   // 清理
   disposers.push(async () => {
