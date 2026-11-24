@@ -968,6 +968,54 @@ section('池化工作区（主树优先 + slot 池）');
   ok('主树空闲 + --slot → 也进 slot（主动隔离）', forcedFree.assigned[0].placement === 'slot-1');
 }
 
+// ---------------------------------------------------------------- 未改动仓归档
+section('归档：后端任务不被未改动的前端仓阻断');
+{
+  const { ensureTaskWorkspaces, mergeTaskBranches, releaseTaskWorkspaces, readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const backend = path.join(ws, 'services/backend');
+  const frontend = path.join(ws, 'services/frontend');
+  fs.mkdirSync(backend, { recursive: true });
+  fs.mkdirSync(frontend, { recursive: true });
+  git('init -b dev', backend);
+  fake(ws, 'services/backend/app.txt', 'v1');
+  git('add .', backend);
+  git('commit -m init', backend);
+  git('init -b test', frontend);
+  fake(ws, 'services/frontend/page.txt', 'v1');
+  git('add .', frontend);
+  git('commit -m init', frontend);
+  const kit = { sources: [
+    { name: 'backend', path: 'services/backend', branch: 'dev' },
+    { name: 'frontend', path: 'services/frontend', branch: 'dev' },
+  ] };
+  const a = await ensureTaskWorkspaces(ws, kit, 'task-p', { forceSlot: true });
+  ok('两仓各分配 slot，前端基线回退为 HEAD', a.refused.length === 0 && a.assigned.length === 2
+    && a.assigned.find((x) => x.source === 'frontend')?.base === 'HEAD');
+  const bslot = a.assigned.find((x) => x.source === 'backend')?.path;
+  fake(ws, '.worktrees/backend/slot-1/app.txt', 'v2');
+  git('add .', bslot);
+  git('commit -m backend-change', bslot);
+  const mg = await mergeTaskBranches(ws, kit, 'task-p', {}, { syncTarget: 'off' });
+  ok('未改动仓跳过合入而不阻断', mg.refused.length === 0 && mg.merged.some((m) => m.repo === 'backend')
+    && mg.unchanged.some((u) => u.repo === 'frontend'));
+  const rel = await releaseTaskWorkspaces(ws, kit, 'task-p');
+  ok('未改动 slot 直接释放（不标 stale）', rel.stale.length === 0 && rel.released.length === 2 && !readWorkspaces(ws).tasks['task-p']);
+  ok('未改动前端任务分支已删除', git('branch --list feat/harness-task-p', frontend).trim() === '');
+  // 反向：只改前端、后端未改动；前端基线仍是 HEAD（本地无 dev），合入目标回退当前分支 test。
+  const q = await ensureTaskWorkspaces(ws, kit, 'task-q', { forceSlot: true });
+  const fslot = q.assigned.find((x) => x.source === 'frontend')?.path;
+  fake(ws, '.worktrees/frontend/slot-1/page.txt', 'v2');
+  git('add .', fslot);
+  git('commit -m frontend-change', fslot);
+  const mgq = await mergeTaskBranches(ws, kit, 'task-q', {}, { syncTarget: 'off' });
+  ok('只改前端时后端未改动仓跳过', mgq.refused.length === 0 && mgq.merged.some((m) => m.repo === 'frontend')
+    && mgq.unchanged.some((u) => u.repo === 'backend'));
+  const relq = await releaseTaskWorkspaces(ws, kit, 'task-q');
+  ok('只改前端也能释放两个 slot（含 HEAD 回退 test）', relq.stale.length === 0 && relq.released.length === 2 && !readWorkspaces(ws).tasks['task-q']);
+}
+
 // ---------------------------------------------------------------- slot 本地配置
 section('slot 本地配置复制');
 {

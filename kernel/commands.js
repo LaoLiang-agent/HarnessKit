@@ -953,6 +953,7 @@ function mergeLines(mg) {
       : `🔄 ${s.repo} → ${s.target} 已快进 ${s.from}..${s.to}（origin，未推送）`);
   }
   for (const a of mg.alreadyMerged ?? []) lines.push(`✅ ${a.repo} → ${a.target} 已包含任务分支（跳过重复合并）`);
+  for (const u of mg.unchanged ?? []) lines.push(`⏭ ${u.repo}：${u.reason}（跳过合入）`);
   for (const m of mg.merged) lines.push(`✅ ${m.repo} → ${m.target} 已本地合入（commit ${m.commit}，未推送）`);
   for (const p of mg.planned ?? []) lines.push(`📝 [dry-run] ${p.repo}：将先快进 ${p.target}，再合入 ${p.branch}`);
   for (const c of mg.conflicts) lines.push(`⛔ ${c.repo} → ${c.target} 合并冲突（已中止回滚）：${c.files.slice(0, 8).join('、') || '见 git status'}`);

@@ -85,11 +85,16 @@ async function isGitRepo(repoDir) {
   return (await runGit(['rev-parse', '--git-dir'], { cwd: repoDir })).code === 0;
 }
 
-/** 解析基线分支：kit.json source.branch → 本地 dev → 当前 HEAD。 */
+/** 解析基线分支：kit.json source.branch → 本地 dev → 远端同名分支 → 当前 HEAD。
+ *  A local clone may not have checked out/synced the registered branch yet; using
+ *  origin/<branch> keeps the ledger target mergeable instead of recording HEAD. */
 async function resolveBase(repoDir, source) {
   const wanted = source.branch ?? 'dev';
   if ((await runGit(['rev-parse', '--verify', `refs/heads/${wanted}`], { cwd: repoDir })).code === 0) return wanted;
   if ((await runGit(['rev-parse', '--verify', 'refs/heads/dev'], { cwd: repoDir })).code === 0) return 'dev';
+  for (const ref of [`refs/remotes/origin/${wanted}`, 'refs/remotes/origin/dev']) {
+    if ((await runGit(['rev-parse', '--verify', ref], { cwd: repoDir })).code === 0) return ref.slice('refs/remotes/'.length);
+  }
   if ((await runGit(['rev-parse', '--verify', 'HEAD'], { cwd: repoDir })).code === 0) return 'HEAD';
   return null;
 }
@@ -165,6 +170,19 @@ async function localBranchExists(repoDir, branch) {
 /** 任意 ref 是否存在（本地分支或 origin/<branch>）。 */
 async function refExists(repoDir, ref) {
   return (await runGit(['rev-parse', '--verify', '--quiet', ref], { cwd: repoDir })).code === 0;
+}
+
+/** How many commits the task branch has on top of base. 0 = repo untouched.
+ *  Returns null when the base ref cannot be resolved, so callers can refuse
+ *  instead of silently dropping real changes. */
+async function branchAheadCount(repoDir, branch, base) {
+  if (!(await localBranchExists(repoDir, branch))) return 0;
+  const ref = base === 'HEAD' ? 'HEAD' : base;
+  if (!ref || !(await refExists(repoDir, ref))) return null;
+  const r = await runGit(['rev-list', '--count', `${ref}..${branch}`], { cwd: repoDir });
+  if (r.code !== 0) return null;
+  const n = Number(r.stdout.trim());
+  return Number.isFinite(n) ? n : null;
 }
 
 /** 归档对账的候选基线：任务创建时基线、当前注册基线、当前分支和常见主线。 */
@@ -387,10 +405,10 @@ async function syncTargetBranch(ws, repoDir, name, target, out, mode = 'safe') {
  * 合并位置：目标分支若被某工作树 checkout 且干净 → 就地合并；否则建临时工作树
  * （.worktrees/<仓>/_merge）合并后删除。主工作树脏 → 拒绝该仓。
  *
- * 返回 { merged, conflicts, refused, alreadyMerged, synced, planned, dryRun }。
+ * 返回 { merged, conflicts, refused, alreadyMerged, unchanged, synced, planned, dryRun }。
  */
 export async function mergeTaskBranches(ws, kit, task, overrides = {}, { syncTarget = 'safe', dryRun = false } = {}) {
-  const out = { merged: [], conflicts: [], refused: [], alreadyMerged: [], synced: [], planned: [], dryRun: dryRun === true };
+  const out = { merged: [], conflicts: [], refused: [], alreadyMerged: [], unchanged: [], synced: [], planned: [], dryRun: dryRun === true };
   const ledger = readWorkspaces(ws);
   const entry = ledger.tasks?.[task];
   // 无台账 = 本任务没有分配过代码工作区（纯文档任务），不是错误；直接跳过合入。
@@ -407,6 +425,30 @@ export async function mergeTaskBranches(ws, kit, task, overrides = {}, { syncTar
     // 目标分支：人显式覆盖优先，否则台账记录的创建时基线
     let target = (overrides?.[name] ?? info.base ?? '').trim();
     if (!target) { out.refused.push({ repo: name, reason: '无目标基线记录' }); continue; }
+    const branch = info.branch;
+    // Backend-only tasks also get ledger entries for every registered source.
+    // A source the task never touched must not block archive on its target
+    // branch (notably a repo whose default branch could not be resolved and
+    // was recorded as HEAD). Missing branch = no commits = nothing to merge.
+    const ahead = await branchAheadCount(repoDir, branch, target);
+    if (ahead === 0) {
+      out.unchanged.push({ repo: name, reason: `任务分支 ${branch} 相对 ${target} 无改动` });
+      continue;
+    }
+    if (ahead === null && !(await localBranchExists(repoDir, branch))) {
+      out.unchanged.push({ repo: name, reason: `任务分支 ${branch} 不存在（按未改动跳过）` });
+      continue;
+    }
+    // HEAD is a valid commit but not a mergeable branch. If the task branch
+    // really has changes, merge into the branch that HEAD currently points at.
+    if (target === 'HEAD') {
+      const cur = await currentBranch(repoDir);
+      if (!cur || cur === branch) {
+        out.refused.push({ repo: name, reason: `目标基线未解析（HEAD）；请配置 ${name} 的基线分支或先 fetch 远端分支` });
+        continue;
+      }
+      target = cur;
+    }
     // 远端 ref → 先落成本地分支（合并必须发生在本地分支上）
     if (target.startsWith('origin/')) {
       const local = target.slice('origin/'.length);
@@ -417,13 +459,8 @@ export async function mergeTaskBranches(ws, kit, task, overrides = {}, { syncTar
       await setTargetUpstream(repoDir, local);
       target = local;
     }
-    if ((await runGit(['rev-parse', '--verify', `refs/heads/${target}`], { cwd: repoDir })).code !== 0) {
+    if (!(await localBranchExists(repoDir, target))) {
       out.refused.push({ repo: name, reason: `目标分支 ${target} 不存在` });
-      continue;
-    }
-    const branch = info.branch;
-    if ((await runGit(['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: repoDir })).code !== 0) {
-      out.refused.push({ repo: name, reason: `任务分支 ${branch} 已不存在` });
       continue;
     }
 
@@ -602,6 +639,20 @@ async function acquireSlot(ws, repoDir, repoName, task, branch, base, slots) {
 async function releaseSlot(repoDir, dir, binding, base, slots, repoName, candidates = null) {
   const branch = binding.branch;
   if (!fs.existsSync(dir)) { delete slots[repoName][binding.slot]; return { released: true }; }
+  // 未改动仓：任务分支没有独立提交，无需合入；直接切回基线/当前提交并解绑，
+  // 避免“后端任务被前端空分支卡住归档”。有改动时仍走下面的合入判定。
+  const ahead = await branchAheadCount(repoDir, branch, base);
+  if (ahead === 0) {
+    if (await isDirty(dir)) {
+      return { released: false, reason: `slot ${binding.slot} 有未提交改动，请人工处理后再释放` };
+    }
+    const parked = base === 'HEAD' ? 'HEAD' : base;
+    const co = await runGit(['checkout', '--detach', parked], { cwd: dir });
+    if (co.code !== 0) return { released: false, reason: `slot ${binding.slot} 切回 ${parked} 失败：${(co.stderr || '').trim().split('\n')[0]}` };
+    await runGit(['branch', '-d', branch], { cwd: repoDir });
+    delete slots[repoName][binding.slot];
+    return { released: true, matchedBase: base, noChanges: true };
+  }
   // 合入判定：台账基线（任务创建时指定）与当前 kit 基线任一命中都算已合入——
   // 人可能在开发期间改基线（如 phm 合入 feat_phm_261022，2026-11-17 真实事故）
   const targets = [...new Set((candidates && candidates.length ? candidates : [base]).filter(Boolean))];
@@ -842,9 +893,12 @@ async function releaseEntry(ws, kit, task, entry, ledger) {
       remaining[name] = info;
       continue;
     }
-    // 候选基线：台账记录的创建时基线 + 当前 kit 基线（人可能中途改基线，见 2026-11-17 phm 事故）
+    // 候选基线：台账记录的创建时基线 + 当前 kit 基线 + 当前 checkout 分支
+    // （base=HEAD 时合入目标可能回退到当前分支；人可能中途改基线，见 2026-11-17 phm 事故）
     const kitBase = source?.branch ?? null;
-    const r = await releaseSlot(repoDir, dir, { slot: info.placement, task, branch: info.branch }, info.base, ledger.slots, name, [info.base, kitBase]);
+    const cur = await currentBranch(repoDir);
+    const candidates = candidateBases(info, source, cur).filter((b) => b !== info.branch);
+    const r = await releaseSlot(repoDir, dir, { slot: info.placement, task, branch: info.branch }, info.base, ledger.slots, name, candidates.length ? candidates : [info.base, kitBase].filter(Boolean));
     if (r.released) {
       const via = r.matchedBase && r.matchedBase !== info.base ? `（按当前基线 ${r.matchedBase} 判定已合入）` : '';
       out.released.push({ source: name, placement: info.placement, note: `slot 已切回基线并释放（目录保留复用）${via}` });
