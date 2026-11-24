@@ -1,7 +1,6 @@
 // IM 桥接安装：监听 user-questions/request waterfall，识别 HK 标记，发卡片到 IM
 // 这是 kernel/im/ 模块与 DSH userQuestions 服务的接线层
 
-import fs from 'node:fs';
 import { ApprovalBridge } from './im/bridge.js';
 import { readImConfig, hasEnabledChannel } from './im/config.js';
 import { wsRoot } from './paths.js';
@@ -39,13 +38,10 @@ export function installImBridge(ctx) {
   const disposers = [];
   const bridges = new Map(); // ws -> ApprovalBridge
   const handledRequests = new WeakMap(); // request -> Promise，避免 global/agent 双监听重复处理
-  const debug = (msg) => { try { fs.appendFileSync('/tmp/hk-im-debug.log', `${new Date().toISOString()} ${msg}\n`); } catch { /* ignore */ } };
-  debug('installImBridge');
 
   // 监听 user-questions/request waterfall。
   // 该事件按 Agent scope 过滤：必须注册在 agent.ctx 上，根 ctx 的全局监听收不到。
   const processQuestion = async (request, next) => {
-    debug(`request ids=${(request?.questions ?? []).map((q) => q.id).join(',')} agent=${request?.agent?.id ?? 'none'}`);
     const { agent, questions } = request;
     if (!agent || !questions || questions.length === 0) {
       return next();
