@@ -251,7 +251,7 @@ Advanced aliases remain available:
 **Plugins → Add plugin**, then enter:
 
 ```
-dsh-harness-kit@0.2.4
+dsh-harness-kit@0.2.5
 ```
 
 Enable the bundle after installation. The panel checks npm for a newer version once an hour and shows a top-bar prompt; updating remains a manual action in Plugins.
@@ -259,7 +259,7 @@ Enable the bundle after installation. The panel checks npm for a newer version o
 ### Command line
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.2.4
+dsh plugin --profile desktop add dsh-harness-kit@0.2.5
 ```
 
 Quit DSH Desktop first; replace `desktop` with your profile name for other profiles.
