@@ -1312,7 +1312,8 @@ window.__ModuleLoader__.load({
         }).then((r) => r.json()).then((j) => {
           if (!j.ok) throw new Error(j.error || '获取 Open ID 失败');
           setImChannel('feishu', { targetOpenId: j.openId });
-          toast(`已获取 ${j.name ? `${j.name} 的` : ''}Open ID`, true);
+          const extra = (j.users?.length ?? 0) > 1 ? '（应用可见多个用户，已填第一个；建议把应用可用范围只设为自己）' : '';
+          toast(`已获取 ${j.name ? `${j.name} 的` : ''}Open ID${extra}`, true);
         }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
       };
 
@@ -1591,7 +1592,7 @@ window.__ModuleLoader__.load({
                   '只允许你本人处理审批，不需要配置白名单。目标 Open ID 就是你的飞书用户 ID。'),
                 h('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
                   h('button', { style: S.btn(imBusy, true), disabled: imBusy, onClick: saveImConfig }, '保存飞书配置'),
-                  h('button', { style: S.btn(imBusy), disabled: imBusy, onClick: () => testImChannel('feishu') }, '发送测试消息'))),
+                  h('button', { style: S.btn(imBusy || !imConfig.channels?.feishu?.targetOpenId), disabled: imBusy || !imConfig.channels?.feishu?.targetOpenId, onClick: () => testImChannel('feishu') }, '发送测试消息'))),
               // 通用设置
               h('div', { style: { marginBottom: 12, padding: 12, border: `1px solid ${V.border}`, borderRadius: 8 } },
                 h('div', { style: { fontSize: 13, fontWeight: 600, marginBottom: 8 } }, '通用'),
