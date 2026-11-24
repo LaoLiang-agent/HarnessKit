@@ -1656,6 +1656,12 @@ window.__ModuleLoader__.load({
                     h('option', { value: '120' }, '2 小时'),
                     h('option', { value: '360' }, '6 小时'),
                     h('option', { value: '1440' }, '24 小时'))),
+                h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
+                  h('span', { style: { minWidth: 96, fontSize: 12, color: V.sub } }, '审批日志保留'),
+                  h('select', { style: { ...S.select, width: 140 }, value: String(imConfig.auditRetentionDays ?? 15), onChange: (e) => setImConfig({ ...imConfig, auditRetentionDays: Number(e.target.value) }) },
+                    h('option', { value: '15' }, '15 天（默认）'),
+                    h('option', { value: '30' }, '30 天'),
+                    h('option', { value: '90' }, '90 天'))),
                 h('button', { style: S.btn(imBusy, true), disabled: imBusy, onClick: saveImConfig }, '保存通用设置')),
               // 企微/钉钉占位
               h('div', { style: { marginBottom: 12, padding: 12, border: `1px solid ${V.border}`, borderRadius: 8, opacity: 0.6 } },
