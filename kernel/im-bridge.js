@@ -4,6 +4,8 @@
 import { ApprovalBridge } from './im/bridge.js';
 import { readImConfig, hasEnabledChannel } from './im/config.js';
 import { wsRoot } from './paths.js';
+// 副作用导入：注册内置 transport（飞书/企微/钉钉 adapter）
+import './im/index.js';
 
 /** 从 agent 获取工作区路径 */
 function getWs(agent) {
@@ -99,8 +101,14 @@ export function installImBridge(ctx) {
         channel,
       });
 
-      // 同时发起 Web 回答（next()）和 IM 回答，先到先得
-      const webAnswer = next();
+      // 同时发起 Web 回答（next()）和 IM 回答，先到先得。
+      // 没有 Web 客户端时 next() 会以 NO_PROVIDER 拒绝；此时不应当作失败，继续等 IM 作答。
+      const webAnswer = Promise.resolve()
+        .then(() => next())
+        .catch((err) => {
+          if (err?.code === 'NO_PROVIDER') return new Promise(() => {});
+          throw err;
+        });
       const imAnswer = new Promise((resolve) => {
         // 监听 bridge 的完成事件
         const checkInterval = setInterval(() => {
@@ -111,6 +119,7 @@ export function installImBridge(ctx) {
               answers: pending.answers.map((a, i) => ({
                 id: pending.questions[i].id,
                 selected: a?.selected ?? [],
+                ...(a?.custom ? { custom: a.custom } : {}),
               })),
             });
           }

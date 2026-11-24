@@ -44,7 +44,7 @@
     "index.js",
     "client.js",
     "cordis.patch.yml",
-    "kernel/*.js",
+    "kernel/**/*.js",
     "packs/**",
     "locale/*.json",
     "icon.svg",
@@ -62,7 +62,7 @@
       "immediately": true
     }
   },
-  "devDependencies": {
+  "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.73.0"
   }
 }

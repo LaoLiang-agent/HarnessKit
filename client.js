@@ -1265,6 +1265,57 @@ window.__ModuleLoader__.load({
           if (j.ok) loadLocal();
         }).catch((e) => toast(e.message, false)).finally(() => setLocalBusy(false));
       };
+      // IM 通知配置（本机 .harness/local/im-config.json，不提交）
+      const [imConfig, setImConfig] = useState(null);
+      const [imAudit, setImAudit] = useState([]);
+      const [imBusy, setImBusy] = useState(false);
+      const loadImConfig = useCallback(() => {
+        fetch(`/harness-kit/im-config?workspace=${encodeURIComponent(ws.id)}`, { cache: 'no-store' })
+          .then((r) => r.json())
+          .then((j) => setImConfig(j.ok ? j.config : null))
+          .catch(() => setImConfig(null));
+      }, [ws.id]);
+      const loadImAudit = useCallback(() => {
+        fetch(`/harness-kit/im-audit?workspace=${encodeURIComponent(ws.id)}`, { cache: 'no-store' })
+          .then((r) => r.json())
+          .then((j) => { if (j.ok) setImAudit(j.entries ?? []); })
+          .catch(() => {});
+      }, [ws.id]);
+      useEffect(() => { loadImConfig(); }, [loadImConfig]);
+      const setImChannel = (channel, patch) => {
+        setImConfig((prev) => (prev ? {
+          ...prev,
+          channels: { ...prev.channels, [channel]: { ...(prev.channels?.[channel] ?? {}), ...patch } },
+        } : prev));
+      };
+      const saveImConfig = () => {
+        if (!imConfig) return;
+        setImBusy(true);
+        fetch('/harness-kit/im-config', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ workspace: ws.id, config: imConfig }),
+        }).then((r) => r.json()).then((j) => {
+          toast(j.ok ? 'IM 配置已保存' : (j.error || '保存失败'), j.ok);
+        }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
+      };
+      const testImChannel = (channel) => {
+        if (!imConfig) return;
+        setImBusy(true);
+        // 先保存再测试，避免测到旧配置
+        fetch('/harness-kit/im-config', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ workspace: ws.id, config: imConfig }),
+        }).then((r) => r.json()).then((saved) => {
+          if (!saved.ok) throw new Error(saved.error || '保存失败');
+          return fetch('/harness-kit/im-test', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ workspace: ws.id, channel }),
+          });
+        }).then((r) => r.json()).then((j) => {
+          toast(j.ok ? `测试消息已发送（${j.messageId ?? 'ok'}）` : (j.error || '发送失败'), j.ok);
+        }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
+      };
+
       const kv = (label, value) => h('div', { style: S.kv }, h('span', { style: { color: V.sub, minWidth: 96 } }, label), h('span', null, value ?? '—'));
 
       // 设置页分类 Tab
@@ -1290,7 +1341,7 @@ window.__ModuleLoader__.load({
               color: tab === t.id ? V.brand : V.sub,
               background: tab === t.id ? V.surface : 'transparent',
             },
-            onClick: () => setTab(t.id),
+            onClick: () => { setTab(t.id); if (t.id === 'im') loadImAudit(); },
           }, t.label))),
 
         // 基础 Tab
@@ -1315,53 +1366,6 @@ window.__ModuleLoader__.load({
             h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
               h('button', { style: S.btn(updateChecking), disabled: updateChecking, onClick: () => onCheckUpdate({ notify: true }) }, updateChecking ? '检查中…' : '检查更新'),
               updateInfo?.updateAvailable && h('button', { style: S.btn(false), onClick: onShowUpdate }, '查看更新提示'))),
-          ws?.slots && Object.keys(ws.slots).length > 0 && h('div', { style: S.section },
-            h('div', { style: S.secTitle }, '工作区池（本机）'),
-            Object.entries(ws.slots).map(([repo, arr]) => h('div', { key: repo, style: { fontSize: 12, marginBottom: 6 } },
-              h('div', { style: { fontWeight: 600, marginBottom: 2 } }, repo),
-              arr.length === 0 && h('div', { style: { color: V.sub } }, '无 slot（并发任务出现时自动创建）'),
-              arr.map((s) => h('div', { key: s.slot, style: { marginBottom: 3 } },
-                h('div', { style: { color: s.state === 'stale-unmerged' ? V.warn : V.sub } },
-                  `${s.slot}：${s.state === 'stale-unmerged' ? '⚠ 保留未释放' : `任务 ${s.task}`} · ${s.branch}`),
-                // 完整路径（点击复制，方便直接 cd/在文件管理器打开）
-                h('div', {
-                  style: { fontFamily: 'monospace', fontSize: 11, color: V.sub, wordBreak: 'break-all', cursor: 'copy' },
-                  title: '点击复制完整路径',
-                  onClick: () => { try { navigator.clipboard?.writeText(`${ws.path}/.worktrees/${repo}/${s.slot}`); toast('路径已复制'); } catch { /* 剪贴板不可用时无操作 */ } },
-                }, `${ws.path}/.worktrees/${repo}/${s.slot}`)))))),
-          // 本机开发配置：只存在于本机的配置（数据库密码/端口/证书等）需要带到并行工作区。
-          h('div', { style: S.section },
-            h('div', { style: S.secTitle }, '本机开发配置'),
-            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
-              '有些配置文件只存在于你的电脑（例如数据库密码、端口、私有证书），不会提交到代码仓库。确认一次后，新建的并行工作区会自动带上它们；只在本机复制，不会提交或上传。'),
-            local === null && h('div', { style: { fontSize: 12, color: V.sub } }, '正在查找本机配置文件…'),
-            local && (local.sources ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '还没有登记代码仓库。'),
-            local && (local.sources ?? []).map((s) => {
-              const pending = (s.candidates ?? []).filter((c) => c.pending);
-              return h('div', { key: s.name, style: { marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${V.border}` } },
-                h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 3 } },
-                  `${s.name}：已同步 ${s.approved.length} 个，待处理 ${pending.length} 个`),
-                pending.length === 0 && s.approved.length > 0 && h('div', { style: { fontSize: 11, color: V.ok } }, '本机配置已同步。'),
-                pending.length === 0 && s.approved.length === 0 && h('div', { style: { fontSize: 11, color: V.sub } }, '没有发现需要同步的本机文件。'),
-                pending.length > 0 && (() => {
-                  const selected = new Set(localSel[s.name] ?? []);
-                  const selectedPending = pending.filter((c) => selected.has(c.path));
-                  return h('div', null,
-                    h('div', { style: { maxHeight: 230, overflowY: 'auto', border: `1px solid ${V.border}`, borderRadius: 6, padding: '4px 6px', marginBottom: 6 } },
-                      pending.map((c) => h('label', {
-                        key: c.path,
-                        style: { display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, color: V.sub, marginBottom: 3, cursor: 'pointer' },
-                        title: c.path,
-                      },
-                        h('input', { type: 'checkbox', checked: selected.has(c.path), onChange: (e) => toggleLocal(s.name, c.path, e.target.checked) }),
-                        h('span', { style: { color: c.reason === 'high' ? V.warn : V.sub, whiteSpace: 'nowrap' } }, c.reason === 'high' ? '建议同步' : '可选'),
-                        h('span', { style: { fontFamily: 'monospace', wordBreak: 'break-all' } }, c.path)))),
-                    h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
-                      h('button', { style: S.btn(localBusy || selectedPending.length === 0, true), disabled: localBusy || selectedPending.length === 0, onClick: () => localAction(s.name, 'approve', selectedPending.map((c) => c.path)) }, `同步选中（${selectedPending.length}）`),
-                      h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '同步全部'),
-                      h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '暂不同步')));
-                })());
-            })),
           (k.sources ?? []).length > 0 && h('div', { style: S.section },
             h('div', { style: S.secTitle }, '子工程基线分支'),
             k.sources.map((s) => h('div', { key: s.name, style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
@@ -1411,8 +1415,12 @@ window.__ModuleLoader__.load({
               h('input', { type: 'checkbox', checked: autoSync, onChange: (e) => setAutoSync(e.target.checked) }),
               '归档后自动执行资产同步（/hk-sync）'),
             h('button', { style: S.btn(busy, true), disabled: busy, onClick: () => saveConfig({ autoSync }, autoSync ? '已开启自动同步' : '已关闭自动同步') }, '保存')),
+        ),
+
+        // 模型 Tab
+        tab === 'model' && h('div', null,
           h('div', { style: S.section },
-            h('div', { style: S.secTitle }, '高级：Worker 模型映射'),
+            h('div', { style: S.secTitle }, 'Worker 模型映射'),
             h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
               '本机覆盖优先于团队默认：本机角色 > 团队角色 > 本机逻辑名 > 团队逻辑名 > 会话默认。'),
             h('div', { style: { display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' } },
@@ -1502,6 +1510,126 @@ window.__ModuleLoader__.load({
                   }])),
                 }, modelScope === 'local' ? '本机模型覆盖已保存' : '团队模型映射已保存'),
               }, modelScope === 'local' ? '保存本机覆盖' : '保存团队默认'))),
+        ),
+
+        // IM 通知 Tab
+        tab === 'im' && h('div', null,
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, 'IM 通知（审批桥接）'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 12, lineHeight: 1.6 } },
+              '配置后，Harness Kit 的审批/澄清问题会推送到 IM，点击按钮即可远程决策。配置只保存在本机（.harness/local/im-config.json），不会提交到团队资产仓库。'),
+            imConfig === null && h('div', { style: { fontSize: 12, color: V.sub } }, '正在读取 IM 配置…'),
+            imConfig && h('div', null,
+              // 飞书配置卡片
+              h('div', { style: { marginBottom: 12, padding: 12, border: `1px solid ${V.border}`, borderRadius: 8 } },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+                  h('span', { style: { fontSize: 14, fontWeight: 600 } }, '飞书'),
+                  h('span', { style: { fontSize: 11, color: V.sub } }, '（推荐）'),
+                  imConfig.channels?.feishu?.enabled && h('span', { style: { fontSize: 11, color: V.ok } }, '● 已启用')),
+                h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+                  '需要飞书自建应用：开通 im:message、im:message:readonly 权限，订阅 im.message.receive_v1 事件与 card.action.trigger 回调，使用长连接模式。'),
+                h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },
+                  h('input', { type: 'checkbox', checked: imConfig.channels?.feishu?.enabled === true, onChange: (e) => setImChannel('feishu', { enabled: e.target.checked }) }),
+                  '启用飞书审批通知'),
+                h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
+                  h('span', { style: { minWidth: 96, fontSize: 12, color: V.sub } }, 'App ID'),
+                  h('input', { style: { ...S.input, flex: 1 }, placeholder: 'cli_xxx', value: imConfig.channels?.feishu?.appId ?? '', onChange: (e) => setImChannel('feishu', { appId: e.target.value }) })),
+                h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
+                  h('span', { style: { minWidth: 96, fontSize: 12, color: V.sub } }, 'App Secret'),
+                  h('input', { style: { ...S.input, flex: 1 }, type: 'password', placeholder: '••••••••', value: imConfig.channels?.feishu?.appSecret ?? '', onChange: (e) => setImChannel('feishu', { appSecret: e.target.value }) })),
+                h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
+                  h('span', { style: { minWidth: 96, fontSize: 12, color: V.sub } }, '目标 Open ID'),
+                  h('input', { style: { ...S.input, flex: 1 }, placeholder: 'ou_xxx（审批卡片发送对象）', value: imConfig.channels?.feishu?.targetOpenId ?? '', onChange: (e) => setImChannel('feishu', { targetOpenId: e.target.value }) })),
+                h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
+                  h('span', { style: { minWidth: 96, fontSize: 12, color: V.sub } }, '审批人白名单'),
+                  h('input', { style: { ...S.input, flex: 1 }, placeholder: 'ou_xxx,ou_yyy（逗号分隔，留空=仅目标用户）', value: (imConfig.channels?.feishu?.whitelist ?? []).join(','), onChange: (e) => setImChannel('feishu', { whitelist: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) }) })),
+                h('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
+                  h('button', { style: S.btn(imBusy, true), disabled: imBusy, onClick: saveImConfig }, '保存飞书配置'),
+                  h('button', { style: S.btn(imBusy), disabled: imBusy, onClick: () => testImChannel('feishu') }, '发送测试消息'))),
+              // 通用设置
+              h('div', { style: { marginBottom: 12, padding: 12, border: `1px solid ${V.border}`, borderRadius: 8 } },
+                h('div', { style: { fontSize: 13, fontWeight: 600, marginBottom: 8 } }, '通用'),
+                h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
+                  h('span', { style: { minWidth: 96, fontSize: 12, color: V.sub } }, '审批过期时间'),
+                  h('select', { style: { ...S.select, width: 140 }, value: String(imConfig.approvalExpiryMinutes ?? 120), onChange: (e) => setImConfig({ ...imConfig, approvalExpiryMinutes: Number(e.target.value) }) },
+                    h('option', { value: '30' }, '30 分钟'),
+                    h('option', { value: '60' }, '1 小时'),
+                    h('option', { value: '120' }, '2 小时'),
+                    h('option', { value: '360' }, '6 小时'),
+                    h('option', { value: '1440' }, '24 小时'))),
+                h('button', { style: S.btn(imBusy, true), disabled: imBusy, onClick: saveImConfig }, '保存通用设置')),
+              // 企微/钉钉占位
+              h('div', { style: { marginBottom: 12, padding: 12, border: `1px solid ${V.border}`, borderRadius: 8, opacity: 0.6 } },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 } },
+                  h('span', { style: { fontSize: 14, fontWeight: 600 } }, '企业微信'),
+                  h('span', { style: { fontSize: 11, color: V.sub } }, '（待审批）')),
+                h('div', { style: { fontSize: 12, color: V.sub } },
+                  '需要企业微信管理员创建智能机器人并开启 API 模式。审批通过后开放配置。')),
+              h('div', { style: { marginBottom: 12, padding: 12, border: `1px solid ${V.border}`, borderRadius: 8, opacity: 0.6 } },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 } },
+                  h('span', { style: { fontSize: 14, fontWeight: 600 } }, '钉钉'),
+                  h('span', { style: { fontSize: 11, color: V.sub } }, '（规划中）')),
+                h('div', { style: { fontSize: 12, color: V.sub } },
+                  '需要钉钉企业内部应用，使用 Stream 模式。后续版本支持。')),
+              // 审计日志
+              h('div', { style: { padding: 12, border: `1px solid ${V.border}`, borderRadius: 8 } },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
+                  h('span', { style: { fontSize: 13, fontWeight: 600 } }, '审批记录'),
+                  h('button', { style: S.btn(false), onClick: loadImAudit }, '刷新')),
+                imAudit.length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '暂无审批记录。'),
+                imAudit.slice(0, 20).map((e, i) => h('div', { key: i, style: { fontSize: 11, color: V.sub, fontFamily: 'monospace', marginBottom: 2 } },
+                  `${(e.at ?? '').slice(0, 19).replace('T', ' ')}  ${e.type ?? '-'}  ${e.approvalId ?? ''}  ${e.result ?? ''}`))))),
+        ),
+
+        // 高级 Tab
+        tab === 'advanced' && h('div', null,
+          ws?.slots && Object.keys(ws.slots).length > 0 && h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '工作区池（本机）'),
+            Object.entries(ws.slots).map(([repo, arr]) => h('div', { key: repo, style: { fontSize: 12, marginBottom: 6 } },
+              h('div', { style: { fontWeight: 600, marginBottom: 2 } }, repo),
+              arr.length === 0 && h('div', { style: { color: V.sub } }, '无 slot（并发任务出现时自动创建）'),
+              arr.map((s) => h('div', { key: s.slot, style: { marginBottom: 3 } },
+                h('div', { style: { color: s.state === 'stale-unmerged' ? V.warn : V.sub } },
+                  `${s.slot}：${s.state === 'stale-unmerged' ? '⚠ 保留未释放' : `任务 ${s.task}`} · ${s.branch}`),
+                // 完整路径（点击复制，方便直接 cd/在文件管理器打开）
+                h('div', {
+                  style: { fontFamily: 'monospace', fontSize: 11, color: V.sub, wordBreak: 'break-all', cursor: 'copy' },
+                  title: '点击复制完整路径',
+                  onClick: () => { try { navigator.clipboard?.writeText(`${ws.path}/.worktrees/${repo}/${s.slot}`); toast('路径已复制'); } catch { /* 剪贴板不可用时无操作 */ } },
+                }, `${ws.path}/.worktrees/${repo}/${s.slot}`)))))),
+          // 本机开发配置：只存在于本机的配置（数据库密码/端口/证书等）需要带到并行工作区。
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '本机开发配置'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
+              '有些配置文件只存在于你的电脑（例如数据库密码、端口、私有证书），不会提交到代码仓库。确认一次后，新建的并行工作区会自动带上它们；只在本机复制，不会提交或上传。'),
+            local === null && h('div', { style: { fontSize: 12, color: V.sub } }, '正在查找本机配置文件…'),
+            local && (local.sources ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '还没有登记代码仓库。'),
+            local && (local.sources ?? []).map((s) => {
+              const pending = (s.candidates ?? []).filter((c) => c.pending);
+              return h('div', { key: s.name, style: { marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${V.border}` } },
+                h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 3 } },
+                  `${s.name}：已同步 ${s.approved.length} 个，待处理 ${pending.length} 个`),
+                pending.length === 0 && s.approved.length > 0 && h('div', { style: { fontSize: 11, color: V.ok } }, '本机配置已同步。'),
+                pending.length === 0 && s.approved.length === 0 && h('div', { style: { fontSize: 11, color: V.sub } }, '没有发现需要同步的本机文件。'),
+                pending.length > 0 && (() => {
+                  const selected = new Set(localSel[s.name] ?? []);
+                  const selectedPending = pending.filter((c) => selected.has(c.path));
+                  return h('div', null,
+                    h('div', { style: { maxHeight: 230, overflowY: 'auto', border: `1px solid ${V.border}`, borderRadius: 6, padding: '4px 6px', marginBottom: 6 } },
+                      pending.map((c) => h('label', {
+                        key: c.path,
+                        style: { display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, color: V.sub, marginBottom: 3, cursor: 'pointer' },
+                        title: c.path,
+                      },
+                        h('input', { type: 'checkbox', checked: selected.has(c.path), onChange: (e) => toggleLocal(s.name, c.path, e.target.checked) }),
+                        h('span', { style: { color: c.reason === 'high' ? V.warn : V.sub, whiteSpace: 'nowrap' } }, c.reason === 'high' ? '建议同步' : '可选'),
+                        h('span', { style: { fontFamily: 'monospace', wordBreak: 'break-all' } }, c.path)))),
+                    h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+                      h('button', { style: S.btn(localBusy || selectedPending.length === 0, true), disabled: localBusy || selectedPending.length === 0, onClick: () => localAction(s.name, 'approve', selectedPending.map((c) => c.path)) }, `同步选中（${selectedPending.length}）`),
+                      h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '同步全部'),
+                      h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '暂不同步')));
+                })());
+            })),
           h('div', { style: S.section },
             h('div', { style: S.secTitle }, '初始化与子工程'),
             h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
@@ -1519,29 +1647,6 @@ window.__ModuleLoader__.load({
             h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
               h('button', { style: S.btn(busy || (ws?.init && !ws.init.done), true), disabled: busy || !!(ws?.init && !ws.init.done), title: ws?.init && !ws.init.done ? '初始化进行中，请等待完成' : undefined, onClick: () => runInit({}, '骨架/脚本已幂等补齐（子工程文档由初始化编排生成）') }, '重跑初始化'),
               h(AddSourceForm, { busy, onSubmit: (spec) => runInit({ sources: [spec] }, `子工程 ${spec.name || spec.url} 已登记`) }))),
-        ),
-
-        // 模型 Tab
-        tab === 'model' && h('div', null,
-          h('div', { style: S.section },
-            h('div', { style: S.secTitle }, 'Worker 模型映射'),
-            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
-              '本机覆盖优先于团队默认：本机角色 > 团队角色 > 本机逻辑名 > 团队逻辑名 > 会话默认。'),
-          ),
-        ),
-
-        // IM 通知 Tab
-        tab === 'im' && h('div', null,
-          h('div', { style: S.section },
-            h('div', { style: S.secTitle }, 'IM 通知（审批桥接）'),
-            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 12, lineHeight: 1.6 } },
-              '配置后，Harness Kit 的审批/澄清问题会推送到 IM，点击按钮即可远程决策。配置只保存在本机，不会提交到团队资产仓库。'),
-          ),
-        ),
-
-        // 高级 Tab
-        tab === 'advanced' && h('div', null,
-          h('div', { style: S.secTitle }, '高级设置'),
         ),
       );
     }

@@ -74,6 +74,8 @@ export function writeImConfig(ws, config) {
   const dir = localDir(ws);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(configPath(ws), JSON.stringify(config, null, 2) + '\n', 'utf8');
+  // 可能含 App Secret：仅本人可读写
+  try { fs.chmodSync(configPath(ws), 0o600); } catch { /* Windows 等平台忽略 */ }
 }
 
 /** 追加审计日志 */

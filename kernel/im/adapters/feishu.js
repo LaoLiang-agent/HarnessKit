@@ -2,7 +2,6 @@
 // 使用 @larksuiteoapi/node-sdk WSClient + EventDispatcher
 // 支持：长连接、卡片发送/更新、按钮回调、文本消息（数字回复）
 
-import lark from '@larksuiteoapi/node-sdk';
 import { registerTransport } from '../transport.js';
 
 class FeishuTransport {
@@ -19,6 +18,8 @@ class FeishuTransport {
   }
 
   async connect() {
+    const { default: lark } = await import('@larksuiteoapi/node-sdk');
+    this.lark = lark;
     if (!this.config.appId || !this.config.appSecret) {
       throw new Error('飞书配置缺少 appId 或 appSecret');
     }

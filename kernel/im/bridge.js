@@ -110,10 +110,8 @@ export class ApprovalBridge {
       return;
     }
 
-    // 白名单校验
-    const channelConfig = this.config.channels[channel];
-    const whitelist = channelConfig?.whitelist ?? [];
-    if (whitelist.length > 0 && !whitelist.includes(operatorId)) {
+    // 白名单校验：显式白名单优先；未配置时只允许私聊目标本人（群聊默认拒绝）
+    if (!this._isAllowed(pending, operatorId)) {
       this.logger.warn?.(`[im] 非白名单用户: ${operatorId}`);
       await this._updateCard(pending, buildResultCard({ title: '无权限', resultText: '只有任务发起人才能处理这条审批。', template: 'red' }));
       appendImAudit(this.ws, { type: 'rejected', approvalId, actor: operatorId, result: 'not-allowed' });
@@ -136,58 +134,80 @@ export class ApprovalBridge {
       return;
     }
 
-    // 记录答案
     const question = pending.questions[qIndex];
     const selectedLabel = question.options?.[optIndex]?.label ?? `选项${optIndex + 1}`;
-    pending.answers[qIndex] = { id: question.id, selected: [selectedLabel] };
-    pending.currentIndex = Math.max(pending.currentIndex, qIndex + 1);
+    await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [selectedLabel] }, operatorId);
+  }
 
-    this.logger.info?.(`[im] 记录答案: q${qIndex + 1} = "${selectedLabel}"`);
+  /** 是否允许该操作者处理此审批 */
+  _isAllowed(pending, actor) {
+    if (!actor) return false;
+    const whitelist = this.config.channels[pending.channel]?.whitelist ?? [];
+    if (whitelist.length > 0) return whitelist.includes(actor);
+    // 未配置白名单：私聊时 targetOpenId 就是用户 open_id，只允许本人；群聊默认拒绝
+    return actor === pending.targetOpenId;
+  }
+
+  /** 记录一题答案并推进（按钮与文本回复共用） */
+  async _recordAndAdvance(pending, qIndex, answerItem, actor) {
+    pending.answers[qIndex] = answerItem;
+    pending.currentIndex = Math.max(pending.currentIndex, qIndex + 1);
+    const display = answerItem.custom || (answerItem.selected ?? []).join(', ') || '（空）';
+    this.logger.info?.(`[im] 记录答案: q${qIndex + 1} = "${display}"`);
 
     // 5 秒内更新卡片
-    await this._updateCard(pending, buildResultCard({ title: '已收到', resultText: `已记录：**${selectedLabel}**\n\n处理中…` }));
+    await this._updateCard(pending, buildResultCard({ title: '已收到', resultText: `已记录：**${display}**\n\n处理中…` }));
 
-    // 全部答完？
     if (pending.isComplete) {
-      this.logger.info?.(`[im] 审批完成: ${approvalId}`);
-      this.pendingApprovals.delete(approvalId);
+      this.logger.info?.(`[im] 审批完成: ${pending.approvalId}`);
+      this.pendingApprovals.delete(pending.approvalId);
       await this._sendCard(pending.targetOpenId, buildResultCard({
         title: '审批完成',
         resultText: `全部 ${pending.questions.length} 个问题已回答。`,
         template: 'green',
       }), pending.channel);
-      appendImAudit(this.ws, { type: 'completed', approvalId, actor: operatorId, result: 'completed' });
-      // 通知 DSH 继续
+      appendImAudit(this.ws, { type: 'completed', approvalId: pending.approvalId, actor, result: 'completed' });
       await this._resolveToDSH(pending);
     } else {
-      // 发送下一题
       const nextUnanswered = pending.questions.findIndex((_, i) => pending.answers[i] === undefined);
       pending.messageId = await this._sendQuestionCard(pending, nextUnanswered);
       this.logger.info?.(`[im] 已发送问题 ${nextUnanswered + 1}/${pending.questions.length}`);
     }
   }
 
-  /** 处理文本消息（数字回复） */
+  /** 处理文本消息：数字选选项、选项文字匹配，或作为澄清问题的自定义答案 */
   async _handleMessage({ text, senderOpenId }, channel) {
-    if (!text) return;
-    const num = parseInt(text.trim(), 10);
-    if (isNaN(num)) return;
+    if (!text || !senderOpenId) return;
+    const candidates = [...this.pendingApprovals.values()]
+      .filter((p) => p.answers.some((a) => a === undefined))
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    const pending = candidates[0];
+    if (!pending || !this._isAllowed(pending, senderOpenId) || pending.isExpired) return;
 
-    // 找到第一个有未回答问题的审批
-    for (const pending of this.pendingApprovals.values()) {
-      const qIndex = pending.questions.findIndex((_, i) => pending.answers[i] === undefined);
-      if (qIndex === -1) continue;
-      const options = pending.questions[qIndex].options ?? [];
+    const qIndex = pending.questions.findIndex((_, i) => pending.answers[i] === undefined);
+    if (qIndex === -1) return;
+    const question = pending.questions[qIndex];
+    const options = question.options ?? [];
+    const trimmed = String(text).trim();
+
+    // 1) 数字 → 对应选项
+    if (/^\d+$/.test(trimmed)) {
+      const num = Number(trimmed);
       if (num >= 1 && num <= options.length) {
-        // 模拟按钮点击
-        await this._handleCardAction({
-          action: { value: { action: `${pending.approvalId}:${qIndex}:${num - 1}` } },
-          operator: { open_id: senderOpenId },
-          open_message_id: pending.messageId,
-        }, channel);
+        await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [options[num - 1].label] }, senderOpenId);
         return;
       }
     }
+    // 2) 选项文字精确/包含匹配
+    if (options.length > 0) {
+      const matched = options.find((o) => o.label === trimmed) ?? options.find((o) => trimmed && o.label.includes(trimmed));
+      if (matched) {
+        await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [matched.label] }, senderOpenId);
+        return;
+      }
+    }
+    // 3) 自由文本 → 澄清类问题的自定义答案
+    await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [], custom: trimmed }, senderOpenId);
   }
 
   /** 把答案提交回 DSH */

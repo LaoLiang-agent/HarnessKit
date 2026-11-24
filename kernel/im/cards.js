@@ -23,14 +23,18 @@ export function buildApprovalCard({ approvalId, title, detail, options, currentI
 
   elements.push({ tag: 'hr' });
 
-  // 按钮：旧版用 action 元素
-  const actions = options.map((opt, i) => ({
-    tag: 'button',
-    text: plainText(opt.label),
-    type: i === 0 ? 'primary' : 'danger',
-    value: { action: `${approvalId}:${currentIndex}:${i}` },
-  }));
-  elements.push({ tag: 'action', actions });
+  // 无选项（澄清类）：提示直接回复文字；有选项则生成按钮
+  if (options.length === 0) {
+    elements.push({ tag: 'div', text: markdown('请直接回复文字作答。') });
+  } else {
+    const actions = options.map((opt, i) => ({
+      tag: 'button',
+      text: plainText(opt.label),
+      type: i === 0 ? 'primary' : 'danger',
+      value: { action: `${approvalId}:${currentIndex}:${i}` },
+    }));
+    elements.push({ tag: 'action', actions });
+  }
 
   if (expiresAt) {
     const mins = Math.round((expiresAt - Date.now()) / 60000);
