@@ -179,6 +179,9 @@ section('hk-fix 直通');
   const res = await run('hk-fix', 'login-bug 登录偶发 401', ws, steered);
   ok('bugfix.md 脚手架生成', res.kind === 'success' && fs.existsSync(path.join(ws, '.harness/deliverables/login-bug/bugfix.md')));
   ok('steer fix 剧本（含 PM 角色/质量门）', steered.length === 1 && steered[0].includes('PM 角色') && steered[0].includes('质量门'));
+  const fixClaim = fs.readFileSync(path.join(ws, '.harness/tasks/claims.json'), 'utf8').trim().split('\n')
+    .map((x) => JSON.parse(x)).find((x) => x.task === 'login-bug');
+  ok('fix 立项即写入任务所属', fixClaim && typeof fixClaim.by === 'string' && fixClaim.by.length > 0);
   const again = await run('hk-fix', 'login-bug 重复', ws, []);
   ok('任务目录已存在 → 拒绝重复', again.kind === 'error');
 }
@@ -200,6 +203,23 @@ section('hk-archive 归档与预检');
     fs.existsSync(path.join(ws, '.harness/deliverables/_archive/t1/bugfix.md')) &&
     fs.readFileSync(path.join(ws, '.harness/deliverables/_archive/t1/rounds.md'), 'utf8').includes('| R0 |') &&
     !fs.existsSync(path.join(ws, '.harness/deliverables/t1')));
+  // 归档命令自己的会话是最后采集点：即使任务创建/归档前没有绑定，也要写真实 token，而不是 0 stub。
+  await run('hk-fix', 't-metrics 统计采集', ws);
+  fs.appendFileSync(path.join(ws, '.harness/deliverables/t-metrics/bugfix.md'), '\n\n裁决：轻量\n');
+  const metricEvents = [
+    { type: 'request/header', time: 1000, data: { header: { config: { provider: 'deepseek', model: 'flash', reasoningEffort: 'high' } } } },
+    { type: 'turn/start', time: 1000, data: { turn: 1 } },
+    { type: 'assistant/message', time: 2000, data: { message: { source: { provider: 'deepseek', model: 'flash' } }, usage: { inputTokens: 7, outputTokens: 3 } } },
+    { type: 'turn/end', time: 3000, data: { turn: 1 } },
+  ];
+  const archivedBySession = await handlers.get('hk-archive')({
+    agent: { session: { id: 's-archive', header: { id: 's-archive', cwd: ws }, events: metricEvents }, steer: () => {} },
+    rawInput: 't-metrics',
+    ctx: { get: () => undefined },
+  });
+  const metricFile = path.join(ws, '.harness/deliverables/_archive/t-metrics/metrics/R0.json');
+  const metricData = fs.existsSync(metricFile) ? JSON.parse(fs.readFileSync(metricFile, 'utf8')) : null;
+  ok('归档前绑定当前会话并采集真实 token', archivedBySession.kind === 'success' && metricData?.totals?.totalTokens === 10 && metricData?.agents?.[0]?.label === 'PM');
 }
 
 // ---------------------------------------------------------------- guards
@@ -319,6 +339,9 @@ section('hk-new Bootstrap 脚手架');
   const proposal = fs.readFileSync(path.join(taskDir, 'proposal.md'), 'utf8');
   ok('提案含任务名/描述/状态 draft', proposal.includes('device-onboard') && proposal.includes('新增设备接入') && /\*\*状态\*\*：draft/.test(proposal));
   ok('提案链接参考材料索引并统计图片', proposal.includes('inputs/INDEX.md') && proposal.includes('4 个文件') && proposal.includes('图片 1'));
+  const newClaim = fs.readFileSync(path.join(ws, '.harness/tasks/claims.json'), 'utf8').trim().split('\n')
+    .map((x) => JSON.parse(x)).find((x) => x.task === 'device-onboard');
+  ok('立项即写入任务所属（不必等 propose）', newClaim && typeof newClaim.by === 'string' && newClaim.by.length > 0);
   const index = fs.readFileSync(path.join(taskDir, 'inputs/INDEX.md'), 'utf8');
   ok('索引列出文件/图片并提示 read_image', index.includes('proto/home.png') && index.includes('space name.md') && index.includes('图片 1') && index.includes('read_image'));
   ok('立项即生成 handoff（含任务名/读取清单）', (() => { const t = fs.readFileSync(path.join(taskDir, 'handoff.md'), 'utf8'); return t.includes('Handoff — device-onboard') && t.includes('读取清单'); })());
@@ -2074,6 +2097,24 @@ section('任务运行统计：会话树、token、覆盖率、归档快照');
   ok('历史任务可读最新归档统计', readLatestTaskMetrics(ws, 'metric-task')?.round === 'R0' && readLatestTaskMetrics(ws, 'missing') === null);
   const empty = await collectTaskMetrics(ws, { sources: [] }, 'none', {});
   ok('无会话绑定 → unavailable', empty.coverage === 'unavailable' && empty.agents.length === 0);
+  // currentSession 可能是轻量快照（header + events），不是带 snapshotEvents() 的 Session；
+  // 归档时若还没有绑定，也必须能采到 usage，而不是写全 0 stub。
+  const currentEvents = [
+    { type: 'request/header', time: 1000, data: { header: { config: { provider: 'deepseek', model: 'flash', reasoningEffort: 'high' } } } },
+    { type: 'turn/start', time: 1000, data: { turn: 1 } },
+    { type: 'assistant/message', time: 2000, data: { message: { source: { provider: 'deepseek', model: 'flash' } }, usage: { inputTokens: 7, outputTokens: 3 } } },
+    { type: 'turn/end', time: 3000, data: { turn: 1 } },
+  ];
+  const live = await collectTaskMetrics(ws, { sources: [] }, 'live-task', {
+    currentSession: { id: 's-live', header: { id: 's-live' }, events: currentEvents },
+  });
+  ok('currentSession 轻量快照可采到 token', live.coverage === 'partial' && live.agents[0]?.label === 'PM' && live.totals.totalTokens === 10);
+  recordTaskSession(ws, 'ghost-task', 's-ghost');
+  const fallback = await collectTaskMetrics(ws, { sources: [] }, 'ghost-task', {
+    sessionQuery: { readSession: async () => { throw new Error('missing'); } },
+    currentSession: { id: 's-live', header: { id: 's-live' }, events: currentEvents },
+  });
+  ok('绑定会话不可读 → 回退当前会话', fallback.coverage === 'partial' && fallback.totals.totalTokens === 10 && fallback.notes.some((x) => x.includes('回退当前会话')));
 }
 // ------------------------------------------------------------- M4b 面板 v2
 section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
@@ -2100,6 +2141,25 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     claimTask(ws, 't-claim', 'tester2');
     const claims = parseClaims(fs.readFileSync(path.join(ws, '.harness/tasks/claims.json'), 'utf8'));
     ok('claimTask 追加式 + 末条生效', claims['t-claim']?.by === 'tester2');
+    ok('同一人重复认领不重复追加', claimTask(ws, 't-claim', 'tester2') === false);
+  }
+  // 人工改名后旧 claim 不丢：新任务从旧行的「已重命名为 …」提示继承 owner
+  {
+    const ws = mkws();
+    cleanups.push(ws);
+    fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [] }));
+    fake(ws, '.harness/tasks/board.md', [
+      '# 任务看板', '',
+      '| 任务名 | 状态 | Profile | Apply进度 | 分支 | 上次活动 | 续接提示 |',
+      '|--------|------|---------|-----------|------|---------|----------|',
+      '| old-name | DONE | standard | 已归档 | — | 2026-11-24 14:46 | 已重命名为 new-name（2026-11-24），非归档 |',
+      '| new-name | IN_PROGRESS | standard | — | — | 2026-11-24 17:02 | — |',
+      '',
+    ].join('\n'));
+    fake(ws, '.harness/tasks/claims.json', '{"task":"old-name","by":"anna","ts":"2026-11-24T04:21:22.393Z"}\n');
+    const { workspaceState } = await import(path.join(bundleRoot, 'kernel/panel.js'));
+    const st = workspaceState(ws);
+    ok('改名任务继承旧 claim 的 owner', st.tasks.find((x) => x.task === 'new-name')?.claimer === 'anna');
   }
   // 注意力项
   {

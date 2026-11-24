@@ -22,8 +22,8 @@ function addUsage(target, usage) {
   return found;
 }
 
-function sessionLabel(id, primaryId, catalog) {
-  if (id === primaryId) return 'PM';
+function sessionLabel(id, primaryId, catalog, currentId = null) {
+  if (id === primaryId || id === '__current__' || (!primaryId && id === currentId)) return 'PM';
   return catalog.get(id) || '子会话';
 }
 
@@ -34,13 +34,33 @@ function flattenTree(nodes, out) {
   }
 }
 
+function sessionIdOf(session) {
+  if (!session) return null;
+  if (typeof session.id === 'string' && session.id) return session.id;
+  if (typeof session.header?.id === 'string' && session.header.id) return session.header.id;
+  return null;
+}
+
 function snapshotFromLive(session) {
   if (!session) return null;
   try {
+    // agent.session is not always a live Session instance: command handlers may
+    // receive a lightweight snapshot with `events` / `snapshot.events`. Accept
+    // all shapes so an archive is not recorded as a zero-usage stub.
     const events = typeof session.snapshotEvents === 'function'
       ? session.snapshotEvents()
-      : (typeof session.ownEvents === 'function' ? session.ownEvents() : []);
-    return { header: session.header ?? {}, events, inherited: Number(session.inheritedEventCount ?? 0) };
+      : typeof session.ownEvents === 'function'
+        ? session.ownEvents()
+        : Array.isArray(session.events)
+          ? session.events
+          : Array.isArray(session.snapshot?.events)
+            ? session.snapshot.events
+            : [];
+    return {
+      header: session.header ?? session.snapshot?.session ?? session.snapshot?.header ?? {},
+      events,
+      inherited: Number(session.inheritedEventCount ?? session.snapshot?.inheritedEventCount ?? 0),
+    };
   } catch { return null; }
 }
 
@@ -61,6 +81,7 @@ export async function collectTaskMetrics(ws, kit, task, services = {}) {
 
   const ids = new Set(boundIds);
   const { sessionQuery, tokenMeter, sessions, currentSession } = services;
+  const currentId = sessionIdOf(currentSession);
   const canTrace = !!sessionQuery && typeof sessionQuery.traceSession === 'function';
   const canRead = !!sessionQuery && typeof sessionQuery.readSession === 'function';
 
@@ -80,7 +101,8 @@ export async function collectTaskMetrics(ws, kit, task, services = {}) {
   let currentSnapshot = null;
   if (ids.size === 0 && currentSession) {
     currentSnapshot = snapshotFromLive(currentSession);
-    if (currentSnapshot) ids.add('__current__');
+    if (currentSnapshot) ids.add(currentId ?? '__current__');
+    notes.push('任务没有会话绑定，仅采集当前会话');
   }
 
   // currentSession 不在绑定表时的兜底：只统计当前会话，标记 partial。
@@ -107,8 +129,20 @@ export async function collectTaskMetrics(ws, kit, task, services = {}) {
       const live = sessions.get(id);
       if (live) { liveSessions.set(id, live); snap = snapshotFromLive(live); }
     }
-    if (!snap && currentSession && primaryId && id === primaryId) snap = snapshotFromLive(currentSession);
+    if (!snap && currentSession && id === currentId) snap = currentSnapshot ?? snapshotFromLive(currentSession);
     if (snap) snapshots.set(id, snap);
+  }
+  // A binding may point at a session that has been pruned or that lives on
+  // another machine. If nothing was readable, the current session is still a
+  // valid capture point (this is exactly what an archive command has).
+  if (snapshots.size === 0 && currentSession) {
+    const id = currentId ?? '__current__';
+    const snap = currentSnapshot ?? snapshotFromLive(currentSession);
+    if (snap) {
+      snapshots.set(id, snap);
+      if (!ids.has(id)) { ids.add(id); idList.push(id); }
+      notes.push('绑定会话不可读，已回退当前会话');
+    }
   }
 
   // 子代理标签：subagent/catalog 事件（data.childId + label/name，兼容 children 数组）
@@ -180,7 +214,7 @@ export async function collectTaskMetrics(ws, kit, task, services = {}) {
       }
     }
     if (turns === 0 && steps > 0) turns = steps;
-    if (!hasUsage) notes.push(`${sessionLabel(id, primaryId, catalog)} 未返回 usage`);
+    if (!hasUsage) notes.push(`${sessionLabel(id, primaryId, catalog, currentId)} 未返回 usage`);
 
     const live = liveSessions.get(id);
     if (tokenMeter && typeof tokenMeter.contextPressure === 'function') {
@@ -197,7 +231,7 @@ export async function collectTaskMetrics(ws, kit, task, services = {}) {
     }
 
     agents.push({
-      label: sessionLabel(id, primaryId, catalog),
+      label: sessionLabel(id, primaryId, catalog, currentId),
       provider: provider || null,
       model: model || null,
       reasoningEffort: effort || null,

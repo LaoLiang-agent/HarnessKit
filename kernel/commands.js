@@ -36,6 +36,17 @@ function bindCurrentSession(ws, task, agent) {
   try { recordTaskSession(ws, task, sid); } catch { /* 绑定失败不阻断命令 */ }
 }
 
+/** Record the local operator as task owner. Called at creation, not only at
+ *  propose, so fix-only tasks and cards awaiting propose still show an owner. */
+async function claimCurrentUser(ws, task) {
+  try {
+    const who = (await runGit(['config', 'user.name'], { cwd: harnessDir(ws) })).stdout.trim()
+      || os.userInfo()?.username || 'unknown';
+    claimTask(ws, task, who);
+    return who;
+  } catch { return null; }
+}
+
 /** 归档台账对账失败不阻断命令；下一次命令/doctor 会再试。 */
 async function reconcileArchivedQuiet(ws, kit) {
   try { return await reconcileArchivedWorktrees(ws, kit); } catch { return null; }
@@ -396,6 +407,7 @@ async function hkFix({ agent, rawInput }) {
   updateBoard(ws, task, 'PENDING', { profile: fixProfile, apply: initChain });
   clearAdvanceMarks(ws, task);
   bindCurrentSession(ws, task, agent);
+  await claimCurrentUser(ws, task);
   const wtSummary = wt.assigned.length > 0 ? `\n- 工作区分配：${wt.assigned.map((w) => `${w.source} → ${w.placement === 'main' ? '主工作树' : w.placement}${w.branch ? `（\`${w.branch}\` ← \`${w.base}\`）` : ''}`).join('；')}` : '';
   return ok(`fix 任务 **${task}** 已启动：\n- 活目录 \`.harness/deliverables/${task}/bugfix.md\` 已生成${autoNamed ? '\n- 任务名由描述自动生成；如需更名请现在告诉我' : ''}\n- 看板已登记（PENDING，profile=${fixProfile}）\n- 执行剧本已提交给 PM（本会话），从「分支准备」阶段开始${wtSummary}${preVerdict ? `\n- 质量门已预声明：${preVerdict}` : '\n- 质量门将由 PM 评估后交你裁决（裁决后 PM 须把看板 profile 改写为 fix-full / fix-light）'}`);
 }
@@ -491,6 +503,7 @@ async function hkNew({ agent, rawInput }) {
   }
   updateBoard(ws, task, 'PENDING');
   bindCurrentSession(ws, task, agent);
+  await claimCurrentUser(ws, task);
 
   const pm = resolveRole(ws, kit, 'project-manager');
   const loaded = loadFlow(ws, kit, 'new');
@@ -572,12 +585,8 @@ async function hkPropose({ agent, rawInput }) {
   bindCurrentSession(ws, task, agent);
   // M4b 自动认领：追加式 claims.json（sync 白名单，随 /hk-sync 全队可见）
   let claimHint = '';
-  try {
-    const who = (await runGit(['config', 'user.name'], { cwd: harnessDir(ws) })).stdout.trim()
-      || os.userInfo()?.username || 'unknown';
-    claimTask(ws, task, who);
-    claimHint = `\n- 已自动认领给 **${who}**（claims.json，随 /hk-sync 共享）`;
-  } catch { /* 认领失败不阻塞流程 */ }
+  const who = await claimCurrentUser(ws, task);
+  if (who) claimHint = `\n- 已自动认领给 **${who}**（claims.json，随 /hk-sync 共享）`;
   steer(agent, prompt);
   return ok(`propose 阶段已启动（任务 **${task}**，profile=${profile}）：\n- 执行剧本已提交 PM：${flowWorkers(loaded.flow, 'propose').map((w) => w.role).join(' → ') || 'PM 自行执行'} → ⛔审批 1\n- 审批 1 通过后 PM 会把「审批 1：通过」写入 proposal.md（红线解锁），随后自动续接引擎会接力执行 \`/hk-apply ${task}\`（无需人再手动运行）${claimHint}`);
 }
@@ -794,6 +803,10 @@ async function hkArchive({ agent, rawInput, ctx }) {
     }
   }
 
+  // Bind before collecting metrics: the archive command's own session is the
+  // last reliable capture point, and metrics must not depend on a previous
+  // create/propose having run in the same session.
+  bindCurrentSession(ws, task, agent);
   const archiveDir = path.join(harnessDir(ws), 'deliverables', '_archive', task);
   fs.mkdirSync(archiveDir, { recursive: true });
   const date = new Date().toISOString().slice(0, 10);

@@ -197,11 +197,17 @@ export function parseClaims(text) {
   return claims;
 }
 
-/** 追加一条认领记录（由 /hk-propose 自动调用；文件纳入 sync 纯追加白名单）。 */
+/** 追加一条认领记录（任务创建/propose 自动调用；文件纳入 sync 纯追加白名单）。
+ *  同一任务连续认领给同一个人时不重复追加。 */
 export function claimTask(ws, task, by) {
   const file = path.join(harnessDir(ws), 'tasks', 'claims.json');
+  try {
+    const claims = parseClaims(fs.readFileSync(file, 'utf8'));
+    if (claims[task]?.by === by) return false;
+  } catch { /* 文件不存在/坏行：正常追加 */ }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, `${JSON.stringify({ task, by, ts: new Date().toISOString() })}\n`, 'utf8');
+  return true;
 }
 
 // ---------------------------------------------------------- 任务 ↔ 会话绑定
@@ -420,6 +426,16 @@ export function workspaceState(ws, { sync = null } = {}) {
   const taskSessions = readTaskSessions(ws);
   const ledger = readWorkspaces(ws);
   const ledgerTe = readTestEnv(ws);
+  // Rename is a human action on board.md. If the old row says it was renamed
+  // to this task, carry the old claim over so the new card keeps its owner.
+  const claimFor = (task) => {
+    if (claims[task]) return claims[task];
+    const escaped = task.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const alias = board.rows.find((r) => r.task !== task
+      && claims[r.task]
+      && new RegExp(`(?:重命名|改名|更名为)为?[\\s:：]*${escaped}(?![\\w-])`).test(r.hint ?? ''));
+    return alias ? claims[alias.task] : null;
+  };
   const tasks = board.rows.map((row) => {
     const progress = taskProgress(ws, kit, row.task, row.profile, row.status, row.apply);
     return {
@@ -427,7 +443,7 @@ export function workspaceState(ws, { sync = null } = {}) {
       progress,
       action: nextAction(row, progress),
       lane: laneOf(row, progress),
-      claimer: claims[row.task]?.by ?? null,
+      claimer: claimFor(row.task)?.by ?? null,
       sessionId: taskSessions[row.task]?.sessionId ?? null,
       // M2 工作区分配（本机台账）：{ <repo>: { placement: 'main'|'slot-N', branch, base } } | null
       workspace: ledger.tasks[row.task]?.repos ?? null,
@@ -943,9 +959,10 @@ export function registerPanelApi(ctx) {
       if (hit && Date.now() - hit.at < 10_000) return sendJson(res, 200, { ok: true, metrics: hit.metrics });
       try {
         // 已归档任务优先用归档快照：同一 PM 会话可能连续做了多个任务，实时聚合会串任务。
+        const archivedTask = !fs.existsSync(path.join(harnessDir(ws.path), 'deliverables', task));
         const archived = readLatestTaskMetrics(ws.path, task);
         let metrics;
-        if (!fs.existsSync(path.join(harnessDir(ws.path), 'deliverables', task)) && archived) {
+        if (archivedTask && archived) {
           metrics = { ...archived, source: 'archive' };
         } else {
           metrics = await collectTaskMetrics(ws.path, kit, task, {
@@ -954,6 +971,12 @@ export function registerPanelApi(ctx) {
             sessions: ctx.get('sessions'),
           });
           if (metrics.coverage === 'unavailable' && archived) metrics = { ...archived, source: 'archive' };
+          if (archivedTask && (metrics.coverage === 'unavailable' || (metrics.totals?.totalTokens ?? 0) === 0)) {
+            metrics = {
+              ...metrics,
+              notes: [...new Set([...(metrics.notes ?? []), '该任务归档时未采集到会话 usage；会话日志保存在归档人的机器上，本机无法补算'])].slice(0, 12),
+            };
+          }
         }
         const payload = { ...metrics, task };
         insightCache.set(key, { at: Date.now(), metrics: payload });
