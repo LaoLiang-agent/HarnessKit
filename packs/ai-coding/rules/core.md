@@ -46,6 +46,7 @@ Bootstrap 阶段                              PM 调度阶段
 - 任何 FAIL 出现后禁止盲目试改；按顺序：读错误 → 稳定复现 → 对照 diff → 定位边界 → 单一假设 → 最小改动验证。同一问题连续 3 次修复未通过 → 停止堆补丁，升级为阻塞项交由人决策。
 - **审批材料必须可见可点**：审批 1 / 审批 2 / 质量门前，先发一条普通可见消息（不是 reasoning），用 Markdown 链接列出本轮产物（工作区相对路径）；ask_user_question 的 question 也要带材料链接。`present` 卡片在本轮结束后才出现，不能替代等待回答前的链接；reasoning 不算展示。
 - **审批/澄清选项文案**：使用中文；推荐项用「（推荐）」标注，不要用英文 `(Recommended)`。需要用户补充细节的选项（如「其他」「还有额外范围」）在 label 或 description 里带「（需补充说明）」，IM 会先让用户回复文字再提交。
+- **审批摘要字段**：给 IM 卡片看的 3~5 行摘要写到 `ask_user_question` 的 `imDetail` 字段，不要写 `detail`——`detail` 会进入 DSH 弹窗改变原有格式；`imDetail` 由 IM 桥接消费，DSH 弹窗保持 header/question/options 原格式。
 - **PM 心跳纪律**：PM 在每个关键锚点（Profile 识别 / 文档就位 / Worker 开工 / 脚本事件 / Worker 收工 / 异常回退）必须立刻输出一行心跳，禁止连续静默跨越多个阶段。
 
 ## 5. 质量门人裁决纪律（Fix 直通）

@@ -23,7 +23,7 @@ stages:
       - 结论 BLOCK → 把意见带回需求分析/方案设计阶段重做，重新送审
   - name: 审批 1
     phase: propose
-    approval: 先在会话里发送一条可见消息（普通 assistant 文本，不是 reasoning，也不要只写在 ask_user_question 参数里）：标题「审批 1 · <任务名>」，用 Markdown 链接列出 [requirements.md](.harness/deliverables/<任务名>/requirements.md)、[design.md](.harness/deliverables/<任务名>/design.md)、[readiness-report.md](.harness/deliverables/<任务名>/readiness-report.md)、[proposal.md](.harness/deliverables/<任务名>/proposal.md)，每项配 1 行要点，并列出 RR 提出的待确认项；然后调用 ask_user_question，question 以「HK:审批 1 · <任务名>」开头，detail 写 3~5 行摘要（范围、RR 结论、风险、待确认项），options 固定为 [{label:'✅ 通过，进入开发'},{label:'❌ 打回'}]。人通过后把「审批 1：通过（YYYY-MM-DD）」写入 proposal.md 末尾——写入后源码区红线自动解锁，才能进 apply 阶段
+    approval: 先在会话里发送一条可见消息（普通 assistant 文本，不是 reasoning，也不要只写在 ask_user_question 参数里）：标题「审批 1 · <任务名>」，用 Markdown 链接列出 [requirements.md](.harness/deliverables/<任务名>/requirements.md)、[design.md](.harness/deliverables/<任务名>/design.md)、[readiness-report.md](.harness/deliverables/<任务名>/readiness-report.md)、[proposal.md](.harness/deliverables/<任务名>/proposal.md)，每项配 1 行要点，并列出 RR 提出的待确认项；然后调用 ask_user_question，question 以「HK:审批 1 · <任务名>」开头，imDetail 写 3~5 行摘要（范围、RR 结论、风险、待确认项），options 固定为 [{label:'✅ 通过，进入开发'},{label:'❌ 打回'}]。人通过后把「审批 1：通过（YYYY-MM-DD）」写入 proposal.md 末尾——写入后源码区红线自动解锁，才能进 apply 阶段
   - name: 开发
     phase: apply
     worker: developer
@@ -44,6 +44,6 @@ stages:
       - 实现级 bug → 回退开发；需求级问题 → 停下建议回 propose；环境阻塞 → 暂停升级给人
   - name: 审批 2
     phase: apply
-    approval: 先发可见消息（普通 assistant 文本，不是 reasoning）：标题「审批 2 · <任务名>」，用 Markdown 链接列出 [code-review.md](.harness/deliverables/<任务名>/code-review.md)、[test-report.md](.harness/deliverables/<任务名>/test-report.md)、[dev-log.md](.harness/deliverables/<任务名>/dev-log.md)、[proposal.md](.harness/deliverables/<任务名>/proposal.md)，写测试结论、交付摘要与遗留风险；再调用 ask_user_question，question 以「HK:审批 2 · <任务名>」开头，detail 写 3~5 行摘要（测试结论、改动模块、遗留风险、回滚方式），options 固定为 [{label:'✅ 通过，归档'},{label:'❌ 打回'}]。通过后把看板置 AWAITING_ARCHIVE 并记录「审批 2：通过」（链上审批2✅）——自动续接引擎会接力 /hk-archive <任务名>，无需人手动敲；若工作区关闭自动续接（kit.autoAdvance=false），则提醒人运行
+    approval: 先发可见消息（普通 assistant 文本，不是 reasoning）：标题「审批 2 · <任务名>」，用 Markdown 链接列出 [code-review.md](.harness/deliverables/<任务名>/code-review.md)、[test-report.md](.harness/deliverables/<任务名>/test-report.md)、[dev-log.md](.harness/deliverables/<任务名>/dev-log.md)、[proposal.md](.harness/deliverables/<任务名>/proposal.md)，写测试结论、交付摘要与遗留风险；再调用 ask_user_question，question 以「HK:审批 2 · <任务名>」开头，imDetail 写 3~5 行摘要（测试结论、改动模块、遗留风险、回滚方式），options 固定为 [{label:'✅ 通过，归档'},{label:'❌ 打回'}]。通过后把看板置 AWAITING_ARCHIVE 并记录「审批 2：通过」（链上审批2✅）——自动续接引擎会接力 /hk-archive <任务名>，无需人手动敲；若工作区关闭自动续接（kit.autoAdvance=false），则提醒人运行
 after:
   - 回退规则：CR 不通过 → Dev 修复重审；TE 实现级 → Dev；TE 需求级 → propose；环境阻塞 → 升级给人

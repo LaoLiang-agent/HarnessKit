@@ -52,6 +52,16 @@ export function installImBridge(ctx) {
       return next();
     }
 
+    // Feishu 专用 detail 不进入 DSH 弹窗：DSH 保持原来的 header+question+options 格式。
+    // 在调用 next() 之前摘掉 detail，飞书卡片仍用摘下来的副本。
+    const imDetails = new Map();
+    for (const q of hkQuestions) {
+      const imDetail = q.imDetail ?? q.detail;
+      if (imDetail !== undefined) imDetails.set(q.id ?? q.question, imDetail);
+      delete q.detail;
+      delete q.imDetail;
+    }
+
     const ws = getWs(agent);
     if (!ws) {
       logger?.warn?.('[im-bridge] 无法获取工作区路径，跳过 IM 通知');
@@ -95,7 +105,7 @@ export function installImBridge(ctx) {
         questions: hkQuestions.map((q) => ({
           id: q.id,
           question: q.question,
-          detail: q.detail,
+          detail: imDetails.get(q.id ?? q.question) ?? q.question,
           options: q.options ?? [],
         })),
         targetOpenId,

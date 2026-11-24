@@ -358,7 +358,7 @@ export class ApprovalBridge {
           approvalId: pending.approvalId,
           qIndex,
           label: null,
-          detail: q.detail ?? q.question,
+          detail: q.imDetail ?? q.detail ?? q.question,
           expiresAt: pending.expiresAt,
           title: '请回答',
         });
@@ -372,7 +372,7 @@ export class ApprovalBridge {
     const card = buildApprovalCard({
       approvalId: pending.approvalId,
       title: pending.task ? `Harness Kit · ${pending.task}` : 'Harness Kit · 审批',
-      detail: q.detail ?? q.question,
+      detail: q.imDetail ?? q.detail ?? q.question,
       options,
       currentIndex: qIndex,
       totalQuestions: pending.questions.length,

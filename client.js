@@ -1268,6 +1268,7 @@ window.__ModuleLoader__.load({
       // IM 通知配置（本机 .harness/local/im-config.json，不提交）
       const [imConfig, setImConfig] = useState(null);
       const [imAudit, setImAudit] = useState([]);
+      const [showAudit, setShowAudit] = useState(false);
       const [imBusy, setImBusy] = useState(false);
       const [feishuGuideOpen, setFeishuGuideOpen] = useState(false);
       const [feishuTested, setFeishuTested] = useState(false);
@@ -1669,8 +1670,13 @@ window.__ModuleLoader__.load({
                   h('span', { style: { fontSize: 11, color: V.sub } }, '（规划中）')),
                 h('div', { style: { fontSize: 12, color: V.sub } },
                   '需要钉钉企业内部应用，使用 Stream 模式。后续版本支持。')),
-              // 审计日志
-              h('div', { style: { padding: 12, border: `1px solid ${V.border}`, borderRadius: 8 } },
+              // 审计日志：仅诊断用，默认折叠
+              h('div', { style: { marginBottom: 8 } },
+                h('button', {
+                  style: { ...S.btn(false), fontSize: 12 },
+                  onClick: () => { setShowAudit((v) => !v); if (!showAudit) loadImAudit(); },
+                }, showAudit ? '收起审批记录 ▲' : '查看审批记录（诊断用）▼')),
+              showAudit && h('div', { style: { padding: 12, border: `1px solid ${V.border}`, borderRadius: 8 } },
                 h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 } },
                   h('span', { style: { fontSize: 13, fontWeight: 600 } }, '审批记录'),
                   h('button', { style: S.btn(false), onClick: loadImAudit }, '刷新')),
