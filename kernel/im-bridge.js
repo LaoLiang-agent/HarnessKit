@@ -53,6 +53,14 @@ export function installImBridge(ctx) {
       return next();
     }
 
+    // 给本题一个独立生命周期：IM 先答时 abort 这个 controller，
+    // 让 DSH Web 的问题卡收到 ASK_ABORTED 后自动消失（不能 abort 整个 turn）。
+    const turnSignal = request.signal;
+    const questionAbort = new AbortController();
+    const forwardTurnAbort = () => questionAbort.abort(turnSignal?.reason);
+    turnSignal?.addEventListener('abort', forwardTurnAbort, { once: true });
+    request.signal = questionAbort.signal;
+
     // Feishu 专用 detail 不进入 DSH 弹窗：DSH 保持原来的 header+question+options 格式。
     // 在调用 next() 之前摘掉 detail，飞书卡片仍用摘下来的副本。
     const imDetails = new Map();
@@ -146,9 +154,17 @@ export function installImBridge(ctx) {
         imAnswer.then((r) => ({ source: 'im', result: r })),
       ]);
 
+      turnSignal?.removeEventListener('abort', forwardTurnAbort);
       if (result.source === 'web') {
         // Web 先回答，取消 IM 审批
         await bridge.cancelApproval(pending.approvalId, '已在 DSH 处理');
+      } else {
+        // IM 先回答：结束本题生命周期，让 DSH Web 的问题卡自行消失
+        const reason = Object.assign(new Error('the question was answered on IM'), {
+          name: 'UserQuestionError',
+          code: 'ASK_ABORTED',
+        });
+        questionAbort.abort(reason);
       }
 
       return result.result;
