@@ -88,6 +88,51 @@ export function buildResultCard({ title, resultText, template = 'grey' }) {
   });
 }
 
+/** 需要补充说明时使用的表单卡片（JSON 2.0，输入框 + 提交按钮）
+ *  用卡片内表单收集文字，避免依赖 im.message.receive_v1 文本事件。 */
+export function buildCustomTextCard({ approvalId, qIndex, label, detail, expiresAt, title }) {
+  const elements = [
+    {
+      tag: 'div',
+      text: markdown(label
+        ? `你选择了「${displayOptionLabel(label)}」。\n\n${detail ? `${detail}\n\n` : ''}请在下方补充说明后提交。`
+        : `${detail ? `${detail}\n\n` : ''}请在下方填写回答后提交。`),
+    },
+    {
+      tag: 'form',
+      name: 'hk_custom_form',
+      elements: [
+        {
+          tag: 'input',
+          name: 'custom_text',
+          required: true,
+          input_type: 'multiline_text',
+          rows: 3,
+          auto_resize: true,
+          placeholder: { tag: 'plain_text', content: label ? '请输入补充说明' : '请输入回答' },
+          label: { tag: 'plain_text', content: label ? '补充说明' : '回答' },
+        },
+        {
+          tag: 'button',
+          text: plainText(label ? '提交补充说明' : '提交回答'),
+          type: 'primary',
+          action_type: 'form_submit',
+          name: 'submit',
+        },
+      ],
+    },
+  ];
+  if (expiresAt) {
+    const mins = Math.round((expiresAt - Date.now()) / 60000);
+    elements.push({ tag: 'div', text: markdown(`⏱ 有效期约 ${mins} 分钟`) });
+  }
+  return JSON.stringify({
+    schema: '2.0',
+    header: { title: plainText(title ?? (label ? '请补充说明' : '请回答')), template: 'orange' },
+    body: { elements },
+  });
+}
+
 /** 解析按钮回调的 action value */
 export function parseActionValue(actionValue) {
   if (!actionValue || typeof actionValue !== 'string') return null;

@@ -35,6 +35,7 @@ class FeishuTransport {
         if (!msg) return;
         const text = msg.content ? JSON.parse(msg.content).text : '';
         const senderOpenId = event?.sender?.sender_id?.open_id;
+        this.logger.info?.(`[im:feishu] 收到文本消息 sender=${senderOpenId ?? '-'} len=${String(text ?? '').length}`);
         for (const handler of this.messageHandlers) {
           try { handler({ text, senderOpenId, raw: event }); } catch { /* ignore */ }
         }

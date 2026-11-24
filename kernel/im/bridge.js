@@ -3,7 +3,7 @@
 
 import { readImConfig, appendImAudit, hasEnabledChannel } from './config.js';
 import { getTransport, listChannels } from './transport.js';
-import { buildApprovalCard, buildResultCard, parseActionValue, displayOptionLabel } from './cards.js';
+import { buildApprovalCard, buildResultCard, buildCustomTextCard, parseActionValue, displayOptionLabel } from './cards.js';
 
 /** 审批记录 */
 class PendingApproval {
@@ -21,6 +21,7 @@ class PendingApproval {
     this.channel = channel;
     this.createdAt = Date.now();
     this.awaitingCustom = null; // 选择了需要补充说明的选项时，等待用户回复文字
+    this.customFormMessageId = null; // 补充说明表单卡片的消息 ID
   }
 
   get answeredCount() {
@@ -93,6 +94,11 @@ export class ApprovalBridge {
   /** 处理卡片按钮点击 */
   async _handleCardAction(event, channel) {
     const action = event?.action;
+    // 卡片内表单提交：action.form_value 携带输入框内容，不依赖文本消息事件
+    if (action?.form_value && typeof action.form_value === 'object') {
+      await this._handleCustomFormSubmit(event, action.form_value, channel);
+      return;
+    }
     const value = action?.value;
     if (!value?.action) return;
 
@@ -149,17 +155,65 @@ export class ApprovalBridge {
     if (this._requiresCustomText(option)) {
       pending.awaitingCustom = { qIndex, label: selectedLabel };
       this.logger.info?.(`[im] 等待补充说明: q${qIndex + 1} = "${selectedLabel}"`);
-      await this._updateCard(pending, buildResultCard({
-        title: '请补充说明',
-        resultText: `你选择了「${displayOptionLabel(selectedLabel)}」。
+      try {
+        const card = buildCustomTextCard({
+          approvalId,
+          qIndex,
+          label: selectedLabel,
+          detail: question.detail ?? question.question,
+          expiresAt: pending.expiresAt,
+        });
+        pending.customFormMessageId = await this._sendCard(pending.targetOpenId, card, pending.channel);
+      } catch (err) {
+        this.logger.warn?.(`[im] 补充说明表单发送失败: ${err?.message ?? err}`);
+        await this._updateCard(pending, buildResultCard({
+          title: '请补充说明',
+          resultText: `你选择了「${displayOptionLabel(selectedLabel)}」。
 
 请直接回复文字补充说明。`,
-        template: 'orange',
-      }));
+          template: 'orange',
+        }));
+      }
       return;
     }
 
     await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [selectedLabel] }, operatorId);
+  }
+
+  /** 处理卡片内表单提交（补充说明） */
+  async _handleCustomFormSubmit(event, formValue, channel) {
+    const operatorId = event?.operator?.open_id ?? event?.operator?.user_id;
+    const msgId = event?.open_message_id ?? event?.message_id;
+    const candidates = [...this.pendingApprovals.values()]
+      .filter((p) => p.awaitingCustom)
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    const pending = candidates.find((p) => p.customFormMessageId && p.customFormMessageId === msgId) ?? candidates[0];
+    if (!pending) {
+      this.logger.warn?.('[im] 收到表单提交但没有等待补充的审批');
+      return;
+    }
+    if (!this._isAllowed(pending, operatorId)) {
+      this.logger.warn?.(`[im] 非本人提交补充说明: ${operatorId}`);
+      return;
+    }
+    if (pending.isExpired) {
+      this.logger.info?.(`[im] 补充说明已过期: ${pending.approvalId}`);
+      this.pendingApprovals.delete(pending.approvalId);
+      return;
+    }
+    const text = String(Object.values(formValue)[0] ?? '').trim();
+    if (!text) {
+      await this._updateCard(pending, buildResultCard({ title: '请补充说明', resultText: '补充说明不能为空，请重新填写。', template: 'orange' }));
+      return;
+    }
+    const { qIndex, label } = pending.awaitingCustom;
+    const question = pending.questions[qIndex];
+    this.logger.info?.(`[im] 收到补充说明: q${qIndex + 1} len=${text.length}`);
+    await this._recordAndAdvance(pending, qIndex, {
+      id: question.id,
+      selected: label ? [label] : [],
+      custom: text,
+    }, operatorId);
   }
 
   /** 该选项是否必须附带文字说明（常见于“其他/额外范围/需要补充”类选项） */
@@ -179,6 +233,7 @@ export class ApprovalBridge {
     pending.answers[qIndex] = answerItem;
     pending.currentIndex = Math.max(pending.currentIndex, qIndex + 1);
     pending.awaitingCustom = null;
+    pending.customFormMessageId = null;
     const display = answerItem.custom || (answerItem.selected ?? []).join(', ') || '（空）';
     this.logger.info?.(`[im] 记录答案: q${qIndex + 1} = "${display}"`);
 
@@ -206,6 +261,7 @@ export class ApprovalBridge {
   async _handleMessage({ text, senderOpenId }, channel) {
     if (!text || !senderOpenId) return;
     const trimmed = String(text).trim();
+    this.logger.info?.(`[im] 收到文本回复 sender=${senderOpenId} len=${trimmed.length} awaiting=${[...this.pendingApprovals.values()].filter((p) => p.awaitingCustom).length}`);
     if (!trimmed) return;
 
     // 优先处理“等待补充说明”的审批：此时文字是补充内容，不是选项
@@ -293,11 +349,31 @@ export class ApprovalBridge {
   /** 发送问题卡片 */
   async _sendQuestionCard(pending, qIndex) {
     const q = pending.questions[qIndex];
+    const options = q.options ?? [];
+    // 无选项的澄清题：用卡片内表单收集文字，不依赖文本消息事件
+    if (options.length === 0) {
+      pending.awaitingCustom = { qIndex, label: null };
+      try {
+        const card = buildCustomTextCard({
+          approvalId: pending.approvalId,
+          qIndex,
+          label: null,
+          detail: q.detail ?? q.question,
+          expiresAt: pending.expiresAt,
+          title: '请回答',
+        });
+        pending.customFormMessageId = await this._sendCard(pending.targetOpenId, card, pending.channel);
+        return pending.customFormMessageId;
+      } catch (err) {
+        pending.awaitingCustom = null;
+        throw err;
+      }
+    }
     const card = buildApprovalCard({
       approvalId: pending.approvalId,
       title: pending.task ? `Harness Kit · ${pending.task}` : 'Harness Kit · 审批',
       detail: q.detail ?? q.question,
-      options: q.options ?? [],
+      options,
       currentIndex: qIndex,
       totalQuestions: pending.questions.length,
       expiresAt: pending.expiresAt,
