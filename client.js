@@ -51,6 +51,32 @@ window.__ModuleLoader__.load({
     V.fieldBg = tint(3);    // 输入框底
     V.modalShadow = '0 10px 36px rgba(0, 0, 0, 0.35)';
 
+    // 新建任务参考材料：工作区多选/整目录 + 本机上传，统一由 /hk-new 拷入任务 inputs/
+    const MATERIAL_MAX_FILES = 50;
+    const MATERIAL_MAX_BYTES = 100 * 1024 * 1024;
+    const MATERIAL_MAX_FILE_BYTES = 50 * 1024 * 1024;
+    const quoteArg = (value) => {
+      const s = String(value ?? '');
+      return /^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+    };
+    const refName = (p) => String(p ?? '').replace(/[/\\]+$/, '').split(/[/\\]/).pop() || String(p ?? '');
+    const refIcon = (ref) => {
+      const name = String(ref?.name ?? ref?.path ?? '');
+      const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')).toLowerCase() : '';
+      if (ref?.kind === 'dir' || name.endsWith('/')) return '📁';
+      if (['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.bmp', '.tif', '.tiff', '.avif'].includes(ext)) return '🖼';
+      return '📄';
+    };
+    const humanSize = (n) => {
+      if (!Number.isFinite(n) || n <= 0) return '';
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    };
+    const newBatchId = () => {
+      try { return crypto.randomUUID(); } catch { return `hk-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`; }
+    };
+
     const S = {
       wrap: { display: 'flex', flexDirection: 'column', height: '100%', fontSize: 13, lineHeight: 1.5, color: V.text, overflow: 'hidden' },
       body: { flex: 1, overflowY: 'auto', padding: '0 16px 24px' },
@@ -89,7 +115,7 @@ window.__ModuleLoader__.load({
       td: { padding: '4px 10px', borderBottom: `1px solid ${V.border}`, verticalAlign: 'top' },
       input: { padding: '4px 10px', borderRadius: 8, border: `1px solid ${V.border2}`, background: V.fieldBg, color: V.text, fontSize: 12, width: '100%', boxSizing: 'border-box' },
       overlayBox: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
-      modal: { background: V.bg, borderRadius: 10, border: `1px solid ${V.border2}`, boxShadow: V.modalShadow, padding: 20, width: 380, maxWidth: '90vw' },
+      modal: { background: V.bg, borderRadius: 10, border: `1px solid ${V.border2}`, boxShadow: V.modalShadow, padding: 20, width: 420, maxWidth: '92vw', maxHeight: '86vh', overflowY: 'auto' },
       field: { marginBottom: 12 },
       label: { fontSize: 12, color: V.sub, marginBottom: 4, display: 'block' },
       toast: (okv) => ({ padding: '8px 12px', borderRadius: 8, fontSize: 12, background: V.bg, border: `1px solid ${okv ? V.ok : V.err}`, boxShadow: V.modalShadow, color: V.text, marginBottom: 6, maxWidth: 420, whiteSpace: 'pre-wrap', cursor: okv ? 'default' : 'pointer' }),
@@ -330,9 +356,12 @@ window.__ModuleLoader__.load({
       const [insight, setInsight] = useState({}); // task -> { loading, data, error }
       const [histOpen, setHistOpen] = useState(false);
       const [histQuery, setHistQuery] = useState('');
-      const [modal, setModal] = useState(null); // {name, desc, file}
+      const [modal, setModal] = useState(null); // {name, desc, refs:[{path,name,kind}], pathDraft}
       const [histInsight, setHistInsight] = useState(null); // 历史任务运行记录弹窗
-      const [browse, setBrowse] = useState(null); // 需求文件浏览：{dir, parent, entries, loading, error}
+      const [browse, setBrowse] = useState(null); // 参考材料浏览：{dir, parent, entries, selected, loading, error}
+      const [uploading, setUploading] = useState(null); // {done,total} 本机上传进度
+      const uploadBatch = useRef(null);
+      const filePickRef = useRef(null);
       const [busy, setBusy] = useState(false);
       const [updateInfo, setUpdateInfo] = useState(null);
       const [updateChecking, setUpdateChecking] = useState(false);
@@ -513,7 +542,7 @@ window.__ModuleLoader__.load({
         }).catch((e) => toast(e.message, false)).finally(() => setBusy(false));
       }, [ws, toast, fetchState]);
 
-      // 需求文件浏览：打开/进入目录（宿主无文件选择器，走 /harness-kit/browse 列举）
+      // 参考材料浏览：打开/进入目录（宿主无文件选择器，走 /harness-kit/browse 列举；可跨目录多选）
       const browseInto = useCallback(async (dir) => {
         if (!ws) return;
         setBrowse((b) => ({ ...(b ?? {}), dir, loading: true, error: null }));
@@ -521,10 +550,91 @@ window.__ModuleLoader__.load({
           const r = await fetch(`/harness-kit/browse?workspace=${encodeURIComponent(ws.id)}&dir=${encodeURIComponent(dir)}`, { cache: 'no-store' });
           const j = await r.json();
           if (!j.ok) setBrowse((b) => ({ ...(b ?? {}), dir, loading: false, error: j.error || '列举失败' }));
-          else setBrowse({ dir: j.dir, parent: j.parent, entries: j.entries, loading: false, error: null });
+          else setBrowse((b) => ({ dir: j.dir, parent: j.parent, entries: j.entries, loading: false, error: null, selected: b?.selected ?? [] }));
         } catch (e) {
           setBrowse((b) => ({ ...(b ?? {}), dir, loading: false, error: e.message }));
         }
+      }, [ws]);
+
+      const startTaskModal = useCallback(() => {
+        uploadBatch.current = null;
+        setUploading(null);
+        setBrowse(null);
+        setModal({ name: '', desc: '', refs: [], pathDraft: '' });
+      }, []);
+
+      const addRefs = useCallback((items) => {
+        setModal((prev) => {
+          if (!prev) return prev;
+          const refs = [...(prev.refs ?? [])];
+          for (const item of items ?? []) {
+            const entry = typeof item === 'string' ? { path: item, kind: 'file' } : item;
+            const p = String(entry?.path ?? '').trim().replace(/\\/g, '/');
+            if (!p || refs.some((r) => r.path === p)) continue;
+            refs.push({ path: p, name: entry.name || refName(p), kind: entry.kind || 'file' });
+          }
+          return { ...prev, refs };
+        });
+      }, []);
+
+      const removeRef = useCallback((p) => {
+        setModal((prev) => (prev ? { ...prev, refs: (prev.refs ?? []).filter((r) => r.path !== p) } : prev));
+      }, []);
+
+      // 本机文件：浏览器直接上传到 Host 暂存区，再作为普通 --file 路径参与立项。
+      const uploadFiles = useCallback(async (fileList) => {
+        const files = [...(fileList ?? [])];
+        if (!ws || files.length === 0) return;
+        const baseCount = modal?.refs?.length ?? 0;
+        if (baseCount + files.length > MATERIAL_MAX_FILES) {
+          toast(`参考材料最多 ${MATERIAL_MAX_FILES} 项；大量图片请放进工作区目录后按「目录」引用`, false);
+          return;
+        }
+        const oversized = files.find((f) => (f.size || 0) > MATERIAL_MAX_FILE_BYTES);
+        if (oversized) {
+          toast(`文件「${oversized.name}」${humanSize(oversized.size)}，超过单文件 ${humanSize(MATERIAL_MAX_FILE_BYTES)} 上限`, false);
+          return;
+        }
+        const totalBytes = files.reduce((n, f) => n + (f.size || 0), 0);
+        if (totalBytes > MATERIAL_MAX_BYTES) {
+          toast(`本次上传合计 ${humanSize(totalBytes)}，超过 ${humanSize(MATERIAL_MAX_BYTES)} 上限`, false);
+          return;
+        }
+        if (!uploadBatch.current) uploadBatch.current = newBatchId();
+        const batch = uploadBatch.current;
+        setUploading({ done: 0, total: files.length });
+        try {
+          for (const [i, file] of files.entries()) {
+            const r = await fetch(`/harness-kit/stage?workspace=${encodeURIComponent(ws.id)}&batch=${encodeURIComponent(batch)}&name=${encodeURIComponent(file.name)}`, {
+              method: 'POST',
+              headers: { 'content-type': file.type || 'application/octet-stream' },
+              body: file,
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j.ok) throw new Error(j.error || `上传失败（HTTP ${r.status}）`);
+            setModal((prev) => (prev ? {
+              ...prev,
+              refs: [...(prev.refs ?? []), { path: j.path, name: j.name, kind: 'upload', size: j.size }],
+            } : prev));
+            setUploading({ done: i + 1, total: files.length });
+          }
+          toast(`已上传 ${files.length} 个文件；立项时会拷入任务 inputs/`, true);
+        } catch (e) {
+          toast(`上传中断：${e.message}`, false);
+        } finally {
+          setUploading(null);
+        }
+      }, [ws, modal?.refs?.length, toast]);
+
+      const closeTaskModal = useCallback(() => {
+        if (ws && uploadBatch.current) {
+          fetch(`/harness-kit/stage?workspace=${encodeURIComponent(ws.id)}&batch=${encodeURIComponent(uploadBatch.current)}`, { method: 'DELETE' })
+            .catch(() => {});
+        }
+        uploadBatch.current = null;
+        setUploading(null);
+        setModal(null);
+        setBrowse(null);
       }, [ws]);
 
       // 目录选择：Desktop 快速路径优先，退回 uiWorkspace 服务，均不可用时由用户手填
@@ -650,7 +760,7 @@ window.__ModuleLoader__.load({
         ws && ws.sync?.layout !== 'embedded' && h('button', { style: S.btn(busy), disabled: busy, onClick: syncNow }, '立即同步'),
         h('span', { style: { flex: 1 } }),
         h('button', { style: { ...S.btn(false), fontSize: 12 }, title: '新建 / 打开工作区', onClick: () => setObMode('choice') }, '＋ 工作区'),
-        ws && h('button', { style: S.iconBtn, title: '新建任务', onClick: () => setModal({ name: '', desc: '', file: '' }) }, '＋'),
+        ws && h('button', { style: S.iconBtn, title: '新建任务', onClick: startTaskModal }, '＋'),
         ws && h('button', { style: S.iconBtn, title: '团队', onClick: () => setView(view === 'activity' ? 'main' : 'activity') }, '🕘'),
         ws && h('button', { style: S.iconBtn, title: '工作区', onClick: () => setView(view === 'config' ? 'main' : 'config') }, '⚙'),
         h('button', { style: S.iconBtn, title: '刷新', onClick: fetchState }, '⟳'),
@@ -842,7 +952,7 @@ window.__ModuleLoader__.load({
             ? h('div', { style: S.empty },
                 h('div', { style: { fontSize: 28, marginBottom: 8 } }, '🛠'),
                 h('div', null, '还没有进行中的任务'),
-                h('button', { style: { ...S.btn(false, true), marginTop: 10 }, onClick: () => setModal({ name: '', desc: '', file: '' }) }, '立一个新项'))
+                h('button', { style: { ...S.btn(false, true), marginTop: 10 }, onClick: startTaskModal }, '立一个新项'))
             : h('div', { style: S.lanes },
                 LANES.map((lane) => {
                   const ts = active.filter((t) => t.lane === lane.id);
@@ -881,7 +991,12 @@ window.__ModuleLoader__.load({
 
         // 立项模态（需求 / fix 直通 两种模式；任务名可选，留空由 AI 按描述生成）
         modal && h('div', { style: S.overlayBox },
-          h('div', { style: S.modal, onClick: (e) => e.stopPropagation() },
+          h('div', {
+            style: S.modal,
+            onClick: (e) => e.stopPropagation(),
+            onDragOver: (e) => { e.preventDefault(); },
+            onDrop: (e) => { e.preventDefault(); uploadFiles(e.dataTransfer?.files); },
+          },
             h('div', { style: { ...S.hTitle, marginBottom: 10 } }, '新建任务'),
             h('div', { style: { display: 'flex', gap: 6, marginBottom: 14 } },
               [['new', '需求'], ['fix', '快速修复']].map(([m, label]) =>
@@ -900,39 +1015,118 @@ window.__ModuleLoader__.load({
               h('input', { style: S.input, value: modal.name, autoFocus: true, placeholder: '留空自动起名；仅限英文/数字/-_', onChange: (e) => setModal({ ...modal, name: e.target.value }) })),
             h('div', { style: S.field }, h('label', { style: S.label }, '一句话需求描述'),
               h('input', { style: S.input, value: modal.desc, onChange: (e) => setModal({ ...modal, desc: e.target.value }) })),
-            (modal.mode ?? 'new') === 'new' && h('div', { style: S.field }, h('label', { style: S.label }, '需求文件路径（可选）'),
-              h('div', { style: { display: 'flex', gap: 6 } },
-                h('input', { style: { ...S.input, flex: 1 }, value: modal.file, placeholder: 'docs/xxx.md', onChange: (e) => setModal({ ...modal, file: e.target.value }) }),
+            (modal.mode ?? 'new') === 'new' && h('div', { style: S.field },
+              h('label', { style: S.label }, '参考材料（可选，可多选文件 / 图片 / 整个原型目录）'),
+              h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+                h('input', {
+                  style: { ...S.input, flex: '1 1 190px', minWidth: 0 },
+                  value: modal.pathDraft ?? '',
+                  placeholder: '工作区相对路径，如 docs/prototype',
+                  onChange: (e) => setModal({ ...modal, pathDraft: e.target.value }),
+                  onKeyDown: (e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    const p = (modal.pathDraft ?? '').trim();
+                    if (p) { addRefs([{ path: p }]); setModal({ ...modal, pathDraft: '' }); }
+                  },
+                }),
+                h('button', {
+                  style: S.btn(false),
+                  disabled: !(modal.pathDraft ?? '').trim(),
+                  onClick: () => {
+                    const p = (modal.pathDraft ?? '').trim();
+                    if (!p) return;
+                    addRefs([{ path: p }]);
+                    setModal({ ...modal, pathDraft: '' });
+                  },
+                }, '添加'),
                 h('button', {
                   style: S.btn(false),
                   onClick: () => {
                     if (browse) { setBrowse(null); return; }
-                    const cur = modal.file.trim();
+                    const cur = (modal.pathDraft ?? '').trim();
                     browseInto(cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/')) : '');
                   },
-                }, browse ? '收起' : '浏览…')),
-              // 工作区内文件浏览（默认落在工作区根目录；📁 进入，📄 选中回填）
-              browse && h('div', { style: { marginTop: 6, border: `1px solid ${V.border2}`, borderRadius: 6, padding: '6px 8px', fontSize: 12, maxHeight: 180, overflowY: 'auto', background: V.fieldBg } },
-                h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, color: V.sub } },
-                  h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+                }, browse ? '收起' : '浏览…'),
+                h('button', {
+                  style: S.btn(!!uploading),
+                  disabled: !!uploading,
+                  onClick: () => filePickRef.current?.click(),
+                }, uploading ? `上传中 ${uploading.done}/${uploading.total}` : '上传文件…'),
+                h('input', {
+                  ref: filePickRef,
+                  type: 'file',
+                  multiple: true,
+                  style: { display: 'none' },
+                  onChange: (e) => {
+                    uploadFiles(e.target.files);
+                    e.target.value = '';
+                  },
+                })),
+              h('div', { style: { fontSize: 11, color: V.sub, marginTop: 2 } },
+                `工作区文件/目录会按原样拷入任务 inputs/；本机文件可多选或拖入，同样归档。最多 ${MATERIAL_MAX_FILES} 项、合计 ${humanSize(MATERIAL_MAX_BYTES)}。`),
+              (modal.refs ?? []).length > 0 && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 } },
+                (modal.refs ?? []).map((r) => h('div', {
+                  key: r.path,
+                  title: r.path,
+                  style: { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', border: `1px solid ${V.border2}`, borderRadius: 6, background: V.fieldBg, fontSize: 11 },
+                },
+                  h('span', null, refIcon(r)),
+                  h('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, r.name || refName(r.path)),
+                  r.kind === 'dir' && h('span', { style: { color: V.sub, flexShrink: 0 } }, '目录'),
+                  r.kind === 'upload' && h('span', { style: { color: V.sub, flexShrink: 0 } }, humanSize(r.size) || '本机'),
+                  h('button', {
+                    style: { ...S.btn(false), padding: '0 6px', fontSize: 11, lineHeight: '18px', flexShrink: 0 },
+                    title: '移除',
+                    onClick: () => removeRef(r.path),
+                  }, '×')))),
+              // 工作区内浏览：可跨目录多选；目录可整目录引用（原型文件夹）
+              browse && h('div', { style: { marginTop: 6, border: `1px solid ${V.border2}`, borderRadius: 6, padding: '6px 8px', fontSize: 12, maxHeight: 220, overflowY: 'auto', background: V.fieldBg } },
+                h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, color: V.sub, flexWrap: 'wrap' } },
+                  h('span', { style: { flex: 1, minWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
                     browse.dir ? `工作区根目录/${browse.dir}` : '工作区根目录'),
                   browse.dir ? h('button', {
                     style: { ...S.btn(false), padding: '1px 8px', fontSize: 11 },
                     onClick: () => browseInto(browse.parent ?? ''),
-                  }, '‹ 上级') : null),
+                  }, '‹ 上级') : null,
+                  browse.dir ? h('button', {
+                    style: { ...S.btn(false), padding: '1px 8px', fontSize: 11 },
+                    onClick: () => addRefs([{ path: browse.dir, kind: 'dir' }]),
+                  }, '引用当前目录') : null,
+                  h('button', {
+                    style: { ...S.btn(false), padding: '1px 8px', fontSize: 11 },
+                    disabled: !(browse.selected ?? []).length,
+                    onClick: () => {
+                      addRefs(browse.selected ?? []);
+                      setBrowse((b) => ({ ...b, selected: [] }));
+                    },
+                  }, `添加所选（${(browse.selected ?? []).length}）`)),
                 browse.loading && h('div', { style: { color: V.sub, padding: '4px 2px' } }, '加载中…'),
                 browse.error && h('div', { style: { color: V.err, padding: '4px 2px' } }, browse.error),
                 !browse.loading && !browse.error && (browse.entries?.length
-                  ? browse.entries.map((e) => h('div', {
-                      key: e.kind + '/' + e.name,
-                      className: 'hk-browse-row',
-                      style: { padding: '3px 6px', borderRadius: 4, cursor: 'pointer', color: e.kind === 'dir' ? V.brand : V.text },
-                      onClick: () => {
-                        const p = browse.dir ? `${browse.dir}/${e.name}` : e.name;
-                        if (e.kind === 'dir') browseInto(p);
-                        else { setModal({ ...modal, file: p }); setBrowse(null); }
+                  ? browse.entries.map((e) => {
+                      const p = browse.dir ? `${browse.dir}/${e.name}` : e.name;
+                      const selected = (browse.selected ?? []).some((s) => s.path === p);
+                      return h('div', {
+                        key: e.kind + '/' + e.name,
+                        className: 'hk-browse-row',
+                        style: { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 6px', borderRadius: 4, cursor: 'pointer', color: e.kind === 'dir' ? V.brand : V.text },
+                        onClick: () => {
+                          if (e.kind === 'dir') { browseInto(p); return; }
+                          setBrowse((b) => {
+                            const list = b?.selected ?? [];
+                            return { ...b, selected: selected ? list.filter((s) => s.path !== p) : [...list, { path: p, kind: 'file' }] };
+                          });
+                        },
                       },
-                    }, `${e.kind === 'dir' ? '📁' : '📄'} ${e.name}`))
+                        h('span', { style: { width: 14, flexShrink: 0, color: selected ? V.brand : V.sub } }, e.kind === 'dir' ? '📁' : (selected ? '☑' : '☐')),
+                        h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, e.name),
+                        e.kind === 'dir' && h('button', {
+                          style: { ...S.btn(false), padding: '0 6px', fontSize: 11, flexShrink: 0 },
+                          title: '引用整个目录',
+                          onClick: (ev) => { ev.stopPropagation(); addRefs([{ path: p, kind: 'dir' }]); },
+                        }, '＋'));
+                    })
                   : h('div', { style: { color: V.sub, padding: '4px 2px' } }, '（空目录）')))),
             // 开发基线（可选）：各仓分支选择 → /hk-new --base；既是开发分支基点，也是分析基点与归档合入目标
             Object.keys(ws?.gitBranches ?? {}).length > 0 && h('div', { style: S.field },
@@ -949,19 +1143,22 @@ window.__ModuleLoader__.load({
               h('div', { style: { fontSize: 11, color: V.sub, marginTop: 2 } },
                 '内核会从所选基线新建 feat/harness-<任务> 开发分支；归档默认合回该基线，同时作为 BA/SA/RR 的分析基点。')),
             h('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
-              h('button', { style: S.btn(false), onClick: () => { setModal(null); setBrowse(null); } }, '取消'),
+              h('button', { style: S.btn(false), onClick: closeTaskModal }, '取消'),
               h('button', {
-                style: S.btn(!modal.desc.trim() || (modal.name.trim() && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(modal.name.trim())) || busy, true),
-                disabled: !modal.desc.trim() || (modal.name.trim() && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(modal.name.trim())) || busy,
+                style: S.btn(!modal.desc.trim() || (modal.name.trim() && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(modal.name.trim())) || busy || !!uploading, true),
+                disabled: !modal.desc.trim() || (modal.name.trim() && !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(modal.name.trim())) || busy || !!uploading,
                 onClick: () => {
                   const mode = modal.mode ?? 'new';
                   const name = modal.name.trim() || '--auto';
-                  const file = mode === 'new' && modal.file.trim() ? ` --file ${modal.file.trim()}` : '';
+                  const refs = mode === 'new' ? (modal.refs ?? []) : [];
+                  const files = refs.map((r) => ` --file ${quoteArg(r.path)}`).join('');
                   const basePairs = Object.entries(modal.base ?? {}).filter(([, b]) => (b ?? '').trim()).map(([r, b]) => `${r}:${b.trim()}`);
                   const base = basePairs.length > 0 ? ` --base ${basePairs.join(',')}` : '';
-                  runFresh(mode === 'fix' ? `/hk-fix ${name} ${modal.desc.trim()}${base}` : `/hk-new ${name} ${modal.desc.trim()}${file}${base}`);
+                  runFresh(mode === 'fix' ? `/hk-fix ${name} ${modal.desc.trim()}${base}` : `/hk-new ${name} ${modal.desc.trim()}${files}${base}`);
+                  uploadBatch.current = null;
                   setModal(null);
                   setBrowse(null);
+                  setUploading(null);
                 },
               }, '立项')))),
         // Toast

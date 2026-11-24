@@ -75,6 +75,7 @@ LOG_FILE=<仓库根绝对路径>/.harness/.logs/<TASK_NAME>/worker-<role>.log
 必读：
 - .harness/deliverables/<TASK_NAME>/handoff.md（存在时；只按其中「读取清单」取章节）
 - .harness/deliverables/<TASK_NAME>/proposal.md
+- .harness/deliverables/<TASK_NAME>/inputs/INDEX.md（存在时；按索引读文本，图片用 read_image）
 - .harness/specs/_index.md（扫描后按需读相关域 spec 全文）
 - .harness/codebase-guide/overview.md
 - .harness/tasks/board.md

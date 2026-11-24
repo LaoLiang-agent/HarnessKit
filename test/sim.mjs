@@ -301,29 +301,42 @@ section('hk-new Bootstrap 脚手架');
   cleanups.push(ws);
   fake(ws, 'services/backend/.git/HEAD', 'x');
   fake(ws, 'req.md', '# 需求：设备接入');
+  fake(ws, 'docs/proto/home.png', Buffer.from('89504e470d0a1a0a', 'hex'));
+  fake(ws, 'docs/proto/login.html', '<main>登录原型</main>');
+  fake(ws, 'docs/space name.md', '# 带空格的文件名');
   await run('hk-init', '', ws);
   const steered = [];
-  const res = await run('hk-new', 'device-onboard 新增设备接入 --file req.md', ws, steered);
+  const res = await run('hk-new', 'device-onboard 新增设备接入 --file req.md --file docs/proto --file "docs/space name.md"', ws, steered);
   const taskDir = path.join(ws, '.harness/deliverables/device-onboard');
-  ok('proposal.md 脚手架 + 需求文件拷入',
+  ok('proposal.md 脚手架 + 多参考材料拷入 inputs/',
     res.kind === 'success' &&
     fs.existsSync(path.join(taskDir, 'proposal.md')) &&
-    fs.existsSync(path.join(taskDir, 'req.md')));
+    fs.existsSync(path.join(taskDir, 'inputs/req.md')) &&
+    fs.existsSync(path.join(taskDir, 'inputs/proto/home.png')) &&
+    fs.existsSync(path.join(taskDir, 'inputs/proto/login.html')) &&
+    fs.existsSync(path.join(taskDir, 'inputs/space name.md')) &&
+    fs.existsSync(path.join(taskDir, 'inputs/INDEX.md')));
   const proposal = fs.readFileSync(path.join(taskDir, 'proposal.md'), 'utf8');
   ok('提案含任务名/描述/状态 draft', proposal.includes('device-onboard') && proposal.includes('新增设备接入') && /\*\*状态\*\*：draft/.test(proposal));
+  ok('提案链接参考材料索引并统计图片', proposal.includes('inputs/INDEX.md') && proposal.includes('4 个文件') && proposal.includes('图片 1'));
+  const index = fs.readFileSync(path.join(taskDir, 'inputs/INDEX.md'), 'utf8');
+  ok('索引列出文件/图片并提示 read_image', index.includes('proto/home.png') && index.includes('space name.md') && index.includes('图片 1') && index.includes('read_image'));
   ok('立项即生成 handoff（含任务名/读取清单）', (() => { const t = fs.readFileSync(path.join(taskDir, 'handoff.md'), 'utf8'); return t.includes('Handoff — device-onboard') && t.includes('读取清单'); })());
   ok('看板登记 PENDING（7 列契约）', (() => { const t = fs.readFileSync(path.join(ws, '.harness/tasks/board.md'), 'utf8'); return t.includes('| device-onboard | PENDING |') && t.includes('| 任务名 | 状态 | Profile | Apply进度 | 分支 | 上次活动 | 续接提示 |') && t.includes('状态机'); })());
   ok('steer bootstrap 剧本（路由表/反问/定稿）', steered.length === 1 && steered[0].includes('路由表') && steered[0].includes('ask_user_question'));
+  ok('steer 指向参考材料索引并提示看图', steered[0].includes('inputs/INDEX.md') && steered[0].includes('read_image'));
   const dup = await run('hk-new', 'device-onboard 重复', ws, []);
   ok('任务目录已存在 → 拒绝重复', dup.kind === 'error');
   const badFile = await run('hk-new', 't-x 描述 --file nope.md', ws, []);
   ok('需求文件缺失 → FAIL 且不残留目录', badFile.kind === 'error' && !fs.existsSync(path.join(ws, '.harness/deliverables/t-x')));
   // 空目录残留（上次中断/手动清理后只剩空壳）→ 复用重建而不是报撞名
-  fs.rmSync(path.join(taskDir, 'proposal.md'));
-  fs.rmSync(path.join(taskDir, 'req.md'));
-  fs.rmSync(path.join(taskDir, 'handoff.md'));
+  fs.rmSync(taskDir, { recursive: true, force: true });
+  fs.mkdirSync(taskDir, { recursive: true });
   const retry = await run('hk-new', 'device-onboard 清理残留后重试', ws, []);
   ok('空目录残留 → 复用重建成功', retry.kind === 'success' && fs.existsSync(path.join(taskDir, 'proposal.md')));
+  const apostrophe = await run('hk-new', "quote-desc John's login page", ws, []);
+  const apostropheDoc = path.join(ws, '.harness/deliverables/quote-desc/proposal.md');
+  ok('描述中的撇号不被当成引号吞参数', apostrophe.kind === 'success' && fs.readFileSync(apostropheDoc, 'utf8').includes("John's login page"));
 }
 
 // ---------------------------------------------------------------- memory hot/cold
@@ -2518,6 +2531,51 @@ section('panel.js：browseDir 工作区内文件浏览');
   ok('斜杠归一', browseDir(ws, '/docs/').dir === 'docs');
 }
 
+// ---------------------------------------------------------------- 本机上传暂存
+section('panel.js：本机参考材料上传暂存');
+{
+  const { registerPanelApi } = await import(path.join(bundleRoot, 'kernel/panel.js'));
+  const { EventEmitter } = await import('node:events');
+  const ws = mkws();
+  cleanups.push(ws);
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [] }));
+  const routes = new Map();
+  const webServer = {
+    exact: routes, prefixes: new Map(),
+    register(route) { routes.set(route.path, route); return () => routes.delete(route.path); },
+  };
+  const registry = { list: () => [{ id: 'ws-stage', path: ws, title: 'stage', sessionIds: [] }] };
+  const ctx = {
+    get(name) {
+      if (name === 'webServer') return webServer;
+      if (name === 'workspaceRegistry') return registry;
+      if (name === 'connection') return { requestRejection: () => undefined };
+      return undefined;
+    },
+  };
+  const disposers = registerPanelApi(ctx);
+  const route = routes.get('/harness-kit/stage');
+  const response = () => ({ code: 0, body: null, writeHead(code) { this.code = code; }, end(body) { this.body = JSON.parse(body); } });
+  const req = new EventEmitter();
+  req.method = 'POST';
+  req.url = '/harness-kit/stage?workspace=ws-stage&batch=stage-batch-01&name=proto.png';
+  req.headers = { 'content-length': '9' };
+  const postRes = response();
+  const pending = route.handler(req, postRes);
+  queueMicrotask(() => { req.emit('data', Buffer.from('png-bytes')); req.emit('end'); });
+  await pending;
+  const savedRel = postRes.body?.path ?? '';
+  ok('上传文件写入 local/staging 并返回路径', postRes.code === 201 && savedRel.includes('.harness/local/staging/stage-batch-01/proto.png') && fs.existsSync(path.join(ws, savedRel)) && fs.readFileSync(path.join(ws, savedRel), 'utf8') === 'png-bytes');
+  const del = new EventEmitter();
+  del.method = 'DELETE';
+  del.url = '/harness-kit/stage?workspace=ws-stage&batch=stage-batch-01';
+  del.headers = {};
+  const delRes = response();
+  await route.handler(del, delRes);
+  ok('取消立项清理上传批次', delRes.code === 200 && !fs.existsSync(path.join(ws, '.harness/local/staging/stage-batch-01')));
+  disposers.forEach((d) => d());
+}
+
 // ---------------------------------------------------------------- 环境预检
 section('env.js：向导环境预检');
 {
@@ -2629,7 +2687,7 @@ section('client：工作区提醒');
   ok('新建工作区分支必填', clientSrc.includes("s.url.trim() && !s.branch.trim()") && clientSrc.includes('分支为空时不会创建并克隆子工程'));
   ok('新建任务弹窗不因点击遮罩关闭', (() => {
     const start = clientSrc.indexOf("modal && h('div', { style: S.overlayBox");
-    const body = clientSrc.indexOf("h('div', { style: S.modal", start);
+    const body = clientSrc.indexOf('style: S.modal', start);
     return start >= 0 && body > start && !clientSrc.slice(start, body).includes('setModal(null)') && clientSrc.includes("}, '取消')");
   })());
   ok('初始化进度丢失/超时兜底', clientSrc.includes('初始化进度丢失') && clientSrc.includes('30 分钟'));
@@ -2640,6 +2698,8 @@ section('client：工作区提醒');
   ok('本机配置使用普通用户文案', clientSrc.includes('本机开发配置') && clientSrc.includes('不会提交到代码仓库') && !clientSrc.includes('本机配置（git-ignored）'));
   ok('本机配置支持逐文件选择', clientSrc.includes('同步选中（') && clientSrc.includes('toggleLocal') && clientSrc.includes('maxHeight: 230'));
   ok('本机配置 POST 带 workspace query（兼容旧 Host）', clientSrc.includes("fetch(`/harness-kit/local?workspace=${encodeURIComponent(ws.id)}`"));
+  ok('新建任务支持多参考材料/目录/本机上传', clientSrc.includes('参考材料（可选，可多选文件 / 图片 / 整个原型目录）') && clientSrc.includes('/harness-kit/stage') && clientSrc.includes('上传文件…'));
+  ok('多文件路径带引号传给 /hk-new', clientSrc.includes('quoteArg(r.path)') && clientSrc.includes("` --file ${quoteArg(r.path)}`"));
 }
 
 // ---------------------------------------------------------------- report

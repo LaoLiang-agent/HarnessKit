@@ -58,7 +58,7 @@ orchestration** probes the repositories and generates the docs and indexes descr
 
 - choose **Requirement** or **Fix**
 - write one sentence; the task name can stay empty and is generated from the description
-- optionally attach a requirements file
+- optionally attach multiple reference materials: files, images, or whole prototype folders (including uploads from this machine). They are copied into the task `inputs/` with an index, and the PM reads the index and inspects each image
 
 Creating the task opens a dedicated session: requirement mode starts from the proposal, fix mode
 starts from the defect document and the quality gate.
@@ -226,7 +226,7 @@ Four daily entries:
 | Command | What it does |
 |---|---|
 | `/hk init [--assets <url\|init\|local>]` | Initialize or repair `.harness/`, bind the asset repository |
-| `/hk task [<task>] <description> [--file <path>] [--fix]` | Start a full-flow task; `--fix` starts the quick fix path |
+| `/hk task [<task>] <description> [--file <path>]... [--fix]` | Start a full-flow task; repeat `--file` for multiple files/folders; `--fix` starts the quick fix path |
 | `/hk close <task> [--merge\|--no-merge] [--dry-run]` | Archive a round, close the worktree and write run metrics |
 | `/hk doctor [--fix]` | Health check; `--fix` repairs deterministic gaps |
 

@@ -6,7 +6,8 @@ stages:
   - name: 解读输入
     actor: PM
     do:
-      - 读取任务描述；若任务目录下有需求文件（/hk-new --file 拷入），先读全文
+      - 读取任务描述；若任务目录有 inputs/INDEX.md（/hk-new --file 拷入），先读索引，再逐个读文本/代码/原型入口页；图片必须用 read_image 逐张查看，PDF/Office 用对应读取工具，无法读取的二进制要在 proposal 注明
+      - 把参考材料中的页面结构、交互、字段、状态与视觉约束转写进 proposal 的「任务范围」「验收条件」，不要只写“参考原型”
       - 读 .harness/specs/_index.md 与 .harness/codebase-guide/index.md（存在时），建立能力域背景
       - 起草 proposal.md 各段：任务范围（做什么/不做什么）、受影响的能力表、可验证的验收条件
   - name: Profile 判定
@@ -19,7 +20,7 @@ stages:
     gate: 把「## 模糊点」段列全：所有歧义、口径不明、验收模糊之处，用 ask_user_question 逐条交人澄清；禁止 AI 自行补全。bugfix 例外：缺陷报告本身即验收标准，无歧义可跳过
   - name: 定稿
     actor: PM
-    approval: 先在会话里发送一条可见消息（普通 assistant 文本，不是 reasoning）：标题「定稿 · <任务名>」，用 Markdown 链接列出 [proposal.md](.harness/deliverables/<任务名>/proposal.md)（有需求文件时一并链接），写范围/Profile/验收与模糊点澄清结果；再调用 ask_user_question，question 以「材料：[提案](链接)」开头再问是否定稿。人确认后把状态行改为「> **状态**：approved」
+    approval: 先在会话里发送一条可见消息（普通 assistant 文本，不是 reasoning）：标题「定稿 · <任务名>」，用 Markdown 链接列出 [proposal.md](.harness/deliverables/<任务名>/proposal.md)（有参考材料时一并链接 [inputs/INDEX.md](.harness/deliverables/<任务名>/inputs/INDEX.md)），写范围/Profile/验收与模糊点澄清结果；再调用 ask_user_question，question 以「材料：[提案](链接)」开头再问是否定稿。人确认后把状态行改为「> **状态**：approved」
   - name: 交接
     actor: PM
     do:

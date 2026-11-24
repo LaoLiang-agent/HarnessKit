@@ -34,6 +34,7 @@ import { collectTaskMetrics, readLatestTaskMetrics } from './metrics.js';
 import { readLocalModels, writeLocalModels, clearLocalModels } from './local-models.js';
 import { normalizeModelMap } from './models.js';
 import { checkPluginUpdate } from './update.js';
+import { stageUpload, clearStage, MAX_UPLOAD_BYTES } from './materials.js';
 
 /** 解析看板 markdown 表（7 列契约，见 commands.js boardTemplate）。
  *  容错与 commands.js parseBoardRow 同源：超列溢出并入「续接提示」，不足补 —。 */
@@ -667,6 +668,31 @@ function readBody(req) {
   });
 }
 
+/** Binary body for local uploads, bounded before buffering grows past the limit. */
+function readBodyBuffer(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    let tooLarge = false;
+    req.on('data', (c) => {
+      if (tooLarge) return;
+      total += c.length;
+      if (total > maxBytes) { tooLarge = true; chunks.length = 0; return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      if (tooLarge) {
+        const error = new Error(`单个文件超过 ${Math.round(maxBytes / 1024 / 1024)} MB 上限`);
+        error.code = 'too-large';
+        reject(error);
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', reject);
+  });
+}
+
 /**
  * Guard one panel HTTP handler with DSH Connection's Host/Origin and browser
  * authentication check. Every route is owner-private (workspace paths,
@@ -1023,6 +1049,35 @@ export function registerPanelApi(ctx) {
         sendJson(res, 200, r);
       } catch (cause) {
         sendJson(res, 500, { ok: false, error: cause.message });
+      }
+    },
+  });
+
+  // 新建任务「上传文件…」：浏览器把本地文件流式暂存到 .harness/local/staging/，
+  // /hk-new 再从暂存路径拷入任务 inputs/。暂存目录被 .harness/.gitignore 的 local/ 排除。
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/stage',
+    async handler(req, res) {
+      try {
+        const q = new URL(req.url, 'http://x').searchParams;
+        const ws = findWs(registry, q.get('workspace'));
+        if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+        const batch = q.get('batch') ?? '';
+        if (req.method === 'DELETE') {
+          clearStage(ws.path, batch);
+          return sendJson(res, 200, { ok: true });
+        }
+        if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+        const declared = Number(req.headers?.['content-length'] ?? 0);
+        if (Number.isFinite(declared) && declared > MAX_UPLOAD_BYTES) {
+          return sendJson(res, 413, { ok: false, error: `单个文件超过 ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB 上限` });
+        }
+        const buffer = await readBodyBuffer(req, MAX_UPLOAD_BYTES);
+        const saved = stageUpload(ws.path, { batch, name: q.get('name') ?? 'upload', buffer });
+        sendJson(res, 201, { ok: true, ...saved });
+      } catch (cause) {
+        sendJson(res, cause.code === 'too-large' ? 413 : 400, { ok: false, error: cause.message });
       }
     },
   });

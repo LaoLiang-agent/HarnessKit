@@ -422,7 +422,7 @@ harness-kit/
 
 > **M2 实施记录**（回归套件 54/54 绿）：
 > - **flows**：`standard/quick/bugfix/refactor` 四 Profile + `_router.yml` 路由表 + `new.yml`（Bootstrap 编排：解读→起草→Profile 判定→⛔模糊点反问→⛔定稿）；全流程阶段按 `phase: propose|apply` 打标，`compileFlowPrompt` 按 phase 过滤只渲染当前阶段。
-> - **命令**：`/hk-new`（proposal 脚手架 + `--file` 需求文件拷入 + 看板 PENDING 登记 + Bootstrap steer）；`/hk-propose`（状态须 approved → 按 proposal `**profile**` 行取 profile，模板枚举行自动排除 → 只渲染 propose 阶段）；`/hk-apply`（审批 1 记录 + 就绪预检：standard/refactor 查 readiness-report、quick 查 design 就绪自评、bugfix 查结论，最后结论非 PASS 拒绝 → 只渲染 apply 阶段，支持反馈续接）；`/hk-archive`（fix：缺裁决 FAIL、`--full` 一致性校验 code-review+test-report；全流程：缺「审批 1：通过」FAIL、test-report 结论须 PASS，归档后 steer Spec/Memory Merge 收尾剧本）。
+> - **命令**：`/hk-new`（proposal 脚手架 + 可重复 `--file` 把文件/原型目录拷入 `inputs/` + 索引 + 看板 PENDING 登记 + Bootstrap steer）；`/hk-propose`（状态须 approved → 按 proposal `**profile**` 行取 profile，模板枚举行自动排除 → 只渲染 propose 阶段）；`/hk-apply`（审批 1 记录 + 就绪预检：standard/refactor 查 readiness-report、quick 查 design 就绪自评、bugfix 查结论，最后结论非 PASS 拒绝 → 只渲染 apply 阶段，支持反馈续接）；`/hk-archive`（fix：缺裁决 FAIL、`--full` 一致性校验 code-review+test-report；全流程：缺「审批 1：通过」FAIL、test-report 结论须 PASS，归档后 steer Spec/Memory Merge 收尾剧本）。
 > - **状态机**：`state.js` 双规划文档规则——`proposal.md` 存在 → 审批 1 marker（`审批\s*1…通过|PASS`）解锁；否则 `bugfix.md` 质量门裁决解锁（兼容 fix 直通与全流程 bugfix 两种 bugfix.md）。
 > - **模型路由**：`kernel/models.js`——角色 frontmatter/阶段 `model:` 为逻辑名，`kit.json models`（团队默认）与 `.harness/local/models.json`（本机覆盖，gitignored）映射 `{provider, model, reasoning_effort?}`；优先级 local 角色 > team 角色 > local 逻辑名 > team 逻辑名 > 会话默认；派发说明随剧本注入（含 `list_subagent_models` 预校验、不可用降级会话默认并告知）；`resolveModel/describeModel/dispatchSection` 三个纯函数。默认 `models: {}` 全部走会话默认。
 > - **hk-doctor** 增列：八个流程定义状态 + 模型映射表。
@@ -467,7 +467,7 @@ harness-kit/
 | 2 | 主区泳道三列 | 规划中 / 实施中 / 待归档，卡片随进度左→右流动；窄屏（<720px）纵向堆叠 |
 | 3 | 历史任务板 | 主视图**底部折叠区**（非独立视图），只收 DONE/已归档，展开后表格+搜索 |
 | 4 | 卡片详情 | **就地展开**（产物列表/分支/Apply 进度/续接提示），不做右侧抽屉 |
-| 5 | 立项入口 | 顶栏「＋」→ **居中模态**（任务名/描述/需求文件路径） |
+| 5 | 立项入口 | 顶栏「＋」→ **居中模态**（任务名/描述/参考材料：多选文件、图片、原型目录或本机上传） |
 | 6 | 不做「标记通过」 | 审批标记维持人手写入，面板不提供代写按钮（防审批流于形式） |
 | 7 | 「转到会话」值得投入 | 卡片 ⋯ 菜单跳该工作区活会话（Client layout/sessions 可行性待验证） |
 
@@ -513,7 +513,7 @@ harness-kit/
 2. **无活动会话 409**：`/harness-kit/command` 要求活会话（命令注入 steer 需要 agent）。修复（客户端兜底）：run() 收到「没有活动会话」409 → 自动 `uiWorkspace.openSession(最近会话)`（无会话则 `openWorkspace(ws.id)` 开空白会话）→ 2.5s 后自动重试一次，仍失败则提示用户手动开会话。「跳转会话」同样兜底：无 live 会话时打开最近会话/新建会话而非仅报错。
 3. **任务名强制英文必填**：① 命名规则放宽为中英文/数字/`-_`（`TASK_NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u`，内核 + 面板同源）；② 任务名改**可选**，留空（或 `--auto`）由内核按描述确定性派生 slug——英文词取前 4 个 kebab、纯中文回退 `auto-YYYYMMDD-HHmm`、撞目录自动加 `-2/-3`。注意 `parseArgs` 会把 `--auto` 后首个词吞作旗标值，hk-new/hk-fix 须还原完整词序再解构，且 --auto 时全部词都是描述（不能先切首个当任务名）。
 4. **Apply进度 v3：按 profile 表达真实流程**：原语法是固定 7 阶段一条链，fix 直通（从质量门起步、无审批）与 refactor（前置影响面）都表达不了，且与面板进度点（按 flow yml 派生）对不上。修订：`update_board.py` 增加 `PROFILE_STAGES` 词表（standard/quick 七阶段、refactor 前置影响面、fix 覆盖 bugfix 全流程与直通两种起点）+ `▶` 当前标记（至多一个、与 ⛔ 互斥、✅ 须连续在链首），写入时按行 Profile 校验链语义，`--repair` 自动给在途任务的首个 `…` 推导 `▶`。panel.js `taskProgress` 同步修 fix 短名二义：活目录有 proposal.md → bugfix 全流程（含审批菱形点），仅 bugfix.md → fix 直通。iot-harness 36 行存量经 `--repair --write` 迁移 + 体检 PASS。
-5. **新建任务弹窗改版**：模式切换按钮「需求 / fix 直通」（fix 隐藏需求文件字段、附流程差异说明），任务名占位提示「留空自动起名」，描述必填。
+5. **新建任务弹窗改版**：模式切换按钮「需求 / fix 直通」（fix 隐藏参考材料字段、附流程差异说明），任务名占位提示「留空自动起名」，描述必填。
 6. **hk-fix 补看板登记**：原来只 hk-new 写 PENDING 行，hk-fix 不上板；现已对齐（面板 fix 按钮依赖此行为）。
 
 **2026-11-12 下午第三批（面板 UX 复审，全部落地）**：

@@ -4,6 +4,21 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- New Task now supports multiple reference materials: pick several workspace files, reference a
+  whole prototype folder, or upload files from the local machine. `/hk-new` accepts repeated
+  `--file` arguments (quoted paths with spaces are supported) and copies everything into
+  `.harness/deliverables/<task>/inputs/`.
+- Each task gets an `inputs/INDEX.md` manifest with file types and sizes. Bootstrap reads text and
+  prototype entry pages, opens images with `read_image`, and transfers visual/layout requirements
+  into the proposal instead of only linking the files.
+- Local uploads are staged under `.harness/local/staging/` (gitignored) and cleaned up after seven
+  days; cancelling the dialog removes the current batch. Limits: 50 references per task, 300 files
+  and 100 MB after expanding folders.
+
 ## [0.2.4] - 2026-11-23
 
 ### Added

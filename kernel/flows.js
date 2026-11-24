@@ -63,6 +63,7 @@ export function compileFlowPrompt(flow, context) {
     `- 任务名：${context.task}`,
     `- 需求描述：${context.desc}`,
     `- 活目录：${context.artifacts}`,
+    ...(context.materials ? [`- 参考材料：${context.materials}`] : []),
     '',
     `## 流程阶段`,
     stageLines(flow, context),

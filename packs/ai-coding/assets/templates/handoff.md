@@ -23,10 +23,13 @@
 
 ## 读取清单
 
+> 参考材料在 `inputs/INDEX.md`（存在时先读索引；图片用 `read_image` 查看）。
+
 | 文档 | 章节/行 | 谁需要 | 用途 |
 |---|---|---|---|
 | requirements.md |  | BA/SA/RR |  |
 | design.md |  | Dev/CR/TE |  |
+| inputs/INDEX.md | 全文/按索引 | PM/BA/SA/RR/Dev | 参考材料清单（无材料时忽略） |
 
 ## 改动范围
 

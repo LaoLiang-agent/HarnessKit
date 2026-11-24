@@ -21,6 +21,7 @@ import { addSource, runInit, formatInitReport, guessRole, boardTemplate } from '
 import { dispatchSection, describeWorkerModel } from './models.js';
 import { readLocalModels } from './local-models.js';
 import { collectTaskMetrics, writeTaskMetrics } from './metrics.js';
+import { copyMaterials, cleanupStages } from './materials.js';
 
 const ok = (text) => ({ kind: 'success', text });
 const err = (text) => ({ kind: 'error', text });
@@ -40,19 +41,73 @@ async function reconcileArchivedQuiet(ws, kit) {
   try { return await reconcileArchivedWorktrees(ws, kit); } catch { return null; }
 }
 
+/** Only treat a quote as a delimiter at token start and when it is paired. */
+function hasClosingQuote(raw, start, quote) {
+  for (let i = start + 1; i < raw.length; i += 1) {
+    if (quote === '"' && raw[i] === '\\') { i += 1; continue; }
+    if (raw[i] === quote) return true;
+  }
+  return false;
+}
+
+/** Quote-aware tokenizer: paths may contain spaces (`--file "docs/my page.png"`).
+ *  Quotes inside natural-language words (e.g. `John's`) stay literal. */
+function tokenize(raw) {
+  const tokens = [];
+  let cur = '';
+  let quote = null;
+  let started = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      else cur += ch;
+      started = true;
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === '"') { quote = null; continue; }
+      if (ch === '\\' && (raw[i + 1] === '"' || raw[i + 1] === '\\')) {
+        cur += raw[i + 1];
+        i += 1;
+      } else cur += ch;
+      started = true;
+      continue;
+    }
+    if (!started && (ch === '"' || ch === "'") && hasClosingQuote(raw, i, ch)) {
+      quote = ch;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (started) { tokens.push(cur); cur = ''; started = false; }
+      continue;
+    }
+    cur += ch;
+    started = true;
+  }
+  if (started) tokens.push(cur);
+  return tokens;
+}
+
 function parseArgs(raw) {
-  const tokens = raw.trim().split(/\s+/).filter(Boolean);
+  const tokens = tokenize(String(raw ?? ''));
   const flags = {};
   const positional = [];
+  const assign = (key, value) => {
+    if (flags[key] === undefined) flags[key] = value;
+    else if (Array.isArray(flags[key])) flags[key].push(value);
+    else flags[key] = [flags[key], value];
+  };
   for (let i = 0; i < tokens.length; i += 1) {
     const t = tokens[i];
     if (t.startsWith('--')) {
       const key = t.slice(2);
       if (i + 1 < tokens.length && !tokens[i + 1].startsWith('--')) {
-        flags[key] = tokens[i + 1];
+        assign(key, tokens[i + 1]);
         i += 1;
       } else {
-        flags[key] = true;
+        assign(key, true);
       }
     } else {
       positional.push(t);
@@ -361,7 +416,14 @@ async function hkNew({ agent, rawInput }) {
   const autoNamed = !!flags.auto;
   if (autoNamed) task = autoTaskName(ws, desc);
   if (!task || !TASK_NAME_RE.test(task)) {
-    return err('用法：/hk-new [任务名] <需求描述> [--file <需求文件>] [--auto]（任务名限英文/数字/-_；留空或 --auto 按描述自动生成）');
+    return err('用法：/hk-new [任务名] <需求描述> [--file <文件或目录>]... [--auto]（任务名限英文/数字/-_；留空或 --auto 按描述自动生成；可重复 --file 引用多个文件/原型目录）');
+  }
+  const fileFlags = flags.file === undefined
+    ? []
+    : (Array.isArray(flags.file) ? flags.file : [flags.file]);
+  const materialRefs = fileFlags.filter((v) => typeof v === 'string' && v.trim());
+  if (materialRefs.length !== fileFlags.length) {
+    return err('--file 需要一个文件或目录路径；引用多个材料时重复写 --file（目录会递归拷入任务 inputs/）。');
   }
 
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);
@@ -377,27 +439,30 @@ async function hkNew({ agent, rawInput }) {
   await clearTaskWorkspaces(ws, kit, task);
   await removeTaskAnalysisWorktrees(ws, kit, task);
 
-  // optional requirement file: copy into the task dir for the bootstrap to read
-  let reqFile = '（无）';
-  if (typeof flags.file === 'string') {
-    const src = path.resolve(ws, flags.file);
-    if (!fs.existsSync(src) || !fs.statSync(src).isFile()) {
-      fs.rmSync(taskDir, { recursive: true, force: true });
-      return err(`需求文件不存在：${flags.file}`);
-    }
-    reqFile = path.basename(src);
-    fs.copyFileSync(src, path.join(taskDir, reqFile));
+  // Reference materials: many files, images, or whole prototype folders are
+  // copied into inputs/ so the task remains self-contained and model-readable.
+  cleanupStages(ws);
+  let materials = { files: [], totalBytes: 0, indexRel: null, imageCount: 0 };
+  try {
+    materials = copyMaterials({ cwd: ws, taskDir, task, refs: materialRefs });
+  } catch (cause) {
+    fs.rmSync(taskDir, { recursive: true, force: true });
+    return err(cause.message);
   }
+  const materialSummary = materials.indexRel
+    ? `[inputs/INDEX.md](.harness/deliverables/${task}/${materials.indexRel})（${materials.files.length} 个文件${materials.imageCount ? `，图片 ${materials.imageCount}` : ''}）`
+    : '（无）';
 
   const tplPath = path.join(packDir(kit), 'templates', 'proposal.md');
   const tpl = fs.existsSync(tplPath)
     ? fs.readFileSync(tplPath, 'utf8')
-    : '# 提案：{{task}}\n\n> **状态**：draft\n\n## 输入\n\n- **来源**：{{source}}\n- **文件**：{{file}}\n- **描述**：{{desc}}\n';
+    : '# 提案：{{task}}\n\n> **状态**：draft\n\n## 输入\n\n- **来源**：{{source}}\n- **参考材料**：{{files}}\n- **描述**：{{desc}}\n';
   const doc = tpl
     .replaceAll('{{task}}', task)
     .replaceAll('{{desc}}', desc)
-    .replaceAll('{{source}}', reqFile === '（无）' ? '描述' : '描述+文件')
-    .replaceAll('{{file}}', reqFile);
+    .replaceAll('{{source}}', materials.indexRel ? '描述+参考材料' : '描述')
+    .replaceAll('{{file}}', materialSummary)
+    .replaceAll('{{files}}', materialSummary);
   fs.writeFileSync(path.join(taskDir, 'proposal.md'), doc, 'utf8');
   // 交接摘要模板：PM 在每次派发前更新，Worker 只读 handoff + 指定章节，不整份重读上游文档。
   const handoffTplPath = path.join(packDir(kit), 'assets', 'templates', 'handoff.md');
@@ -406,7 +471,8 @@ async function hkNew({ agent, rawInput }) {
       .replaceAll('{{task}}', task)
       .replaceAll('{{desc}}', desc)
       .replaceAll('{{profile}}', '待判定')
-      .replaceAll('{{round}}', '1');
+      .replaceAll('{{round}}', '1')
+      .replaceAll('{{materials}}', materialSummary);
     fs.writeFileSync(path.join(taskDir, 'handoff.md'), handoff, 'utf8');
   }
   // --base 开发基线（同时是分析基点与归档合入目标）：落盘 spec + 立即建任务专属分析工作区（propose 时幂等复用）
@@ -435,19 +501,25 @@ async function hkNew({ agent, rawInput }) {
     desc,
     flowFile: loaded.file,
     artifacts: `.harness/deliverables/${task}/`,
+    materials: materialSummary,
     roleSections: [
       pm ? `### PM 角色（你立即切换到此身份）\n\n${pm.body}` : '（缺 project-manager 角色定义，按通用 PM 职责执行）',
       '',
       '### Profile 路由表（逐条对照 when 条件判定）',
       router ? `\`\`\`yaml\n${fs.readFileSync(router.file, 'utf8').trim()}\n\`\`\`` : '（缺 flows/_router.yml：按默认 standard 处理，并在汇报中注明）',
     ].join('\n'),
-    rules: readCoreRules(kit),
+    rules: [
+      readCoreRules(kit),
+      materials.indexRel
+        ? '参考材料纪律：先读 `inputs/INDEX.md`；文本/代码/原型入口页读全文，图片必须用 `read_image` 逐张查看；把页面结构、交互、字段、状态和验收点写进 proposal，禁止只写“见附件”。'
+        : '',
+    ].filter(Boolean).join('\n\n'),
     dispatchSection: dispatchSection(kit, [], readLocalModels(ws)),
   });
 
   steer(agent, prompt);
   return ok(
-    `新任务 **${task}** 已创建：\n- 提案草稿 \`.harness/deliverables/${task}/proposal.md\` 已生成（状态 draft）${autoNamed ? '\n- 任务名由描述自动生成；如需更名请现在告诉我' : ''}${reqFile === '（无）' ? '' : `\n- 需求文件已拷入：\`${reqFile}\``}\n- 看板已登记（PENDING）${baseNote}\n- Bootstrap 剧本已提交 PM：解读输入 → 起草 → Profile 判定 → ⛔模糊点反问 → ⛔定稿（approved）→ 交接\n\n红线生效：定稿+审批 1 前，源码区（${protectedSourcePaths(kit).join('、')}）禁写。`,
+    `新任务 **${task}** 已创建：\n- 提案草稿 \`.harness/deliverables/${task}/proposal.md\` 已生成（状态 draft）${autoNamed ? '\n- 任务名由描述自动生成；如需更名请现在告诉我' : ''}${materials.indexRel ? `\n- 参考材料已拷入：\`inputs/\`（${materials.files.length} 个文件${materials.imageCount ? `，其中图片 ${materials.imageCount} 张` : ''}），索引见 \`inputs/INDEX.md\`` : ''}\n- 看板已登记（PENDING）${baseNote}\n- Bootstrap 剧本已提交 PM：解读输入 → 起草 → Profile 判定 → ⛔模糊点反问 → ⛔定稿（approved）→ 交接\n\n红线生效：定稿+审批 1 前，源码区（${protectedSourcePaths(kit).join('、')}）禁写。`,
   );
 }
 
@@ -1180,7 +1252,7 @@ async function hkUmbrella({ agent, rawInput, ctx }) {
       '## /hk 入口',
       '',
       '- `/hk init [--assets …]`：初始化 / 修复工作区骨架与资产绑定',
-      '- `/hk task <描述> [--file …]`：立项；加 `--fix` 走快速修复',
+      '- `/hk task <描述> [--file …]...`：立项（可重复引用多个文件/目录）；加 `--fix` 走快速修复',
       '- `/hk close <任务> [--merge|--no-merge] [--dry-run]`：归档并收尾',
       '- `/hk doctor [--fix]`：体检；`--fix` 修复确定性缺件',
       '',
@@ -1205,7 +1277,7 @@ export function registerCommands(ctx) {
     { name: 'hk-setup', description: '收集代码仓库并登记 kit.json（--add <url> [--name n] [--path p] [--role r] [--branch b]）', hint: '[--add <git-url> …]', handler: hkSetup },
     { name: 'hk-init', description: '初始化 .harness 骨架/资产仓库绑定/脚本模板物化，并编排子工程文档与 CodeGraph 索引生成（幂等）', hint: '[--assets <url|init|local>] [--branch <分支>]', handler: hkInit },
     { name: 'hk-fix', description: '启动轻量 fix 直通任务：脚手架 + PM 编排剧本', hint: '[任务名] <一句话描述> [--full|--light] [--auto]', handler: hkFix },
-    { name: 'hk-new', description: '启动全流程任务（Bootstrap）：proposal 脚手架 + 需求澄清/profile 判定/定稿编排', hint: '[任务名] <需求描述> [--file <需求文件>] [--auto]', handler: hkNew },
+    { name: 'hk-new', description: '启动全流程任务（Bootstrap）：proposal 脚手架 + 需求澄清/profile 判定/定稿编排', hint: '[任务名] <需求描述> [--file <文件或目录>]... [--auto]', handler: hkNew },
     { name: 'hk-propose', description: '执行 propose 方案阶段（BA→SA→RR→审批1，按 proposal profile）', hint: '[任务名]', handler: hkPropose },
     { name: 'hk-apply', description: '执行 apply 实施阶段（Dev→CR→TE→审批2；含就绪预检与续接）', hint: '[任务名] [反馈]', handler: hkApply },
     { name: 'hk-archive', description: '归档任务本轮产物到 _archive 并清空活目录（全流程附带 Spec/Memory Merge 收尾）', hint: '<任务名>', handler: hkArchive },
