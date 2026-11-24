@@ -1267,235 +1267,282 @@ window.__ModuleLoader__.load({
       };
       const kv = (label, value) => h('div', { style: S.kv }, h('span', { style: { color: V.sub, minWidth: 96 } }, label), h('span', null, value ?? '—'));
 
+      // 设置页分类 Tab
+      const [tab, setTab] = useState('basic');
+      const tabs = [
+        { id: 'basic', label: '基础' },
+        { id: 'model', label: '模型' },
+        { id: 'im', label: 'IM 通知' },
+        { id: 'advanced', label: '高级' },
+      ];
+
       return h('div', null,
-        // ① 只读信息
-        h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '资产仓库'),
-          kv('地址', k.assets?.url),
-          kv('分支', k.assets?.branch),
-          kv('模式', ws?.sync?.layout === 'embedded' ? `${k.assets?.mode ?? 'local'}（随工作区仓管理）` : k.assets?.mode),
-          kv('同步健康', syncMeta.label),
-          kv('上次检查', config.sync?.checkedAt ? new Date(config.sync.checkedAt).toLocaleString() : '—'),
-          kv('内容包', k.pack),
-          kv('宿主', (k.hosts ?? []).join('、'))),
-        h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '插件版本'),
-          kv('当前版本', updateInfo?.current),
-          kv('最新版本', updateChecking ? '检查中…' : (updateInfo?.disabled ? '已关闭' : (updateInfo?.latest ?? (updateInfo && !updateInfo.ok ? '检查失败' : '检查中…')))),
-          updateInfo?.updateAvailable && h('div', { style: { fontSize: 12, color: V.brand, marginBottom: 8 } },
-            `新版本 ${updateInfo.latest} 可用。请到 Plugins → Harness Kit → Update 更新。`),
-          updateInfo && !updateInfo.ok && !updateInfo.disabled && h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 8 } },
-            '更新检查失败不会影响插件使用，可能是网络或 registry 不可达。'),
-          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-            h('button', { style: S.btn(updateChecking), disabled: updateChecking, onClick: () => onCheckUpdate({ notify: true }) }, updateChecking ? '检查中…' : '检查更新'),
-            updateInfo?.updateAvailable && h('button', { style: S.btn(false), onClick: onShowUpdate }, '查看更新提示'))),
-        // M2：池化工作区概览（本机台账）
-        ws?.slots && Object.keys(ws.slots).length > 0 && h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '工作区池（本机）'),
-          Object.entries(ws.slots).map(([repo, arr]) => h('div', { key: repo, style: { fontSize: 12, marginBottom: 6 } },
-            h('div', { style: { fontWeight: 600, marginBottom: 2 } }, repo),
-            arr.length === 0 && h('div', { style: { color: V.sub } }, '无 slot（并发任务出现时自动创建）'),
-            arr.map((s) => h('div', { key: s.slot, style: { marginBottom: 3 } },
-              h('div', { style: { color: s.state === 'stale-unmerged' ? V.warn : V.sub } },
-                `${s.slot}：${s.state === 'stale-unmerged' ? '⚠ 保留未释放' : `任务 ${s.task}`} · ${s.branch}`),
-              // 完整路径（点击复制，方便直接 cd/在文件管理器打开）
-              h('div', {
-                style: { fontFamily: 'monospace', fontSize: 11, color: V.sub, wordBreak: 'break-all', cursor: 'copy' },
-                title: '点击复制完整路径',
-                onClick: () => { try { navigator.clipboard?.writeText(`${ws.path}/.worktrees/${repo}/${s.slot}`); toast('路径已复制'); } catch { /* 剪贴板不可用时无操作 */ } },
-              }, `${ws.path}/.worktrees/${repo}/${s.slot}`)))))),
-        // 本机开发配置：只存在于本机的配置（数据库密码/端口/证书等）需要带到并行工作区。
-        h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '本机开发配置'),
-          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
-            '有些配置文件只存在于你的电脑（例如数据库密码、端口、私有证书），不会提交到代码仓库。确认一次后，新建的并行工作区会自动带上它们；只在本机复制，不会提交或上传。'),
-          local === null && h('div', { style: { fontSize: 12, color: V.sub } }, '正在查找本机配置文件…'),
-          local && (local.sources ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '还没有登记代码仓库。'),
-          local && (local.sources ?? []).map((s) => {
-            const pending = (s.candidates ?? []).filter((c) => c.pending);
-            return h('div', { key: s.name, style: { marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${V.border}` } },
-              h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 3 } },
-                `${s.name}：已同步 ${s.approved.length} 个，待处理 ${pending.length} 个`),
-              pending.length === 0 && s.approved.length > 0 && h('div', { style: { fontSize: 11, color: V.ok } }, '本机配置已同步。'),
-              pending.length === 0 && s.approved.length === 0 && h('div', { style: { fontSize: 11, color: V.sub } }, '没有发现需要同步的本机文件。'),
-              pending.length > 0 && (() => {
-                const selected = new Set(localSel[s.name] ?? []);
-                const selectedPending = pending.filter((c) => selected.has(c.path));
-                return h('div', null,
-                  h('div', { style: { maxHeight: 230, overflowY: 'auto', border: `1px solid ${V.border}`, borderRadius: 6, padding: '4px 6px', marginBottom: 6 } },
-                    pending.map((c) => h('label', {
-                      key: c.path,
-                      style: { display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, color: V.sub, marginBottom: 3, cursor: 'pointer' },
-                      title: c.path,
-                    },
-                      h('input', { type: 'checkbox', checked: selected.has(c.path), onChange: (e) => toggleLocal(s.name, c.path, e.target.checked) }),
-                      h('span', { style: { color: c.reason === 'high' ? V.warn : V.sub, whiteSpace: 'nowrap' } }, c.reason === 'high' ? '建议同步' : '可选'),
-                      h('span', { style: { fontFamily: 'monospace', wordBreak: 'break-all' } }, c.path)))),
-                  h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
-                    h('button', { style: S.btn(localBusy || selectedPending.length === 0, true), disabled: localBusy || selectedPending.length === 0, onClick: () => localAction(s.name, 'approve', selectedPending.map((c) => c.path)) }, `同步选中（${selectedPending.length}）`),
-                    h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '同步全部'),
-                    h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '暂不同步')));
-              })());
-          })),
-        // ② 可配项
-        (k.sources ?? []).length > 0 && h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '子工程基线分支'),
-          k.sources.map((s) => h('div', { key: s.name, style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
-            h('span', { style: { minWidth: 120, fontSize: 12 } }, `${s.name}（${s.role}）`),
-            h('input', { style: { ...S.input, width: 140 }, value: branches[s.name] ?? '', onChange: (e) => setBranches({ ...branches, [s.name]: e.target.value }) }))),
-          h('button', {
-            style: S.btn(busy, true), disabled: busy,
-            onClick: () => saveConfig({ sources: k.sources.map((s) => ({ name: s.name, branch: branches[s.name] ?? s.branch })) }, '基线分支已保存'),
-          }, '保存分支')),
-        // 流程模式（原 .harness/config.json 的 apply-mode，已并入 kit.json）
-        h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '流程设置'),
-          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-            'applyMode 决定 CR 通过后是否进入人工审查点（review = CR PASS 后暂停等人工审查，auto = 直接进 TE）。'),
-          k.legacyConfig && h('div', { style: { ...S.attn('warn'), marginBottom: 8 } },
-            h('span', null, '🟠'),
-            h('span', { style: { flex: 1 } },
-              `检测到旧 .harness/config.json（apply-mode=${k.legacyConfig.applyMode ?? '—'}, mainline-branch=${k.legacyConfig.mainlineBranch ?? '—'}）：保存本区后即覆盖到 kit.json，重跑初始化会自动删除旧文件`)),
-          h('div', { style: { display: 'flex', gap: 14, alignItems: 'center', marginBottom: 8, fontSize: 12 } },
-            ['auto', 'review'].map((m) => h('label', { key: m, style: { display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' } },
-              h('input', { type: 'radio', name: 'hk-apply-mode', checked: applyMode === m, onChange: () => setApplyMode(m) }),
-              h('span', null, m === 'auto' ? 'auto（CR PASS 直接进 TE）' : 'review（CR PASS 暂停等人工审查）'))),
-          h('button', {
-            style: S.btn(busy, true), disabled: busy,
-            onClick: () => saveConfig({ applyMode }, '流程配置已保存'),
-          }, '保存'))),
-        h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '任务收尾'),
-          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-            '开启后归档会先同步目标基线并本地合入干净任务分支；冲突、目标脏或分叉时停下，不会自动 push。'),
-          h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },
-            h('input', { type: 'checkbox', checked: autoClose, onChange: (e) => setAutoClose(e.target.checked) }),
-            '归档时自动收尾（autoClose）'),
-          h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, fontSize: 12 } },
-            h('span', { style: { minWidth: 96, color: V.sub } }, '目标同步'),
-            h('select', { style: { ...S.select, width: 150 }, value: targetSync, onChange: (e) => setTargetSync(e.target.value) },
-              h('option', { value: 'safe' }, 'safe（推荐）'),
-              h('option', { value: 'ff-only' }, 'ff-only（严格）'),
-              h('option', { value: 'off' }, 'off（不同步）'))),
-          h('button', {
-            style: S.btn(busy, true), disabled: busy,
-            onClick: () => saveConfig({ worktree: { autoClose, targetSync } }, '任务收尾配置已保存'),
-          }, '保存')),
-        h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '自动同步'),
-          h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },
-            h('input', { type: 'checkbox', checked: autoSync, onChange: (e) => setAutoSync(e.target.checked) }),
-            '归档后自动执行资产同步（/hk-sync）'),
-          h('button', { style: S.btn(busy, true), disabled: busy, onClick: () => saveConfig({ autoSync }, autoSync ? '已开启自动同步' : '已关闭自动同步') }, '保存')),
-        h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '高级：Worker 模型映射'),
-          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
-            '本机覆盖优先于团队默认：本机角色 > 团队角色 > 本机逻辑名 > 团队逻辑名 > 会话默认。'),
-          h('div', { style: { display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' } },
-            [['local', '仅本机（推荐）'], ['team', '团队默认']].map(([scope, label]) =>
-              h('button', {
-                key: scope,
-                style: {
-                  ...S.btn(false), padding: '3px 10px', fontSize: 12, borderRadius: 14,
-                  background: modelScope === scope ? V.brand : 'transparent',
-                  color: modelScope === scope ? V.brandInvert : V.text,
-                },
-                onClick: () => setModelScope(scope),
-              }, label))),
-          h('div', { style: { fontSize: 12, color: modelScope === 'local' ? V.ok : V.warn, marginBottom: 8 } },
-            modelScope === 'local'
-              ? '只写入 .harness/local/models.json：不会提交、不会同步给团队。留空 = 全部使用团队默认。'
-              : '写入 kit.json：会随团队资产仓库共享，改动前先和团队确认。'),
-          modelScope === 'local' && teamModels.length > 0 && h('div', { style: { display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' } },
-            h('button', { style: S.btn(false), onClick: copyTeamDefaults }, '从团队默认复制'),
-            localModels.length > 0 && h('button', { style: S.btn(false), onClick: () => { setLocalModels([]); saveConfig({ localModels: {} }, '本机模型覆盖已清空'); } }, '清空本机覆盖')),
-          modelScope === 'local' && localModels.length === 0 && teamModels.length > 0 &&
-            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-              `当前没有本机覆盖，全部使用团队默认（${teamModels.length} 条）。`),
-          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-            '键支持角色名（优先）或逻辑名（fast / coding / reasoning）；未配置的角色走下一级或会话默认。'),
-          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-            '推理等级随模型能力变化；新增默认 low，模型不支持时用该模型默认。'),
-          editingModels.length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-            modelScope === 'local' ? '尚未添加本机覆盖，团队默认继续生效。' : '尚未配置团队默认，全部角色走默认模型。'),
-          editingModels.map((m, i) => h('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' } },
-            // 角色名下拉：流程角色（BA/SA/Dev/CR/TE 等，宿主扫 agents/ 目录）+ 已映射的逻辑模型名 + 自由输入
-            h(Combobox, {
-              style: { width: 130 },
-              value: m.name, placeholder: '角色名',
-              options: [...new Set([
-                ...(config.roles ?? []).map((r) => r.role),
-                ...(config.presetModels ?? []).map((x) => x.name),
-              ])],
-              onChange: (v) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, name: v } : x)),
-            }),
-            modelScope === 'team' && localOverrideNames.has(m.name) &&
-              h('span', { style: { fontSize: 11, color: V.warn, whiteSpace: 'nowrap' } }, '本机已覆盖'),
-            modelScope === 'local' && teamDefaultNames.has(m.name) &&
-              h('span', { style: { fontSize: 11, color: V.brand, whiteSpace: 'nowrap' } }, '覆盖团队'),
-            // provider 下拉：宿主已注册的全部 LLM provider；切换时清空 model（避免脏组合）；已配置但不可用的值保留显示并标灰
-            h('select', {
-              style: { ...S.select, width: 110 },
-              value: m.provider ?? '',
-              onChange: (e) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, provider: e.target.value, model: '', reasoning_effort: '' } : x)),
-            }, [
-              h('option', { key: '', value: '' }, '（会话默认）'),
-              ...(catalog ?? []).map((c) => h('option', { key: c.provider, value: c.provider }, c.provider)),
-            ]),
-            providerMissing(m) && h('span', { style: { fontSize: 11, color: V.warn } }, '原 provider 不可用，请重选'),
-            // model 下拉：所选 provider 的模型清单 + 自由输入
-            h(Combobox, {
-              style: { flex: 1 },
-              value: m.model, placeholder: 'model',
-              options: (catalog ?? []).find((c) => c.provider === (m.provider || ''))?.models?.map((mo) => mo.id) ?? [],
-              onChange: (v) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, model: v, reasoning_effort: defaultEffort(x.provider, v) } : x)),
-            }),
-            // 推理等级：选项来自当前模型能力；不同厂商不是同一套枚举（DeepSeek off/low/high/max，
-            // 其他模型可能 minimal/low/medium/high 或没有），不在这里硬编码“通用等级”。
-            h('select', {
-              style: { ...S.select, width: 100 },
-              title: m.reasoning_effort ? `reasoning_effort=${m.reasoning_effort}` : '该模型未声明推理等级，使用默认',
-              value: m.reasoning_effort ?? '',
-              onChange: (e) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, reasoning_effort: e.target.value } : x)),
-            }, [
-              h('option', { key: '', value: '' }, '默认'),
-              ...reasoningEfforts(m.provider, m.model).map((e) => h('option', { key: e.id, value: e.id }, e.name || e.id)),
-              ...(m.reasoning_effort && !reasoningEfforts(m.provider, m.model).some((e) => e.id === m.reasoning_effort)
-                ? [h('option', { key: '__missing', value: m.reasoning_effort }, `⚠ ${m.reasoning_effort}`)] : []),
-            ]),
-            h('button', { style: S.iconBtn, title: '删除', onClick: () => setEditingModels(editingModels.filter((_, j) => j !== i)) }, '×'))),
-          (catalog ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } }, '未发现可用模型清单（宿主未注册 LLM 或接口不可用），仍可手动输入'),
-          h('div', { style: { display: 'flex', gap: 8, marginTop: 8 } },
-            h('button', { style: S.btn(false), onClick: () => setEditingModels([...editingModels, { name: '', provider: '', model: '', reasoning_effort: '' }]) }, '＋ 添加映射'),
+        // Tab 导航
+        h('div', { style: { display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${V.border}`, paddingBottom: 8 } },
+          tabs.map((t) => h('button', {
+            key: t.id,
+            style: {
+              ...S.btn(false),
+              padding: '6px 16px',
+              fontSize: 13,
+              borderRadius: '6px 6px 0 0',
+              borderBottom: tab === t.id ? `2px solid ${V.brand}` : '2px solid transparent',
+              color: tab === t.id ? V.brand : V.sub,
+              background: tab === t.id ? V.surface : 'transparent',
+            },
+            onClick: () => setTab(t.id),
+          }, t.label))),
+
+        // 基础 Tab
+        tab === 'basic' && h('div', null,
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '资产仓库'),
+            kv('地址', k.assets?.url),
+            kv('分支', k.assets?.branch),
+            kv('模式', ws?.sync?.layout === 'embedded' ? `${k.assets?.mode ?? 'local'}（随工作区仓管理）` : k.assets?.mode),
+            kv('同步健康', syncMeta.label),
+            kv('上次检查', config.sync?.checkedAt ? new Date(config.sync.checkedAt).toLocaleString() : '—'),
+            kv('内容包', k.pack),
+            kv('宿主', (k.hosts ?? []).join('、'))),
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '插件版本'),
+            kv('当前版本', updateInfo?.current),
+            kv('最新版本', updateChecking ? '检查中…' : (updateInfo?.disabled ? '已关闭' : (updateInfo?.latest ?? (updateInfo && !updateInfo.ok ? '检查失败' : '检查中…')))),
+            updateInfo?.updateAvailable && h('div', { style: { fontSize: 12, color: V.brand, marginBottom: 8 } },
+              `新版本 ${updateInfo.latest} 可用。请到 Plugins → Harness Kit → Update 更新。`),
+            updateInfo && !updateInfo.ok && !updateInfo.disabled && h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 8 } },
+              '更新检查失败不会影响插件使用，可能是网络或 registry 不可达。'),
+            h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+              h('button', { style: S.btn(updateChecking), disabled: updateChecking, onClick: () => onCheckUpdate({ notify: true }) }, updateChecking ? '检查中…' : '检查更新'),
+              updateInfo?.updateAvailable && h('button', { style: S.btn(false), onClick: onShowUpdate }, '查看更新提示'))),
+          ws?.slots && Object.keys(ws.slots).length > 0 && h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '工作区池（本机）'),
+            Object.entries(ws.slots).map(([repo, arr]) => h('div', { key: repo, style: { fontSize: 12, marginBottom: 6 } },
+              h('div', { style: { fontWeight: 600, marginBottom: 2 } }, repo),
+              arr.length === 0 && h('div', { style: { color: V.sub } }, '无 slot（并发任务出现时自动创建）'),
+              arr.map((s) => h('div', { key: s.slot, style: { marginBottom: 3 } },
+                h('div', { style: { color: s.state === 'stale-unmerged' ? V.warn : V.sub } },
+                  `${s.slot}：${s.state === 'stale-unmerged' ? '⚠ 保留未释放' : `任务 ${s.task}`} · ${s.branch}`),
+                // 完整路径（点击复制，方便直接 cd/在文件管理器打开）
+                h('div', {
+                  style: { fontFamily: 'monospace', fontSize: 11, color: V.sub, wordBreak: 'break-all', cursor: 'copy' },
+                  title: '点击复制完整路径',
+                  onClick: () => { try { navigator.clipboard?.writeText(`${ws.path}/.worktrees/${repo}/${s.slot}`); toast('路径已复制'); } catch { /* 剪贴板不可用时无操作 */ } },
+                }, `${ws.path}/.worktrees/${repo}/${s.slot}`)))))),
+          // 本机开发配置：只存在于本机的配置（数据库密码/端口/证书等）需要带到并行工作区。
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '本机开发配置'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
+              '有些配置文件只存在于你的电脑（例如数据库密码、端口、私有证书），不会提交到代码仓库。确认一次后，新建的并行工作区会自动带上它们；只在本机复制，不会提交或上传。'),
+            local === null && h('div', { style: { fontSize: 12, color: V.sub } }, '正在查找本机配置文件…'),
+            local && (local.sources ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '还没有登记代码仓库。'),
+            local && (local.sources ?? []).map((s) => {
+              const pending = (s.candidates ?? []).filter((c) => c.pending);
+              return h('div', { key: s.name, style: { marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${V.border}` } },
+                h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 3 } },
+                  `${s.name}：已同步 ${s.approved.length} 个，待处理 ${pending.length} 个`),
+                pending.length === 0 && s.approved.length > 0 && h('div', { style: { fontSize: 11, color: V.ok } }, '本机配置已同步。'),
+                pending.length === 0 && s.approved.length === 0 && h('div', { style: { fontSize: 11, color: V.sub } }, '没有发现需要同步的本机文件。'),
+                pending.length > 0 && (() => {
+                  const selected = new Set(localSel[s.name] ?? []);
+                  const selectedPending = pending.filter((c) => selected.has(c.path));
+                  return h('div', null,
+                    h('div', { style: { maxHeight: 230, overflowY: 'auto', border: `1px solid ${V.border}`, borderRadius: 6, padding: '4px 6px', marginBottom: 6 } },
+                      pending.map((c) => h('label', {
+                        key: c.path,
+                        style: { display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, color: V.sub, marginBottom: 3, cursor: 'pointer' },
+                        title: c.path,
+                      },
+                        h('input', { type: 'checkbox', checked: selected.has(c.path), onChange: (e) => toggleLocal(s.name, c.path, e.target.checked) }),
+                        h('span', { style: { color: c.reason === 'high' ? V.warn : V.sub, whiteSpace: 'nowrap' } }, c.reason === 'high' ? '建议同步' : '可选'),
+                        h('span', { style: { fontFamily: 'monospace', wordBreak: 'break-all' } }, c.path)))),
+                    h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+                      h('button', { style: S.btn(localBusy || selectedPending.length === 0, true), disabled: localBusy || selectedPending.length === 0, onClick: () => localAction(s.name, 'approve', selectedPending.map((c) => c.path)) }, `同步选中（${selectedPending.length}）`),
+                      h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'approve', pending.map((c) => c.path)) }, '同步全部'),
+                      h('button', { style: S.btn(localBusy), disabled: localBusy, onClick: () => localAction(s.name, 'skip', pending.map((c) => c.path)) }, '暂不同步')));
+                })());
+            })),
+          (k.sources ?? []).length > 0 && h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '子工程基线分支'),
+            k.sources.map((s) => h('div', { key: s.name, style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
+              h('span', { style: { minWidth: 120, fontSize: 12 } }, `${s.name}（${s.role}）`),
+              h('input', { style: { ...S.input, width: 140 }, value: branches[s.name] ?? '', onChange: (e) => setBranches({ ...branches, [s.name]: e.target.value }) }))),
             h('button', {
-              style: S.btn(busy || editingModels.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)), true),
-              disabled: busy || editingModels.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)),
-              onClick: () => saveConfig({
-                [modelScope === 'local' ? 'localModels' : 'models']: Object.fromEntries(editingModels.map((m) => [m.name.trim(), {
-                  ...(m.provider.trim() ? { provider: m.provider.trim() } : {}),
-                  model: m.model.trim(),
-                  ...(m.reasoning_effort ? { reasoning_effort: m.reasoning_effort } : {}),
-                }])),
-              }, modelScope === 'local' ? '本机模型覆盖已保存' : '团队模型映射已保存'),
-            }, modelScope === 'local' ? '保存本机覆盖' : '保存团队默认'))),
-        // ③ 初始化与子工程（面板化的 /hk-init、/hk-setup --add）
-        h('div', { style: S.section },
-          h('div', { style: S.secTitle }, '初始化与子工程'),
-          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-            '重跑初始化是幂等的：补齐骨架 / 模板 / 脚本并重新扫描子工程，不覆盖已有内容。资产换绑、解绑、删除子工程仍请在会话中执行 /hk-init、/hk-setup。'),
-          initGap && h('div', { style: { ...S.attn('warn'), marginBottom: 8 } },
-            h('span', null, '🟠'),
-            h('span', { style: { flex: 1 } }, initGap.text),
-            h('button', { style: S.btn(busy, true), disabled: busy, onClick: onOrchestrate }, '启动初始化编排')),
-          (ws?.initGaps ?? []).length > 0 && h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 8 } },
-            (ws.initGaps ?? []).map((g) => h('div', { key: `${g.kind}:${g.repo ?? 'root'}`, style: { marginBottom: 2 } },
-              `• ${g.label}（${g.kind === 'build-json' ? 'build.json 可补齐' : '需初始化编排生成'}）`))),
-          ws?.init && !ws.init.done && h('div', { style: { ...S.attn('warn'), marginBottom: 8 } },
-            h('span', null, '🔧'),
-            h('span', { style: { flex: 1 } }, `初始化进行中：${ws.init.stage}${ws.init.detail ? ` — ${ws.init.detail}` : ''}（刷新不影响，完成后再重跑以免重复克隆）`)),
-          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-            h('button', { style: S.btn(busy || (ws?.init && !ws.init.done), true), disabled: busy || !!(ws?.init && !ws.init.done), title: ws?.init && !ws.init.done ? '初始化进行中，请等待完成' : undefined, onClick: () => runInit({}, '骨架/脚本已幂等补齐（子工程文档由初始化编排生成）') }, '重跑初始化'),
-            h(AddSourceForm, { busy, onSubmit: (spec) => runInit({ sources: [spec] }, `子工程 ${spec.name || spec.url} 已登记`) }))),
+              style: S.btn(busy, true), disabled: busy,
+              onClick: () => saveConfig({ sources: k.sources.map((s) => ({ name: s.name, branch: branches[s.name] ?? s.branch })) }, '基线分支已保存'),
+            }, '保存分支')),
+          // 流程模式（原 .harness/config.json 的 apply-mode，已并入 kit.json）
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '流程设置'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+              'applyMode 决定 CR 通过后是否进入人工审查点（review = CR PASS 后暂停等人工审查，auto = 直接进 TE）。'),
+            k.legacyConfig && h('div', { style: { ...S.attn('warn'), marginBottom: 8 } },
+              h('span', null, '🟠'),
+              h('span', { style: { flex: 1 } },
+                `检测到旧 .harness/config.json（apply-mode=${k.legacyConfig.applyMode ?? '—'}, mainline-branch=${k.legacyConfig.mainlineBranch ?? '—'}）：保存本区后即覆盖到 kit.json，重跑初始化会自动删除旧文件`)),
+            h('div', { style: { display: 'flex', gap: 14, alignItems: 'center', marginBottom: 8, fontSize: 12 } },
+              ['auto', 'review'].map((m) => h('label', { key: m, style: { display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' } },
+                h('input', { type: 'radio', name: 'hk-apply-mode', checked: applyMode === m, onChange: () => setApplyMode(m) }),
+                h('span', null, m === 'auto' ? 'auto（CR PASS 直接进 TE）' : 'review（CR PASS 暂停等人工审查）'))),
+            h('button', {
+              style: S.btn(busy, true), disabled: busy,
+              onClick: () => saveConfig({ applyMode }, '流程配置已保存'),
+            }, '保存'))),
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '任务收尾'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+              '开启后归档会先同步目标基线并本地合入干净任务分支；冲突、目标脏或分叉时停下，不会自动 push。'),
+            h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },
+              h('input', { type: 'checkbox', checked: autoClose, onChange: (e) => setAutoClose(e.target.checked) }),
+              '归档时自动收尾（autoClose）'),
+            h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, fontSize: 12 } },
+              h('span', { style: { minWidth: 96, color: V.sub } }, '目标同步'),
+              h('select', { style: { ...S.select, width: 150 }, value: targetSync, onChange: (e) => setTargetSync(e.target.value) },
+                h('option', { value: 'safe' }, 'safe（推荐）'),
+                h('option', { value: 'ff-only' }, 'ff-only（严格）'),
+                h('option', { value: 'off' }, 'off（不同步）'))),
+            h('button', {
+              style: S.btn(busy, true), disabled: busy,
+              onClick: () => saveConfig({ worktree: { autoClose, targetSync } }, '任务收尾配置已保存'),
+            }, '保存')),
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '自动同步'),
+            h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },
+              h('input', { type: 'checkbox', checked: autoSync, onChange: (e) => setAutoSync(e.target.checked) }),
+              '归档后自动执行资产同步（/hk-sync）'),
+            h('button', { style: S.btn(busy, true), disabled: busy, onClick: () => saveConfig({ autoSync }, autoSync ? '已开启自动同步' : '已关闭自动同步') }, '保存')),
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '高级：Worker 模型映射'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
+              '本机覆盖优先于团队默认：本机角色 > 团队角色 > 本机逻辑名 > 团队逻辑名 > 会话默认。'),
+            h('div', { style: { display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' } },
+              [['local', '仅本机（推荐）'], ['team', '团队默认']].map(([scope, label]) =>
+                h('button', {
+                  key: scope,
+                  style: {
+                    ...S.btn(false), padding: '3px 10px', fontSize: 12, borderRadius: 14,
+                    background: modelScope === scope ? V.brand : 'transparent',
+                    color: modelScope === scope ? V.brandInvert : V.text,
+                  },
+                  onClick: () => setModelScope(scope),
+                }, label))),
+            h('div', { style: { fontSize: 12, color: modelScope === 'local' ? V.ok : V.warn, marginBottom: 8 } },
+              modelScope === 'local'
+                ? '只写入 .harness/local/models.json：不会提交、不会同步给团队。留空 = 全部使用团队默认。'
+                : '写入 kit.json：会随团队资产仓库共享，改动前先和团队确认。'),
+            modelScope === 'local' && teamModels.length > 0 && h('div', { style: { display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' } },
+              h('button', { style: S.btn(false), onClick: copyTeamDefaults }, '从团队默认复制'),
+              localModels.length > 0 && h('button', { style: S.btn(false), onClick: () => { setLocalModels([]); saveConfig({ localModels: {} }, '本机模型覆盖已清空'); } }, '清空本机覆盖')),
+            modelScope === 'local' && localModels.length === 0 && teamModels.length > 0 &&
+              h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+                `当前没有本机覆盖，全部使用团队默认（${teamModels.length} 条）。`),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+              '键支持角色名（优先）或逻辑名（fast / coding / reasoning）；未配置的角色走下一级或会话默认。'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+              '推理等级随模型能力变化；新增默认 low，模型不支持时用该模型默认。'),
+            editingModels.length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+              modelScope === 'local' ? '尚未添加本机覆盖，团队默认继续生效。' : '尚未配置团队默认，全部角色走默认模型。'),
+            editingModels.map((m, i) => h('div', { key: i, style: { display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' } },
+              // 角色名下拉：流程角色（BA/SA/Dev/CR/TE 等，宿主扫 agents/ 目录）+ 已映射的逻辑模型名 + 自由输入
+              h(Combobox, {
+                style: { width: 130 },
+                value: m.name, placeholder: '角色名',
+                options: [...new Set([
+                  ...(config.roles ?? []).map((r) => r.role),
+                  ...(config.presetModels ?? []).map((x) => x.name),
+                ])],
+                onChange: (v) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, name: v } : x)),
+              }),
+              modelScope === 'team' && localOverrideNames.has(m.name) &&
+                h('span', { style: { fontSize: 11, color: V.warn, whiteSpace: 'nowrap' } }, '本机已覆盖'),
+              modelScope === 'local' && teamDefaultNames.has(m.name) &&
+                h('span', { style: { fontSize: 11, color: V.brand, whiteSpace: 'nowrap' } }, '覆盖团队'),
+              // provider 下拉：宿主已注册的全部 LLM provider；切换时清空 model（避免脏组合）；已配置但不可用的值保留显示并标灰
+              h('select', {
+                style: { ...S.select, width: 110 },
+                value: m.provider ?? '',
+                onChange: (e) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, provider: e.target.value, model: '', reasoning_effort: '' } : x)),
+              }, [
+                h('option', { key: '', value: '' }, '（会话默认）'),
+                ...(catalog ?? []).map((c) => h('option', { key: c.provider, value: c.provider }, c.provider)),
+              ]),
+              providerMissing(m) && h('span', { style: { fontSize: 11, color: V.warn } }, '原 provider 不可用，请重选'),
+              // model 下拉：所选 provider 的模型清单 + 自由输入
+              h(Combobox, {
+                style: { flex: 1 },
+                value: m.model, placeholder: 'model',
+                options: (catalog ?? []).find((c) => c.provider === (m.provider || ''))?.models?.map((mo) => mo.id) ?? [],
+                onChange: (v) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, model: v, reasoning_effort: defaultEffort(x.provider, v) } : x)),
+              }),
+              // 推理等级：选项来自当前模型能力；不同厂商不是同一套枚举（DeepSeek off/low/high/max，
+              // 其他模型可能 minimal/low/medium/high 或没有），不在这里硬编码“通用等级”。
+              h('select', {
+                style: { ...S.select, width: 100 },
+                title: m.reasoning_effort ? `reasoning_effort=${m.reasoning_effort}` : '该模型未声明推理等级，使用默认',
+                value: m.reasoning_effort ?? '',
+                onChange: (e) => setEditingModels(editingModels.map((x, j) => j === i ? { ...x, reasoning_effort: e.target.value } : x)),
+              }, [
+                h('option', { key: '', value: '' }, '默认'),
+                ...reasoningEfforts(m.provider, m.model).map((e) => h('option', { key: e.id, value: e.id }, e.name || e.id)),
+                ...(m.reasoning_effort && !reasoningEfforts(m.provider, m.model).some((e) => e.id === m.reasoning_effort)
+                  ? [h('option', { key: '__missing', value: m.reasoning_effort }, `⚠ ${m.reasoning_effort}`)] : []),
+              ]),
+              h('button', { style: S.iconBtn, title: '删除', onClick: () => setEditingModels(editingModels.filter((_, j) => j !== i)) }, '×'))),
+            (catalog ?? []).length === 0 && h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } }, '未发现可用模型清单（宿主未注册 LLM 或接口不可用），仍可手动输入'),
+            h('div', { style: { display: 'flex', gap: 8, marginTop: 8 } },
+              h('button', { style: S.btn(false), onClick: () => setEditingModels([...editingModels, { name: '', provider: '', model: '', reasoning_effort: '' }]) }, '＋ 添加映射'),
+              h('button', {
+                style: S.btn(busy || editingModels.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)), true),
+                disabled: busy || editingModels.some((m) => !m.name.trim() || !m.model.trim() || providerMissing(m)),
+                onClick: () => saveConfig({
+                  [modelScope === 'local' ? 'localModels' : 'models']: Object.fromEntries(editingModels.map((m) => [m.name.trim(), {
+                    ...(m.provider.trim() ? { provider: m.provider.trim() } : {}),
+                    model: m.model.trim(),
+                    ...(m.reasoning_effort ? { reasoning_effort: m.reasoning_effort } : {}),
+                  }])),
+                }, modelScope === 'local' ? '本机模型覆盖已保存' : '团队模型映射已保存'),
+              }, modelScope === 'local' ? '保存本机覆盖' : '保存团队默认'))),
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, '初始化与子工程'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+              '重跑初始化是幂等的：补齐骨架 / 模板 / 脚本并重新扫描子工程，不覆盖已有内容。资产换绑、解绑、删除子工程仍请在会话中执行 /hk-init、/hk-setup。'),
+            initGap && h('div', { style: { ...S.attn('warn'), marginBottom: 8 } },
+              h('span', null, '🟠'),
+              h('span', { style: { flex: 1 } }, initGap.text),
+              h('button', { style: S.btn(busy, true), disabled: busy, onClick: onOrchestrate }, '启动初始化编排')),
+            (ws?.initGaps ?? []).length > 0 && h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 8 } },
+              (ws.initGaps ?? []).map((g) => h('div', { key: `${g.kind}:${g.repo ?? 'root'}`, style: { marginBottom: 2 } },
+                `• ${g.label}（${g.kind === 'build-json' ? 'build.json 可补齐' : '需初始化编排生成'}）`))),
+            ws?.init && !ws.init.done && h('div', { style: { ...S.attn('warn'), marginBottom: 8 } },
+              h('span', null, '🔧'),
+              h('span', { style: { flex: 1 } }, `初始化进行中：${ws.init.stage}${ws.init.detail ? ` — ${ws.init.detail}` : ''}（刷新不影响，完成后再重跑以免重复克隆）`)),
+            h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+              h('button', { style: S.btn(busy || (ws?.init && !ws.init.done), true), disabled: busy || !!(ws?.init && !ws.init.done), title: ws?.init && !ws.init.done ? '初始化进行中，请等待完成' : undefined, onClick: () => runInit({}, '骨架/脚本已幂等补齐（子工程文档由初始化编排生成）') }, '重跑初始化'),
+              h(AddSourceForm, { busy, onSubmit: (spec) => runInit({ sources: [spec] }, `子工程 ${spec.name || spec.url} 已登记`) }))),
+        ),
+
+        // 模型 Tab
+        tab === 'model' && h('div', null,
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, 'Worker 模型映射'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8, lineHeight: 1.6 } },
+              '本机覆盖优先于团队默认：本机角色 > 团队角色 > 本机逻辑名 > 团队逻辑名 > 会话默认。'),
+          ),
+        ),
+
+        // IM 通知 Tab
+        tab === 'im' && h('div', null,
+          h('div', { style: S.section },
+            h('div', { style: S.secTitle }, 'IM 通知（审批桥接）'),
+            h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 12, lineHeight: 1.6 } },
+              '配置后，Harness Kit 的审批/澄清问题会推送到 IM，点击按钮即可远程决策。配置只保存在本机，不会提交到团队资产仓库。'),
+          ),
+        ),
+
+        // 高级 Tab
+        tab === 'advanced' && h('div', null,
+          h('div', { style: S.secTitle }, '高级设置'),
+        ),
       );
     }
 
