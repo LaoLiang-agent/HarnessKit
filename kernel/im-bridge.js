@@ -171,21 +171,8 @@ export function installImBridge(ctx) {
     return pending;
   };
 
-  const agentDisposers = new Map();
-  const attach = (agent) => {
-    if (!agent?.ctx || agentDisposers.has(agent)) return;
-    const off = agent.ctx.on('user-questions/request', handleQuestion);
-    agentDisposers.set(agent, off);
-    disposers.push(off);
-  };
-  disposers.push(ctx.on('user-questions/request', handleQuestion));
-  disposers.push(ctx.on('agent/created', ({ agent }) => attach(agent)));
-  disposers.push(ctx.on('agent/disposed', ({ agent }) => {
-    agentDisposers.get(agent)?.();
-    agentDisposers.delete(agent);
-  }));
-  // 插件热加载时，当前已有 agent 也要挂上
-  for (const agent of ctx.get('agents')?.list?.() ?? []) attach(agent);
+  // DSH 的 user-questions/request 是 scope-filtered waterfall：必须 global + prepend
+  disposers.push(ctx.on('user-questions/request', handleQuestion, { global: true, prepend: true }));
 
   // 清理
   disposers.push(async () => {
