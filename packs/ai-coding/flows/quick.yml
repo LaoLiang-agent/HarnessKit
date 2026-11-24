@@ -16,7 +16,7 @@ stages:
       - 自评 BLOCK → 补全方案后重评
   - name: 审批 1
     phase: propose
-    approval: 先在会话里发送一条可见消息（普通 assistant 文本，不是 reasoning）：标题「审批 1 · <任务名>」，用 Markdown 链接列出 [requirements.md](.harness/deliverables/<任务名>/requirements.md)、[design.md](.harness/deliverables/<任务名>/design.md)、[proposal.md](.harness/deliverables/<任务名>/proposal.md)，写要点与 SA 就绪自评结论；再调用 ask_user_question，question 以「材料：[需求](链接) · [方案](链接)」开头再问是否通过。通过后把「审批 1：通过（YYYY-MM-DD）」写入 proposal.md 末尾——写入后源码区红线自动解锁
+    approval: 先在会话里发送一条可见消息（普通 assistant 文本，不是 reasoning）：标题「审批 1 · <任务名>」，用 Markdown 链接列出 [requirements.md](.harness/deliverables/<任务名>/requirements.md)、[design.md](.harness/deliverables/<任务名>/design.md)、[proposal.md](.harness/deliverables/<任务名>/proposal.md)，写要点与 SA 就绪自评结论；再调用 ask_user_question，question 以「HK:审批 1 · <任务名>」开头，detail 写 3~5 行摘要，options 固定为 [{label:'✅ 通过，进入开发'},{label:'❌ 打回'}]。通过后把「审批 1：通过（YYYY-MM-DD）」写入 proposal.md 末尾——写入后源码区红线自动解锁
   - name: 开发
     phase: apply
     worker: developer
@@ -35,6 +35,6 @@ stages:
       - 派发 Test Engineer 验证（quick 覆盖度：构建/单测 + 手动验证，可免 E2E），产出 test-report.md，最后一个「## 结论」段写 PASS 或 BLOCK
   - name: 审批 2
     phase: apply
-    approval: 先发可见消息（普通 assistant 文本，不是 reasoning）：标题「审批 2 · <任务名>」，用 Markdown 链接列出 [code-review.md](.harness/deliverables/<任务名>/code-review.md)、[test-report.md](.harness/deliverables/<任务名>/test-report.md)、[dev-log.md](.harness/deliverables/<任务名>/dev-log.md)，写测试结论与交付摘要；再调用 ask_user_question，question 以「材料：[评审](链接) · [测试](链接)」开头再问是否归档。通过后把看板置 AWAITING_ARCHIVE 并记录「审批 2：通过」（链上审批2✅）——自动续接引擎会接力 /hk-archive <任务名>，无需人手动敲；若工作区关闭自动续接（kit.autoAdvance=false），则提醒人运行
+    approval: 先发可见消息（普通 assistant 文本，不是 reasoning）：标题「审批 2 · <任务名>」，用 Markdown 链接列出 [code-review.md](.harness/deliverables/<任务名>/code-review.md)、[test-report.md](.harness/deliverables/<任务名>/test-report.md)、[dev-log.md](.harness/deliverables/<任务名>/dev-log.md)，写测试结论与交付摘要；再调用 ask_user_question，question 以「HK:审批 2 · <任务名>」开头，detail 写 3~5 行摘要，options 固定为 [{label:'✅ 通过，归档'},{label:'❌ 打回'}]。通过后把看板置 AWAITING_ARCHIVE 并记录「审批 2：通过」（链上审批2✅）——自动续接引擎会接力 /hk-archive <任务名>，无需人手动敲；若工作区关闭自动续接（kit.autoAdvance=false），则提醒人运行
 after:
   - 回退规则：CR 不通过 → Dev；TE 实现级 → Dev；TE 需求级 → propose

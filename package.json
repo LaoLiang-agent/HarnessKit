@@ -61,5 +61,8 @@
       "platform": "web",
       "immediately": true
     }
+  },
+  "devDependencies": {
+    "@larksuiteoapi/node-sdk": "^1.73.0"
   }
 }

@@ -35,6 +35,8 @@ import { readLocalModels, writeLocalModels, clearLocalModels } from './local-mod
 import { normalizeModelMap } from './models.js';
 import { checkPluginUpdate } from './update.js';
 import { stageUpload, clearStage, MAX_UPLOAD_BYTES } from './materials.js';
+import { readImConfig, writeImConfig, appendImAudit, readImAudit, hasEnabledChannel } from './im/config.js';
+import { ApprovalBridge } from './im/bridge.js';
 
 /** 解析看板 markdown 表（7 列契约，见 commands.js boardTemplate）。
  *  容错与 commands.js parseBoardRow 同源：超列溢出并入「续接提示」，不足补 —。 */
@@ -1455,6 +1457,100 @@ export function registerPanelApi(ctx) {
     },
   });
 
-  logger?.info?.('harness-kit: M4b panel API mounted (state/config/activity/sync/command/bind-session/workspace-inspect/create/open/init)');
+  // IM 通知配置：读取/保存 .harness/local/im-config.json
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/im-config',
+    async handler(req, res) {
+      const ref = new URL(req.url, 'http://x').searchParams.get('workspace');
+      if (req.method === 'GET') {
+        const ws = findWs(registry, ref);
+        if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+        try {
+          const config = readImConfig(ws.path);
+          sendJson(res, 200, { ok: true, config });
+        } catch (cause) {
+          sendJson(res, 500, { ok: false, error: cause.message });
+        }
+        return;
+      }
+      if (req.method === 'POST') {
+        try {
+          const { workspace, config } = JSON.parse(await readBody(req) || '{}');
+          const ws = findWs(registry, workspace);
+          if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+          if (!config || typeof config !== 'object') return sendJson(res, 400, { ok: false, error: 'config 必须是对象' });
+          writeImConfig(ws.path, config);
+          appendImAudit(ws.path, { type: 'config-saved', result: 'ok' });
+          sendJson(res, 200, { ok: true });
+        } catch (cause) {
+          sendJson(res, 500, { ok: false, error: cause.message });
+        }
+        return;
+      }
+      sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+    },
+  });
+
+  // IM 测试发送：验证飞书配置是否正确
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/im-test',
+    async handler(req, res) {
+      if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      try {
+        const { workspace, channel } = JSON.parse(await readBody(req) || '{}');
+        const ws = findWs(registry, workspace);
+        if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+        const config = readImConfig(ws.path);
+        const channelConfig = config.channels?.[channel];
+        if (!channelConfig?.enabled) return sendJson(res, 400, { ok: false, error: `渠道 ${channel} 未启用` });
+        if (channel === 'feishu') {
+          if (!channelConfig.appId || !channelConfig.appSecret) {
+            return sendJson(res, 400, { ok: false, error: '飞书配置缺少 appId 或 appSecret' });
+          }
+          // 临时创建 bridge 发送测试卡片
+          const bridge = new ApprovalBridge({ ws: ws.path, logger, userQuestions: null });
+          await bridge.init();
+          const transport = bridge.transports.get('feishu');
+          if (!transport) return sendJson(res, 500, { ok: false, error: '飞书 transport 未初始化' });
+          const target = channelConfig.targetOpenId;
+          if (!target) return sendJson(res, 400, { ok: false, error: '未绑定目标用户（请先给机器人发一条消息）' });
+          const card = JSON.stringify({
+            config: { wide_screen_mode: true },
+            header: { title: { tag: 'plain_text', content: 'Harness Kit 测试' }, template: 'blue' },
+            elements: [{ tag: 'div', text: { tag: 'lark_md', content: '这是一条测试消息，如果你看到它，说明飞书配置正确。' } }],
+          });
+          const messageId = await transport.sendCard(target, card);
+          await bridge.dispose();
+          sendJson(res, 200, { ok: true, messageId });
+          return;
+        }
+        sendJson(res, 400, { ok: false, error: `渠道 ${channel} 暂不支持测试` });
+      } catch (cause) {
+        sendJson(res, 500, { ok: false, error: cause.message });
+      }
+    },
+  });
+
+  // IM 审计日志
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/im-audit',
+    async handler(req, res) {
+      if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      const ref = new URL(req.url, 'http://x').searchParams.get('workspace');
+      const ws = findWs(registry, ref);
+      if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+      try {
+        const entries = readImAudit(ws.path, 100);
+        sendJson(res, 200, { ok: true, entries });
+      } catch (cause) {
+        sendJson(res, 500, { ok: false, error: cause.message });
+      }
+    },
+  });
+
+  logger?.info?.('harness-kit: M4b panel API mounted (state/config/activity/sync/command/bind-session/workspace-inspect/create/open/init/im-config/im-test/im-audit)');
   return disposers;
 }

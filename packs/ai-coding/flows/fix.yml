@@ -16,7 +16,7 @@ stages:
       - 信息不足时先向人反问（PM 澄清义务），不要自行补全口径
   - name: 质量门
     actor: PM
-    gate: 按 bugfix.md「质量门」表评估复杂度并给出建议（轻量 或 --full）。裁决无默认值，必须交人。先发一条可见消息（普通 assistant 文本，不是 reasoning）：标题「质量门 · <任务名>」，用 Markdown 链接列出 [bugfix.md](.harness/deliverables/<任务名>/bugfix.md)，写复杂度评估与建议；再调用 ask_user_question，question 以「材料：[bugfix.md](链接)」开头再问轻量还是 --full。人裁决后把「裁决：轻量」或「裁决：--full」写入 bugfix.md 的 R0 段——写入后源码区红线自动解锁，方可进入开发。轻量 = 只 Dev + 验证；--full = Dev → CR → TE。
+    gate: 按 bugfix.md「质量门」表评估复杂度并给出建议（轻量 或 --full）。裁决无默认值，必须交人。先发一条可见消息（普通 assistant 文本，不是 reasoning）：标题「质量门 · <任务名>」，用 Markdown 链接列出 [bugfix.md](.harness/deliverables/<任务名>/bugfix.md)，写复杂度评估与建议；再调用 ask_user_question，question 以「HK:质量门 · <任务名>」开头，detail 写 3~5 行摘要（影响面、复杂度、建议轻量还是 --full），options 固定为 [{label:'轻量（只 Dev + 验证）'},{label:'--full（Dev → CR → TE）'}]。人裁决后把「裁决：轻量」或「裁决：--full」写入 bugfix.md 的 R0 段——写入后源码区红线自动解锁，方可进入开发。
   - name: 开发修复
     worker: developer
     do:

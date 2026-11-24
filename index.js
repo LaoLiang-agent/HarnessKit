@@ -8,9 +8,10 @@ import path from 'node:path';
 import { registerCommands } from './kernel/commands.js';
 import { installGuards } from './kernel/guards.js';
 import { registerPanelApi } from './kernel/panel.js';
-import { readKit } from './kernel/paths.js';
+import { readKit, wsRoot } from './kernel/paths.js';
 import { collectModelRoutes } from './kernel/models.js';
 import { readLocalModels } from './kernel/local-models.js';
+import { installImBridge } from './kernel/im-bridge.js';
 
 export const inject = ['commands', 'tools'];
 
@@ -46,5 +47,13 @@ export function apply(ctx) {
     webCtx.get('logger')?.info?.('harness-kit: panel api mounted');
     return () => disposers.forEach((d) => d());
   });
+
+  // IM 审批桥接：监听 user-questions/request，识别 HK 标记，发卡片到 IM
+  ctx.inject(['userQuestions'], (uqCtx) => {
+    const disposers = installImBridge(uqCtx);
+    uqCtx.get('logger')?.info?.('harness-kit: IM bridge installed');
+    return () => disposers.forEach((d) => d());
+  });
+
   ctx.get('logger')?.info?.('harness-kit: loaded (commands + guards)');
 }

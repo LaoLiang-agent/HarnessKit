@@ -15,7 +15,7 @@ stages:
       - 以表格向人展示每个子工程：类型、模板、L1 AGENTS.md（已有 CLAUDE.md 也算已存在，不生成缺少的）/ L1.5 .harness/build.json / L2 docs/CODE_STANDARDS.md 各项状态（✅已存在跳过 / ♻️补齐缺失键 / ⬜待生成）、模块级 AGENTS.md（已有 CLAUDE.md 也算已存在）的缺失清单
   - name: 生成确认
     actor: PM
-    gate: 把计划交人确认（全部生成 / 逐项确认 / 取消），用 ask_user_question 工具；确认前不得写任何子工程文件
+    gate: 把计划交人确认（全部生成 / 逐项确认 / 取消），用 ask_user_question 工具，question 以「HK:初始化确认」开头；确认前不得写任何子工程文件
   - name: build.json 落盘
     actor: PM
     do:
@@ -26,7 +26,7 @@ stages:
       - 模板留空的键（前端/移动的 compile、所有工程的 start-ok 等）不在本阶段编造，由下一阶段「启动命令补齐」按工程事实推断并经人确认后填入
   - name: 启动命令补齐（人机协作）
     actor: PM
-    gate: 补齐方案必须经人确认后才写盘；未经确认不得改 build.json
+    gate: 补齐方案必须经人确认后才写盘；未经确认不得改 build.json；question 以「HK:启动命令补齐」开头
     do:
       - 目标：初始化完成后每个子工程都能真实编译和启动 —— build.json 的 compile / test / start / start-ok / start-timeout / start-port 必须是**可执行的工程事实**，不是模板占位
       - 对每个子工程先探索事实再提方案：读 package.json 的 scripts / pom.xml / build.gradle / *.csproj / README / 已有 AGENTS.md 或 CLAUDE.md，推断各键的具体命令、启动端口、启动成功的日志特征（start-ok 正则候选，如 `Started .* in [0-9.]+ seconds`、`Local:.*http`）
@@ -38,14 +38,14 @@ stages:
     do:
       - 逐子工程运行 `python3 .harness/scripts/harness.py run-field <子工程名> compile`（也可用 `--all compile` 一轮跑完）
       - 编译通过 → 记录 ✅；compile 未声明 → 记录「未验证」并说明原因
-      - 编译失败 → 把报错要点报给人，用 ask_user_question 询问：修正 build.json 命令后重试一次 / 标记未验证跳过；最多重试一轮，禁止无限循环
+      - 编译失败 → 把报错要点报给人，用 ask_user_question 询问：修正 build.json 命令后重试一次 / 标记未验证跳过；question 以「HK:编译失败」开头；最多重试一轮，禁止无限循环
   - name: 启动验证
     actor: PM
     do:
       - 逐子工程运行 `python3 .harness/scripts/harness.py run-field <子工程名> start`
       - 命中 start-ok 判据 = 启动成功 → **立即** `python3 .harness/scripts/harness.py run-field <子工程名> stop` 停掉服务，再验下一个（验证完不得遗留运行中的服务）
       - 超时未命中、但日志里出现明显成功标志 → 停下把该日志行报给人，经人确认后更新 start-ok 正则；先 stop 清场再重试一次
-      - start 未声明 → 「未验证」，如实记录；进程退出或判定失败 → 报人并按编译验证同款对话机制处理（修命令重试一次 / 标记未验证）
+      - start 未声明 → 「未验证」，如实记录；进程退出或判定失败 → 报人并按编译验证同款对话机制处理（修命令重试一次 / 标记未验证）；question 以「HK:启动失败」开头
       - 全部验完后汇总确认无遗留服务（对每个启过的工程复核一次 stop 已执行）
   - name: L2 编码规范
     actor: PM
