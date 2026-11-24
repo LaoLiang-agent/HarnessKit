@@ -3,7 +3,7 @@
 
 import { readImConfig, appendImAudit, hasEnabledChannel } from './config.js';
 import { getTransport, listChannels } from './transport.js';
-import { buildApprovalCard, buildResultCard, parseActionValue } from './cards.js';
+import { buildApprovalCard, buildResultCard, parseActionValue, displayOptionLabel } from './cards.js';
 
 /** 审批记录 */
 class PendingApproval {
@@ -20,6 +20,7 @@ class PendingApproval {
     this.targetOpenId = targetOpenId;
     this.channel = channel;
     this.createdAt = Date.now();
+    this.awaitingCustom = null; // 选择了需要补充说明的选项时，等待用户回复文字
   }
 
   get answeredCount() {
@@ -127,6 +128,12 @@ export class ApprovalBridge {
       return;
     }
 
+    // 已要求补充说明：先等文字，避免误当成新的选择
+    if (pending.awaitingCustom) {
+      await this._updateCard(pending, buildResultCard({ title: '请补充说明', resultText: '请直接回复文字补充说明；补充完成后才能继续。', template: 'orange' }));
+      return;
+    }
+
     // 重复点击
     if (pending.answers[qIndex] !== undefined) {
       this.logger.info?.(`[im] 重复点击: q=${qIndex}`);
@@ -135,8 +142,30 @@ export class ApprovalBridge {
     }
 
     const question = pending.questions[qIndex];
-    const selectedLabel = question.options?.[optIndex]?.label ?? `选项${optIndex + 1}`;
+    const option = question.options?.[optIndex];
+    const selectedLabel = option?.label ?? `选项${optIndex + 1}`;
+
+    // 需要补充说明的选项：先记录待补充状态，收到文字后再落答案
+    if (this._requiresCustomText(option)) {
+      pending.awaitingCustom = { qIndex, label: selectedLabel };
+      this.logger.info?.(`[im] 等待补充说明: q${qIndex + 1} = "${selectedLabel}"`);
+      await this._updateCard(pending, buildResultCard({
+        title: '请补充说明',
+        resultText: `你选择了「${displayOptionLabel(selectedLabel)}」。
+
+请直接回复文字补充说明。`,
+        template: 'orange',
+      }));
+      return;
+    }
+
     await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [selectedLabel] }, operatorId);
+  }
+
+  /** 该选项是否必须附带文字说明（常见于“其他/额外范围/需要补充”类选项） */
+  _requiresCustomText(option) {
+    const text = `${option?.label ?? ''} ${option?.description ?? ''}`;
+    return /(?:\[|（|\()\s*需?补充(?:说明)?\s*(?:\]|）|\))|额外范围|其他(?:范围|说明|情况)?|自定义|手动输入|请补充|请说明|需说明/.test(text);
   }
 
   /** 是否允许该操作者处理此审批：仅私聊目标本人（不做白名单） */
@@ -149,6 +178,7 @@ export class ApprovalBridge {
   async _recordAndAdvance(pending, qIndex, answerItem, actor) {
     pending.answers[qIndex] = answerItem;
     pending.currentIndex = Math.max(pending.currentIndex, qIndex + 1);
+    pending.awaitingCustom = null;
     const display = answerItem.custom || (answerItem.selected ?? []).join(', ') || '（空）';
     this.logger.info?.(`[im] 记录答案: q${qIndex + 1} = "${display}"`);
 
@@ -175,6 +205,21 @@ export class ApprovalBridge {
   /** 处理文本消息：数字选选项、选项文字匹配，或作为澄清问题的自定义答案 */
   async _handleMessage({ text, senderOpenId }, channel) {
     if (!text || !senderOpenId) return;
+    const trimmed = String(text).trim();
+    if (!trimmed) return;
+
+    // 优先处理“等待补充说明”的审批：此时文字是补充内容，不是选项
+    const awaiting = [...this.pendingApprovals.values()]
+      .filter((p) => p.awaitingCustom)
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+    if (awaiting) {
+      if (!this._isAllowed(awaiting, senderOpenId) || awaiting.isExpired) return;
+      const { qIndex, label } = awaiting.awaitingCustom;
+      const question = awaiting.questions[qIndex];
+      await this._recordAndAdvance(awaiting, qIndex, { id: question.id, selected: [label], custom: trimmed }, senderOpenId);
+      return;
+    }
+
     const candidates = [...this.pendingApprovals.values()]
       .filter((p) => p.answers.some((a) => a === undefined))
       .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
@@ -185,7 +230,6 @@ export class ApprovalBridge {
     if (qIndex === -1) return;
     const question = pending.questions[qIndex];
     const options = question.options ?? [];
-    const trimmed = String(text).trim();
 
     // 1) 数字 → 对应选项
     if (/^\d+$/.test(trimmed)) {
@@ -197,7 +241,8 @@ export class ApprovalBridge {
     }
     // 2) 选项文字精确/包含匹配
     if (options.length > 0) {
-      const matched = options.find((o) => o.label === trimmed) ?? options.find((o) => trimmed && o.label.includes(trimmed));
+      const matched = options.find((o) => o.label === trimmed || displayOptionLabel(o.label) === trimmed)
+        ?? options.find((o) => trimmed && (o.label.includes(trimmed) || displayOptionLabel(o.label).includes(trimmed)));
       if (matched) {
         await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [matched.label] }, senderOpenId);
         return;
@@ -215,6 +260,7 @@ export class ApprovalBridge {
         answers: pending.answers.map((a, i) => ({
           id: pending.questions[i].id,
           selected: a?.selected ?? [],
+          ...(a?.custom ? { custom: a.custom } : {}),
         })),
       };
       // 通过 userQuestions.answer 提交（用于 continued 状态的问题）
