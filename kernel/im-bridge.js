@@ -47,11 +47,9 @@ export function installImBridge(ctx) {
       return next();
     }
 
-    // 检查是否有 HK 标记的问题
+    // HK 标记只用于提取任务名/决定是否摘 detail；IM 启用后所有
+    // ask_user_question 都应通知，否则旧任务里没有 HK 前缀的审批会漏掉。
     const hkQuestions = questions.filter(isHkQuestion);
-    if (hkQuestions.length === 0) {
-      return next();
-    }
 
     // 给本题一个独立生命周期：IM 先答时 abort 这个 controller，
     // 让 DSH Web 的问题卡收到 ASK_ABORTED 后自动消失（不能 abort 整个 turn）。
@@ -64,11 +62,13 @@ export function installImBridge(ctx) {
     // Feishu 专用 detail 不进入 DSH 弹窗：DSH 保持原来的 header+question+options 格式。
     // 在调用 next() 之前摘掉 detail，飞书卡片仍用摘下来的副本。
     const imDetails = new Map();
-    for (const q of hkQuestions) {
+    for (const q of questions) {
+      const isHk = isHkQuestion(q);
       const imDetail = q.imDetail ?? q.detail;
       if (imDetail !== undefined) imDetails.set(q.id ?? q.question, imDetail);
-      delete q.detail;
       delete q.imDetail;
+      // 只有 HK 审批的 detail 是 IM 专用；普通 DSH 问题的 detail 保持原格式
+      if (isHk) delete q.detail;
     }
 
     const ws = getWs(agent);
@@ -104,14 +104,14 @@ export function installImBridge(ctx) {
     }
 
     // 提取任务名
-    const task = extractTaskName(hkQuestions[0]) ?? '未知任务';
+    const task = extractTaskName(hkQuestions[0]) ?? agent.session?.title ?? 'DSH 提问';
 
     try {
       // 创建 IM 审批
       const pending = await bridge.createApproval({
         sessionId: agent.session?.id ?? agent.id,
         task,
-        questions: hkQuestions.map((q) => ({
+        questions: questions.map((q) => ({
           id: q.id,
           question: q.question,
           detail: imDetails.get(q.id ?? q.question) ?? q.question,
