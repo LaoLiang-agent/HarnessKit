@@ -44,7 +44,7 @@
 - 不做任意 monorepo 的模块级构建编排。
 - 不自动猜测 `start-ok` / `start-port` 并当事实。
 - 不改发布流程、不改版本号。
-- 根 `AGENTS.md` 子工程地图自动同步、`codebase-guide` 深文档生成留到 P1。
+- `codebase-guide` 深文档生成、已有 AGENTS 缺口补齐留到 P1；根 AGENTS 地图同步已实现。
 
 ---
 
@@ -350,7 +350,29 @@ CodeGraph 是**可选增强**，不是质量门：
 
 ---
 
-## 12. 兼容性
+## 12. 根 AGENTS 子工程地图同步
+
+`runInit` 首次创建根 `AGENTS.md` 时写入标记块：
+
+```markdown
+<!-- hk:sources:begin -->
+| 名称 | 路径 | 角色 | 分支 |
+...
+<!-- hk:sources:end -->
+```
+
+`syncRootAgents(ws, kit, { create })`：
+
+- 只替换标记块内表格，块外人工内容原样保留；
+- `/hk-init` 用 `create: true`，可创建完整根文件；
+- `/hk-setup --add` 用默认 `create: false`，只更新已有标记块，不生成半成品；
+- 老 AGENTS 无标记 → 不改写，返回 `unmarked`，由初始化报告 warning；
+- 只有 `CLAUDE.md`、没有 `AGENTS.md` → 不创建，返回 `legacy`；
+- 子工程表路径直接取 `kit.sources[].path`，支持自定义路径。
+
+同时修复：`addSource` 对“已登记且目录存在但不是 git 仓库”的路径不再重复写入一条 source。
+
+## 13. 兼容性
 
 - Plan 增加 `schema=2`、`summary`、`missing_sources`、`tier`、`template_kind`、`modules_enabled`、`build_suggestion`；保留旧字段。
 - `build.json` 新键可选；旧文件不迁移。
@@ -360,7 +382,7 @@ CodeGraph 是**可选增强**，不是质量门：
 
 ---
 
-## 13. 文件改动
+## 14. 文件改动
 
 | 文件 | 改动 |
 |---|---|
@@ -380,7 +402,7 @@ CodeGraph 是**可选增强**，不是质量门：
 
 ---
 
-## 14. 测试
+## 15. 测试
 
 `test/sim.mjs` 新增 fixture：
 
@@ -408,6 +430,7 @@ code/custom/         自定义 path（kit.sources）
 - 自定义 path 与缺失来源可见；
 - `--tier full` 生效但不写回；
 - `--write-build` 识别 pnpm/scripts，且不覆盖人工非默认值；
+- 根 AGENTS 标记块随 `addSource` 更新、块外人工内容不变；无标记旧文件不改写；
 - CodeGraph 缺失时 `--optional` 只 WARN；
 - 完整性校验覆盖 generic 项目。
 
@@ -415,25 +438,25 @@ code/custom/         自定义 path（kit.sources）
 
 ---
 
-## 15. 后续（P1/P2）
+## 16. 后续（P1/P2）
 
-1. 根 `AGENTS.md` 子工程地图标记块自动同步（`syncRootAgents`）。
-2. `codebase-guide/overview.md` 写入确定性子工程地图。
-3. 已有 `AGENTS.md` 的章节缺口分析 + 只追加修复。
-4. 专用模板：Gradle、React/Next/Nest、Go、Python、Rust。
-5. 模块级构建配置（monorepo / 多 App）。
-6. 生成物版本标记与漂移检查（`init --check`）。
-7. 文档质量评估 fixture（命令真实、无编造、长度上限）。
+1. `codebase-guide/overview.md` 写入确定性子工程地图。
+2. 已有 `AGENTS.md` 的章节缺口分析 + 只追加修复。
+3. 专用模板：Gradle、React/Next/Nest、Go、Python、Rust。
+4. 模块级构建配置（monorepo / 多 App）。
+5. 生成物版本标记与漂移检查（`init --check`）。
+6. 文档质量评估 fixture（命令真实、无编造、长度上限）。
 
 ---
 
-## 16. 验收
+## 17. 验收
 
 - [x] 未知技术栈不再消失，generic 明确标注
 - [x] 三档生成，默认最小侵入
 - [x] 自定义 path / 嵌套 .NET / Maven 顶层模块可见
 - [x] build 建议可审计，人工值不被覆盖
 - [x] CodeGraph 不自动全局安装，可跳过
+- [x] 根 AGENTS 地图随 addSource 增量更新，不动人工内容
 - [x] 校验与计划同源
 - [x] 多语言 fixture 通过
 - [x] 未改版本号、未打 tag、未 npm publish

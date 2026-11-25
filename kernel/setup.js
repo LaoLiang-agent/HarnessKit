@@ -61,6 +61,91 @@ export function copyNew(srcDir, dstDir, managed = false) {
   return { added, existed, updated };
 }
 
+const SOURCES_BEGIN = '<!-- hk:sources:begin -->';
+const SOURCES_END = '<!-- hk:sources:end -->';
+
+function mdCell(value) {
+  return String(value ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
+
+/** 根 AGENTS.md 的子工程表：唯一由 kit.sources 生成，禁止手写行。 */
+function sourcesBlock(kit) {
+  const rows = (kit?.sources ?? [])
+    .map((s) => `| ${mdCell(s.name)} | \`${mdCell(s.path)}\` | ${mdCell(s.role)} | ${mdCell(s.branch)} |`)
+    .join('\n');
+  return [
+    SOURCES_BEGIN,
+    '| 名称 | 路径 | 角色 | 分支 |',
+    '|---|---|---|---|',
+    rows || '| （待 /hk-setup 登记） | | | |',
+    SOURCES_END,
+  ].join('\n');
+}
+
+/** 新工作区的完整根 AGENTS.md（只有 runInit 创建；syncRootAgents 不创建半成品）。 */
+function rootAgentsTemplate(kit) {
+  return [
+    '# 项目指南（Harness Kit 生成）',
+    '',
+    '本工作区由 Harness Kit 管理：多子工程协作、需求/设计/交付物与经验记忆全部沉淀在 `.harness/`。深入任何子工程前先查下表资源，不要凭猜测行动。',
+    '',
+    '## 子工程地图',
+    '',
+    sourcesBlock(kit),
+    '',
+    '## 工作区资源（.harness/）',
+    '',
+    '| 资源 | 位置 | 说明 |',
+    '|---|---|---|',
+    '| 协作契约 | `.harness/kit.json` | pack、资产仓库绑定、子工程清单 |',
+    '| 系统能力索引 | `.harness/specs/_index.md` | 已有需求能力（Source of Truth） |',
+    '| 架构总览 | `.harness/codebase-guide/overview.md` | 技术栈、目录结构、子工程关系 |',
+    '| 知识路由 | `.harness/codebase-guide/index.md` | L1/L2/L3 三层知识模型与角色路由 |',
+    '| 任务看板 | `.harness/tasks/board.md` | 当前任务与质量门状态 |',
+    '| 经验记忆 | `.harness/memory/index.md` | 历史坑与流程优化条目 |',
+    '| 编码底线 | `.harness/rules/code-standards.md` | 跨端编码红线 |',
+    '| 交付物 | `.harness/deliverables/<任务>/` | 提案、需求、设计、测试报告 |',
+    '',
+    '## 构建与运行',
+    '',
+    '各子工程的编译/启动/测试命令以其自身 `<子工程>/.harness/build.json` 为唯一权威来源，本文件不重复登记。',
+    '统一执行入口（自动解析运行时环境）：`python3 .harness/scripts/harness.py run-field <子工程> compile|start|stop|test`。',
+    '',
+    '## 红线',
+    '',
+    '- 规划阶段（质量门未裁决）禁止修改 services/ 下子工程与 e2e/ 源码。',
+    '- 范围/口径/验收模糊时必须向人反问，禁止 AI 自行补全。',
+    '',
+  ].join('\n');
+}
+
+/**
+ * 同步根 AGENTS.md 的子工程地图标记块。
+ * - 只改 `<!-- hk:sources:begin/end -->` 之间；块外内容（人工补充）原样保留；
+ * - 老文件没有标记 → 不改写，返回 unmarked，由调用方 warning；
+ * - 有 CLAUDE.md 无 AGENTS.md → 不创建，返回 legacy；
+ * - create 仅 runInit 使用；addSource 等只更新已有文件，避免生成半成品。
+ */
+export function syncRootAgents(ws, kit = null, { create = false } = {}) {
+  const k = kit ?? readKit(ws) ?? defaultKit();
+  const agents = path.join(ws, 'AGENTS.md');
+  const claude = path.join(ws, 'CLAUDE.md');
+  if (!fs.existsSync(agents)) {
+    if (fs.existsSync(claude)) return { updated: false, reason: 'legacy' };
+    if (!create) return { updated: false, reason: 'missing' };
+    fs.writeFileSync(agents, rootAgentsTemplate(k), 'utf8');
+    return { updated: true, created: true, reason: 'created' };
+  }
+  const text = fs.readFileSync(agents, 'utf8');
+  const begin = text.indexOf(SOURCES_BEGIN);
+  const end = text.indexOf(SOURCES_END);
+  if (begin < 0 || end < 0 || end < begin) return { updated: false, reason: 'unmarked' };
+  const next = text.slice(0, begin) + sourcesBlock(k) + text.slice(end + SOURCES_END.length);
+  if (next === text) return { updated: false, reason: 'unchanged' };
+  fs.writeFileSync(agents, next, 'utf8');
+  return { updated: true, created: false, reason: 'updated' };
+}
+
 /**
  * 登记/克隆一个代码仓库（/hk-setup --add 的确定性层）。
  * @returns {Promise<{ok:true, lines:string[], source:object}|{ok:false, error:string}>}
@@ -88,6 +173,11 @@ export async function addSource(ws, { url, name, path: relPath, role, branch } =
       && (await runGit(['rev-parse', '--git-dir'], { cwd: existingAbs })).code === 0;
     if (okExisting) {
       return { ok: false, code: 'already-present', error: `仓库 ${name}（${existing.path}）已登记且目录存在，无需重复添加。` };
+    }
+    if (fs.existsSync(existingAbs)) {
+      // 目录存在但不是 git 仓库：既不能 clone（目标已被占用），也不该再 push 一条重复登记。
+      // 明确要求先清理，避免 kit.sources 出现同名同路径的两条记录。
+      return { ok: false, code: 'already-present', error: `路径 ${existing.path} 已登记但不是 git 仓库；如需重新登记请先清理该目录，当前未重复写入。` };
     }
     // 已登记但本地无代码（资产仓库带来的登记）→ 沿用其登记坐标补 clone
     relPath = existing.path;
@@ -161,6 +251,9 @@ export async function addSource(ws, { url, name, path: relPath, role, branch } =
     kit.sources.push({ name, url, path: relPath, role, branch: resolvedBranch });
   }
   writeKit(ws, kit);
+  const agentsSync = syncRootAgents(ws, kit);
+  if (agentsSync.updated) lines.push('根 AGENTS.md 子工程地图已更新。');
+  else if (agentsSync.reason === 'unmarked') lines.push('根 AGENTS.md 无子工程地图标记，未自动更新（保留人工内容）。');
   lines.push(`已登记 **${name}** → \`${relPath}\`（role: ${role}, branch: ${resolvedBranch}），写入 .harness/kit.json。`);
   return { ok: true, lines, source: { name, path: relPath, role, branch: resolvedBranch } };
 }
@@ -563,49 +656,14 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
   const hasAgents = fs.existsSync(agentsMd);
   const hasClaude = fs.existsSync(legacyClaudeMd);
   if (!hasAgents && !hasClaude) {
-    const sourceLines = kit.sources.map((s) => `| ${s.name} | \`${s.path}\` | ${s.role} | ${s.branch} |`).join('\n');
-    fs.writeFileSync(
-      agentsMd,
-      [
-        '# 项目指南（Harness Kit 生成）',
-        '',
-        '本工作区由 Harness Kit 管理：多子工程协作、需求/设计/交付物与经验记忆全部沉淀在 `.harness/`。深入任何子工程前先查下表资源，不要凭猜测行动。',
-        '',
-        '## 子工程地图',
-        '',
-        '| 名称 | 路径 | 角色 | 分支 |',
-        '|---|---|---|---|',
-        sourceLines || '| （待 /hk-setup 登记） | | | |',
-        '',
-        '## 工作区资源（.harness/）',
-        '',
-        '| 资源 | 位置 | 说明 |',
-        '|---|---|---|',
-        '| 协作契约 | `.harness/kit.json` | pack、资产仓库绑定、子工程清单 |',
-        '| 系统能力索引 | `.harness/specs/_index.md` | 已有需求能力（Source of Truth） |',
-        '| 架构总览 | `.harness/codebase-guide/overview.md` | 技术栈、目录结构、子工程关系 |',
-        '| 知识路由 | `.harness/codebase-guide/index.md` | L1/L2/L3 三层知识模型与角色路由 |',
-        '| 任务看板 | `.harness/tasks/board.md` | 当前任务与质量门状态 |',
-        '| 经验记忆 | `.harness/memory/index.md` | 历史坑与流程优化条目 |',
-        '| 编码底线 | `.harness/rules/code-standards.md` | 跨端编码红线 |',
-        '| 交付物 | `.harness/deliverables/<任务>/` | 提案、需求、设计、测试报告 |',
-        '',
-        '## 构建与运行',
-        '',
-        '各子工程的编译/启动/测试命令以其自身 `<子工程>/.harness/build.json` 为唯一权威来源，本文件不重复登记。',
-        '统一执行入口（自动解析运行时环境）：`python3 .harness/scripts/harness.py run-field <子工程> compile|start|stop|test`。',
-        '',
-        '## 红线',
-        '',
-        '- 规划阶段（质量门未裁决）禁止修改 services/ 下子工程与 e2e/ 源码。',
-        '- 范围/口径/验收模糊时必须向人反问，禁止 AI 自行补全。',
-        '',
-      ].join('\n'),
-      'utf8',
-    );
+    fs.writeFileSync(agentsMd, rootAgentsTemplate(kit), 'utf8');
     created.push('AGENTS.md');
   } else {
     kept.push(hasAgents ? 'AGENTS.md' : 'CLAUDE.md（legacy，未改动）');
+  }
+  const agentsSync = syncRootAgents(ws, kit, { create: true });
+  if (agentsSync.reason === 'unmarked') {
+    warnings.push('根 AGENTS.md 无子工程地图标记（<!-- hk:sources:begin/end -->），已保留人工内容、未自动更新；如需托管请删除该段或手工加标记后重跑 /hk-init');
   }
 
   // 4. materialize init assets from the pack — scripts 是 pack 管理运行时（不入库，每次刷新覆盖）；

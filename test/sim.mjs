@@ -18,7 +18,7 @@ Object.assign(process.env, {
 const bundleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { registerCommands } = await import(path.join(bundleRoot, 'kernel/commands.js'));
 const { installGuards } = await import(path.join(bundleRoot, 'kernel/guards.js'));
-const { addSource, runInit, inspectDir, formatInitReport } = await import(path.join(bundleRoot, 'kernel/setup.js'));
+const { addSource, runInit, inspectDir, formatInitReport, syncRootAgents } = await import(path.join(bundleRoot, 'kernel/setup.js'));
 
 const handlers = new Map();
 registerCommands({ commands: { register: (d) => handlers.set(d.name, d.handler) } });
@@ -58,6 +58,7 @@ section('hk-init 骨架/物化/幂等/编排');
   ok('templates 物化', fs.existsSync(path.join(ws, '.harness/templates/java/maven-multimodule/build.tmpl')));
   ok('模板使用 AGENTS 命名', fs.existsSync(path.join(ws, '.harness/templates/java/maven-multimodule/root-AGENTS.tmpl')) && !fs.existsSync(path.join(ws, '.harness/templates/java/maven-multimodule/root-CLAUDE.tmpl')));
   ok('新工作区只生成 AGENTS，不生成 CLAUDE', fs.existsSync(path.join(ws, 'AGENTS.md')) && !fs.existsSync(path.join(ws, 'CLAUDE.md')));
+  ok('根 AGENTS 子工程地图带维护标记', (() => { const t = fs.readFileSync(path.join(ws, 'AGENTS.md'), 'utf8'); return t.includes('<!-- hk:sources:begin -->') && t.includes('<!-- hk:sources:end -->'); })());
   ok('assets.mode=local（默认）', readKitJson(ws).assets?.mode === 'local');
   ok('codebase-guide/overview.md 预置骨架', fs.readFileSync(path.join(ws, '.harness/codebase-guide/overview.md'), 'utf8').includes('项目架构总览'));
   ok('specs/_index.md 预置骨架（含跨域流程节）', (() => { const t = fs.readFileSync(path.join(ws, '.harness/specs/_index.md'), 'utf8'); return t.includes('系统能力索引') && t.includes('跨域流程'); })());
@@ -3143,6 +3144,35 @@ section('初始化：多语言探测 / 三档生成 / build 建议');
     check = String(e.stdout || '');
   }
   ok('完整性校验覆盖 generic 项目', check.includes('go-api (go, minimal)') && check.includes('web (node-spa, minimal)'));
+}
+
+
+// ---------------------------------------------------------------- 根 AGENTS 地图同步
+section('初始化：根 AGENTS 子工程地图同步');
+{
+  const ws = mkws();
+  cleanups.push(ws);
+  fake(ws, 'services/a/.git/HEAD', 'ref: refs/heads/dev');
+  await run('hk-init', '', ws);
+  let text = fs.readFileSync(path.join(ws, 'AGENTS.md'), 'utf8');
+  ok('初始地图包含已登记子工程', text.includes('| a | `services/a`'));
+
+  fs.appendFileSync(path.join(ws, 'AGENTS.md'), '\n## 人工补充\n\n保留这段。\n');
+  fake(ws, 'services/extra/pom.xml', '<project/>\n');
+  const added = await addSource(ws, { name: 'extra', path: 'services/extra', role: 'backend', branch: 'dev' });
+  text = fs.readFileSync(path.join(ws, 'AGENTS.md'), 'utf8');
+  ok('addSource 后地图增量更新', added.ok && text.includes('| extra | `services/extra` | backend | dev |'));
+  ok('地图更新不动标记块外内容', text.includes('## 人工补充') && text.includes('保留这段。'));
+
+  const again = await addSource(ws, { name: 'extra', path: 'services/extra', role: 'backend', branch: 'dev' });
+  ok('重复登记不重复写地图', again.code === 'already-present' && (fs.readFileSync(path.join(ws, 'AGENTS.md'), 'utf8').match(/services\/extra/g) || []).length === 1);
+
+  const ws2 = mkws();
+  cleanups.push(ws2);
+  fake(ws2, 'AGENTS.md', '# 手工维护，无标记\n');
+  fake(ws2, '.harness/kit.json', JSON.stringify({ version: 1, sources: [{ name: 'x', path: 'services/x', role: 'backend', branch: 'dev' }] }));
+  const unmarked = syncRootAgents(ws2, null);
+  ok('无标记的旧 AGENTS 不被改写', !unmarked.updated && unmarked.reason === 'unmarked' && fs.readFileSync(path.join(ws2, 'AGENTS.md'), 'utf8') === '# 手工维护，无标记\n');
 }
 
 // ---------------------------------------------------------------- report

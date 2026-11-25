@@ -49,7 +49,7 @@ dsh plugin --profile desktop add /绝对路径/HarnessKit
 
 Harness Kit 不只是"加流程"。创建完成后点「启动初始化编排」，它会探测已登记的子工程，把 AI 每次都要重新摸索的项目知识补齐：
 
-- 根目录 `AGENTS.md`；已有 `CLAUDE.md` 不覆盖，DSH 也会读取
+- 根目录 `AGENTS.md`；已有 `CLAUDE.md` 不覆盖，DSH 也会读取；子工程地图随新增仓库自动更新（只改标记块，保留人工内容）
 - 每个子工程的 `AGENTS.md`（已有 `CLAUDE.md` 则保留）与 `<子工程>/.harness/build.json`
 - `docs/CODE_STANDARDS.md`（标准/完整档）与模块级 `AGENTS.md`（完整档）
 - `codebase-guide/`：工作区级架构骨架，按需补全
