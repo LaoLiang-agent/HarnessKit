@@ -49,6 +49,13 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ### Fixed
 
+- 修复自动扫描的角色（按目录名猜测）覆盖结构探测，导致 Next/React 被误判为 backend/fullstack；
+  自动扫描写入 `roleSource=guess`，仅显式 role 覆盖结构判定，并在重跑时刷新猜测角色。
+- 修复 `runInit` 只登记 `.git` 子目录，导致本地/解压源码不出现在根 AGENTS 地图；显式 sources
+  仍走 strictPath 校验，避免把 clone 残留目录误登记。
+- 修复完整性校验忽略 `--tier full` 计划、跳过模块文档检查；checker 现在优先读取当前计划 tier。
+- 修复 Node 专用模板默认填入不存在的 `npm run build`/`npm run dev`；命令留空，由
+  `--write-build` 按 scripts/锁文件建议。
 - 修复初始化 `generate_plan` 对 `nodejs / go / python / unknown` 直接 `continue`，
   导致纯 Go/React 工程被误报「未探测到子工程」的问题。
 - 修复前端 `build.json` 没有 `install` 且 `compile` 为空，导致初始化编译验证长期空缺；
