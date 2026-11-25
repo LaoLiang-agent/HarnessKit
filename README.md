@@ -103,7 +103,9 @@ starts from the defect document and the quality gate.
 ### 3. Work from the panel
 
 - task cards move between **Planning / Implementing / To archive**
-- **Needs you** lists pending approvals, archives, and sync problems
+- **Needs you** lists pending approvals, archives, sync problems and workspace branch decisions
+- **Pull remote** only fetches; dirty asset changes are autostashed and restored. **Commit & sync**
+  previews the changed files first, lets you select what to commit, then commits and pushes
 - **Continue session** jumps to the task session; after an approval, the host advances the next
   phase automatically (set `autoAdvance: false` in `.harness/kit.json` to disable)
 - archive finished work into the collapsible history board
@@ -159,8 +161,8 @@ month later, or hand the task to someone else, and reading the files is enough.
 
 ### Consistency: not dependent on today's state
 
-Four flow profiles and fixed approval points make "how we work" repeatable instead of a personal
-habit. Roles and flows are plain files, overridable per project in `.harness/agents/` and
+Four flow profiles, the fix shortcut and fixed approval points make "how we work" repeatable
+instead of a personal habit. Roles and flows are plain files, overridable per project in `.harness/agents/` and
 `.harness/flows/`.
 
 ### Parallel: several tasks without collisions
@@ -203,7 +205,7 @@ go only to the provider you configure.
 | Code Reviewer | Code review with PASS / send-back | `code-review.md` |
 | Test Engineer | Build, unit tests, critical-path verification | `test-report.md` |
 
-### Four flow profiles
+### Four flow profiles + fix shortcut
 
 | Flow | Use | Path |
 |---|---|---|
@@ -218,7 +220,7 @@ go only to the provider you configure.
 - Approval 1: the plan is ready; a human decides whether to start implementation
 - Quality gate: for the `fix` shortcut a human chooses "light" or `--full`
 - Approval 2: implementation and testing are done; a human decides whether to archive
-- Remote approvals (Feishu, 0.3.0): configure the IM tab. **Personal accounts must first create an
+- Remote approvals (Feishu): configure the IM tab. **Personal accounts must first create an
   enterprise/team tenant** at [Feishu Admin](https://admin.feishu.cn/) (free, no business license or
   enterprise verification; existing tenants can skip). Switch to that tenant and create a **new**
   enterprise self-built app there with bot capability and long-connection events; an app created
@@ -249,6 +251,9 @@ go only to the provider you configure.
 
 ### Parallelism and model routing
 
+- Task branch base: when a task was created with `--base` and the main worktree is clean, apply
+  fetches that base and switches the main worktree to a new task branch; dirty worktrees or foreign
+  harness branches still use a slot or ask for a decision
 - Pooled worktrees: concurrent tasks reuse a worktree slot per repository instead of fighting over
   one branch
 - Test-environment lease: `/hk-te` keeps one task at a time on the single test environment
@@ -266,12 +271,13 @@ go only to the provider you configure.
 
 ## Command reference
 
-Four daily entries:
+`/hk` is the unified entry (`/hk init | task | close | doctor`); the expanded forms below are
+equivalent. Four daily entries:
 
 | Command | What it does |
 |---|---|
 | `/hk init [--assets <url\|init\|local>]` | Initialize or repair `.harness/`, bind the asset repository |
-| `/hk task [<task>] <description> [--file <path>]... [--fix]` | Start a full-flow task; repeat `--file` for multiple files/folders; `--fix` starts the quick fix path |
+| `/hk task [<task>] <description> [--file <path>]... [--base <repo:branch,...>] [--fix]` | Start a full-flow task; repeat `--file` for materials; `--base` pins the analysis/merge base per repo; `--fix` starts the quick fix path |
 | `/hk close <task> [--merge\|--no-merge] [--dry-run]` | Archive a round, close the worktree and write run metrics |
 | `/hk doctor [--fix]` | Health check; `--fix` repairs deterministic gaps |
 
