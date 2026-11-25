@@ -30,6 +30,8 @@ All notable changes to Harness Kit are documented here. The format follows
 - 活动任务的运行记录改为弹窗展示：看板卡片里只保留「查看运行记录」按钮和一行覆盖率
   摘要，完整 Agent 表格在固定高度的弹窗内滚动，表头吸顶，不再把卡片底部和侧边撑长；
   历史任务复用同一个弹窗。
+- 设置页「本机开发配置」在「已同步 N 个」下增加可展开的文件清单，能看到具体同步了
+  哪些本机配置文件，不再只有一个数量。
 
 ### Fixed
 

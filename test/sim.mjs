@@ -3044,6 +3044,7 @@ section('client：工作区提醒');
   ok('运行记录主视图不展示失败次数', !clientSrc.includes("'失败'].map") && !clientSrc.includes('· 失败 ${d.totals'));
   ok('本机配置使用普通用户文案', clientSrc.includes('本机开发配置') && clientSrc.includes('不会提交到代码仓库') && !clientSrc.includes('本机配置（git-ignored）'));
   ok('本机配置支持逐文件选择', clientSrc.includes('同步选中（') && clientSrc.includes('toggleLocal') && clientSrc.includes('maxHeight: 230'));
+  ok('本机配置展示已同步文件清单', clientSrc.includes('查看已同步文件（') && clientSrc.includes('s.approved.map'));
   ok('本机配置 POST 带 workspace query（兼容旧 Host）', clientSrc.includes("fetch(`/harness-kit/local?workspace=${encodeURIComponent(ws.id)}`"));
   ok('新建任务支持多参考材料/目录/本机上传', clientSrc.includes('参考材料（可选，可多选文件 / 图片 / 整个原型目录）') && clientSrc.includes('/harness-kit/stage') && clientSrc.includes('上传文件…'));
   ok('多文件路径带引号传给 /hk-new', clientSrc.includes('quoteArg(r.path)') && clientSrc.includes("` --file ${quoteArg(r.path)}`"));

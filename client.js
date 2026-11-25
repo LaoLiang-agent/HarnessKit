@@ -1958,6 +1958,15 @@ window.__ModuleLoader__.load({
               return h('div', { key: s.name, style: { marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${V.border}` } },
                 h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 3 } },
                   `${s.name}：已同步 ${s.approved.length} 个，待处理 ${pending.length} 个`),
+                s.approved.length > 0 && h('details', { style: { marginBottom: 6 } },
+                  h('summary', { style: { fontSize: 11, color: V.sub, cursor: 'pointer', userSelect: 'none' } },
+                    `查看已同步文件（${s.approved.length}）`),
+                  h('div', { style: { maxHeight: 160, overflowY: 'auto', border: `1px solid ${V.border}`, borderRadius: 6, padding: '4px 6px', marginTop: 4 } },
+                    s.approved.map((p) => h('div', {
+                      key: p,
+                      title: p,
+                      style: { fontFamily: 'monospace', fontSize: 11, color: V.sub, wordBreak: 'break-all', padding: '1px 0' },
+                    }, p)))),
                 pending.length === 0 && s.approved.length > 0 && h('div', { style: { fontSize: 11, color: V.ok } }, '本机配置已同步。'),
                 pending.length === 0 && s.approved.length === 0 && h('div', { style: { fontSize: 11, color: V.sub } }, '没有发现需要同步的本机文件。'),
                 pending.length > 0 && (() => {
