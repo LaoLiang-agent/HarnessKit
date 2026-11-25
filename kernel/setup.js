@@ -604,7 +604,12 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
     for (const e of fs.readdirSync(servicesDir, { withFileTypes: true })) {
       if (!e.isDirectory() || e.name.startsWith('.')) continue;
       const rel = `services/${e.name}`;
-      if (kit.sources.some((s) => s.path === rel)) continue;
+      const existing = kit.sources.find((s) => s.path === rel);
+      if (existing) {
+        // 旧版本猜出来的 role（如 app）随 guessRole 规则升级；显式 role 不动。
+        if (existing.roleSource === 'guess') existing.role = guessRole(e.name);
+        continue;
+      }
       // 显式 sources 声明的路径交给 addSource 的 strictPath 校验；
       // 预扫描先登记会让“非 git 残留目录”被误认为已登记成功。
       if (requestedPaths.has(rel)) continue;
