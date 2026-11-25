@@ -856,6 +856,8 @@ export function registerPanelApi(ctx) {
         const workspaces = [];
         for (const w of registry.list()) {
           if (!fs.existsSync(harnessDir(w.path))) continue;
+          // 只有真正初始化过 Harness 的工作区才进面板；仅因 IM 配置等产生的 .harness/ 不算
+          if (!fs.existsSync(path.join(harnessDir(w.path), 'kit.json'))) continue;
           // 同步健康走缓存：命中立即返回，未命中后台刷新本轮先给旧值/空
           const sync = syncHealth(w.path);
           const state = workspaceState(w.path, { sync });
