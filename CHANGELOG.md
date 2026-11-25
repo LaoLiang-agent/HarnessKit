@@ -14,6 +14,12 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ### Fixed
 
+- IM 配置变更（启用/停用、App ID/Secret、目标 Open ID）会在下一次提问时重建 bridge；
+  旧实现只在首次创建时读配置，改了 Open ID 或先配置后启用会一直发到旧目标/一直不发，
+  表现为「DSH 有决策弹窗、飞书没通知」。连接失败的 bridge 不再被缓存，下一次提问会重试。
+- 飞书通知失败不再静默：未绑定目标 Open ID、连接失败、首张卡片发送失败会写入
+  `.harness/local/im-audit.jsonl`（`notify-failed` / `connect-failed`），审批记录会显示
+  错误摘要；配置步骤补充「IM 配置按机器/工作区本地保存，不随资产仓库同步」。
 - 飞书「获取 Open ID」遇到 `21001 Access denied due to platform policy` 时，错误信息会
   直接说明个人版租户不支持企业自建应用、需改用企业/团队租户，并附错误码；App ID/Secret
   或应用类型错误（10003/10013/10014）也会给出对应检查项。飞书配置步骤新增「个人版先用

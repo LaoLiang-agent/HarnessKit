@@ -323,6 +323,16 @@ machines, backup and later sharing.
 Project assets stay in your local `.harness/` and your git (your team's when shared). The plugin
 collects no telemetry; model requests go only to the provider you configure.
 
+**A teammate's DSH shows decision prompts but Feishu gets no notification?**
+IM configuration is local to each machine and workspace (`.harness/local/im-config.json`) and is
+never committed/synced. The teammate must configure Feishu, send a successful test message and
+enable it in that workspace. There is no 10-question cap; Feishu receives one question at a time and
+the next card is sent after the current one is answered. If it is configured but silent, check
+`.harness/local/im-audit.jsonl`: no `started` record means the bridge did not send (look for
+`notify-failed` / `connect-failed` with an `error`); a `started` record means check that the target
+Open ID belongs to the recipient and that the app can send messages (`im:message`). IM config
+changes are picked up on the next question; no DSH restart is required.
+
 **Feishu Open ID lookup fails with `21001 Access denied due to platform policy`?**
 This is a Feishu platform-policy rejection, not a wrong App ID/Secret or a plugin permission.
 `Enterprise self-built app` is an app type, not a tenant type: a personal tenant can create that

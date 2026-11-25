@@ -2,7 +2,7 @@
 // 这是 kernel/im/ 模块与 DSH userQuestions 服务的接线层
 
 import { ApprovalBridge } from './im/bridge.js';
-import { readImConfig, hasEnabledChannel } from './im/config.js';
+import { readImConfig, hasEnabledChannel, appendImAudit } from './im/config.js';
 import { wsRoot } from './paths.js';
 // 副作用导入：注册内置 transport（飞书/企微/钉钉 adapter）
 import './im/index.js';
@@ -37,6 +37,7 @@ export function installImBridge(ctx) {
   const userQuestions = ctx.get('userQuestions');
   const disposers = [];
   const bridges = new Map(); // ws -> ApprovalBridge
+  const bridgeConfigKeys = new Map(); // ws -> 当前 bridge 对应的 im-config 快照
   const handledRequests = new WeakMap(); // request -> Promise，避免 global/agent 双监听重复处理
 
   // 监听 user-questions/request waterfall。
@@ -77,17 +78,43 @@ export function installImBridge(ctx) {
       return next();
     }
 
-    // 获取或创建该工作区的 bridge
+    // 获取或创建该工作区的 bridge。
+    // 配置是热更新的：每次问题都重新读 im-config.json；目标 Open ID/凭据/启停变化后
+    // 不能继续用旧 bridge（旧实现只在首次创建时读配置，改了 Open ID 或先配置后启用时
+    // 会一直发到旧目标/一直不发，表现为「DSH 有弹窗、飞书没通知」）。
+    const config = readImConfig(ws);
+    const configKey = JSON.stringify(config);
     let bridge = bridges.get(ws);
-    if (!bridge) {
-      const config = readImConfig(ws);
-      if (!hasEnabledChannel(config)) {
-        // 未配置 IM，直接走 Web
+    if (!hasEnabledChannel(config)) {
+      if (bridge && bridge.pendingApprovals.size === 0) {
+        await bridge.dispose();
+        bridges.delete(ws);
+        bridgeConfigKeys.delete(ws);
+      }
+      return next();
+    }
+    if (bridge && bridgeConfigKeys.get(ws) !== configKey) {
+      if (bridge.pendingApprovals.size > 0) {
+        logger?.warn?.('[im-bridge] IM 配置已变更，但仍有审批进行中；本问题先走 Web，审批结束后重建连接');
         return next();
       }
-      bridge = new ApprovalBridge({ ws, logger, userQuestions });
+      await bridge.dispose();
+      bridges.delete(ws);
+      bridgeConfigKeys.delete(ws);
+      bridge = null;
+      logger?.info?.('[im-bridge] IM 配置已变更，重建连接');
+    }
+    if (!bridge) {
+      bridge = new ApprovalBridge({ ws, logger, userQuestions, config });
       await bridge.init();
+      if (bridge.transports.size === 0) {
+        // 连接失败不留坏 bridge：否则后续问题会一直复用它，永远没有飞书通知
+        await bridge.dispose();
+        appendImAudit(ws, { type: 'connect-failed', result: 'error', error: '没有可用的 IM transport（检查 App ID/Secret、事件订阅与网络）' });
+        return next();
+      }
       bridges.set(ws, bridge);
+      bridgeConfigKeys.set(ws, configKey);
     }
 
     // 找到第一个启用的渠道
@@ -100,6 +127,7 @@ export function installImBridge(ctx) {
     const targetOpenId = channelConfig.targetOpenId;
     if (!targetOpenId) {
       logger?.warn?.('[im-bridge] 未绑定目标用户，跳过 IM 通知');
+      appendImAudit(ws, { type: 'notify-failed', result: 'error', error: '未绑定目标 Open ID', questions: questions.length });
       return next();
     }
 
@@ -187,7 +215,14 @@ export function installImBridge(ctx) {
 
       return result.result;
     } catch (err) {
-      logger?.error?.('[im-bridge] 创建 IM 审批失败:', err?.message ?? err);
+      const message = String(err?.message ?? err);
+      logger?.error?.('[im-bridge] 创建 IM 审批失败:', message);
+      appendImAudit(ws, {
+        type: 'notify-failed',
+        result: 'error',
+        error: message.slice(0, 500),
+        questions: questions.length,
+      });
       return next();
     }
   };

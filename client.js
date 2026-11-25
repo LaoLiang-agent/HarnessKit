@@ -1824,7 +1824,7 @@ window.__ModuleLoader__.load({
                   h('button', { style: S.btn(false), onClick: loadImAudit }, '刷新')),
                 imAudit.length === 0 && h('div', { style: { fontSize: 12, color: V.sub } }, '暂无审批记录。'),
                 imAudit.slice(0, 20).map((e, i) => h('div', { key: i, style: { fontSize: 11, color: V.sub, fontFamily: 'monospace', marginBottom: 2 } },
-                  `${(e.at ?? '').slice(0, 19).replace('T', ' ')}  ${e.type ?? '-'}  ${e.approvalId ?? ''}  ${e.result ?? ''}`))))),
+                  `${(e.at ?? '').slice(0, 19).replace('T', ' ')}  ${e.type ?? '-'}  ${e.approvalId ?? ''}  ${e.result ?? ''}${e.error ? `  · ${e.error}` : ''}`))))),
         ),
 
         // 高级 Tab

@@ -277,6 +277,9 @@ dsh plugin --profile desktop add /绝对路径/HarnessKit
 **数据去哪？**
 项目资产在本地 `.harness/` 和你的 git（共享时就是团队仓库）；插件不收集、不上传遥测；模型请求只发往你配置的 provider。
 
+**同事的 DSH 有决策弹窗，但飞书没收到？**
+IM 配置只存本机 `.harness/local/im-config.json`，按工作区隔离，不随资产仓库同步。同事的机器/工作区需要单独填写飞书配置、完成测试发送并启用。问题数量本身没有 10 条上限；飞书侧一次只发当前一题，答完再发下一题。若同事已配置但仍没收到，查看 `.harness/local/im-audit.jsonl`：没有 `started` 记录说明桥接没有发出（看 `notify-failed` / `connect-failed` 的 `error`）；有 `started` 则检查目标 Open ID 是否本人、飞书应用是否开通 `im:message` 并能正常发消息。修改 IM 配置后无需重启 DSH，下一次提问会自动重建连接。
+
 **飞书获取 Open ID 报 `21001 Access denied due to platform policy`？**
 这是飞书平台策略拒绝，不是 App ID/Secret 或插件权限问题。「企业自建应用」是应用类型，不等于企业租户；个人租户里也能创建该类型应用，但 `tenant_access_token` 仍会被拒。请换用企业/团队租户，在该租户的开放平台**新建**应用（旧应用不会随租户切换迁移）。若已是企业租户，请管理员检查应用发布状态、可用范围和安全策略，或联系飞书客服。
 

@@ -2164,6 +2164,16 @@ section('飞书 tenant_access_token 错误解释');
   const secret = explainFeishuTokenError({ code: 10014, msg: 'app secret invalid' });
   ok('10014 → 解释为 App ID/Secret 或应用类型', secret.hint.includes('App ID') && secret.hint.includes('商店应用'));
   ok('未知错误不强行给错指引', explainFeishuTokenError({ code: 99999, msg: 'unknown' }).hint === '');
+  const { ApprovalBridge } = await import(path.join(bundleRoot, 'kernel/im/bridge.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const b = new ApprovalBridge({ ws, config: { approvalExpiryMinutes: 120, channels: { feishu: { enabled: true } } } });
+  b._sendCard = async () => { throw new Error('send failed'); };
+  let threw = false;
+  try {
+    await b.createApproval({ questions: [{ id: 'q1', question: 'x', options: [{ label: 'a' }] }], targetOpenId: 'ou_x', channel: 'feishu' });
+  } catch { threw = true; }
+  ok('首张卡片发送失败 → 抛错且不残留 pending', threw && b.pendingApprovals.size === 0);
 }
 
 // ------------------------------------------------------------- 本机配置路由

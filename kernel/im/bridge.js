@@ -70,7 +70,9 @@ export class ApprovalBridge {
         this._wireTransport(transport, channel);
         this.logger.info?.(`[im] ${channel} 已连接`);
       } catch (err) {
-        this.logger.error?.(`[im] ${channel} 连接失败:`, err?.message ?? err);
+        const message = String(err?.message ?? err);
+        this.logger.error?.(`[im] ${channel} 连接失败:`, message);
+        appendImAudit(this.ws, { type: 'connect-failed', channel, result: 'error', error: message.slice(0, 500) });
       }
     }
   }
@@ -395,8 +397,13 @@ export class ApprovalBridge {
     });
     this.pendingApprovals.set(approvalId, pending);
 
-    // 发送第一题卡片
-    pending.messageId = await this._sendQuestionCard(pending, 0);
+    // 发送第一题卡片；失败时清掉 pending，避免留下永不完成的审批
+    try {
+      pending.messageId = await this._sendQuestionCard(pending, 0);
+    } catch (err) {
+      this.pendingApprovals.delete(approvalId);
+      throw err;
+    }
     this.logger.info?.(`[im] 新审批: ${approvalId}（${questions.length} 个问题）`);
     appendImAudit(this.ws, { type: 'started', approvalId, result: 'pending' });
 
