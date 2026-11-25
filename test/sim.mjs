@@ -3084,6 +3084,8 @@ section('初始化：多语言探测 / 三档生成 / build 建议');
   fake(ws, 'services/rust-api/Cargo.toml', '[package]\nname = "rust-api"\n');
   fake(ws, 'services/rust-api/src/main.rs', 'fn main() {}\n');
   fake(ws, 'services/unknown/src/Main.kt', 'fun main() {}\n');
+  fake(ws, 'services/legacy/package.json', JSON.stringify({ dependencies: { react: '18' } }));
+  fake(ws, 'services/legacy/AGENTS.md', '# Legacy\n\n## Build\n\n`npm run build`\n');
   await run('hk-init', '', ws);
 
   // 自定义 path + 缺失来源：都必须在计划中可见
@@ -3110,6 +3112,7 @@ section('初始化：多语言探测 / 三档生成 / build 建议');
   ok('Maven 顶层模块被发现', by.java.modules.some((m) => m.path === 'core'));
   ok('自定义 path 可见且路径正确', by.custom.path === 'code/custom');
   ok('缺失来源如实报告', plan.missing_sources.some((w) => w.path === 'services/gone'));
+  ok('已有 AGENTS 的章节缺口被识别', (() => { const ms = by.legacy.root_files['AGENTS.md'].missing_sections; return ms.includes('项目概述') && ms.includes('参考文档') && !ms.includes('Build'); })());
 
   // 架构总览：只写标记块，保留人工内容
   fs.appendFileSync(path.join(ws, '.harness/codebase-guide/overview.md'), '\n人工架构说明。\n');

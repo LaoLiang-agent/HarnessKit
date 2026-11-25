@@ -38,6 +38,7 @@
 6. CodeGraph 默认不自动全局安装；缺失时只 WARN，可跳过。
 7. 计划与完整性校验共用 `lib.enumerate_projects` / `lib.detect_project`。
 8. `codebase-guide/overview.md` 自动写入确定性子工程地图（只改标记块）。
+9. 已有 `AGENTS.md`/`CLAUDE.md` 的章节缺口进入计划；默认跳过，人可选择只追加修复。
 
 ### 2.2 非目标（后续）
 
@@ -45,7 +46,7 @@
 - 不做任意 monorepo 的模块级构建编排。
 - 不自动猜测 `start-ok` / `start-port` 并当事实。
 - 不改发布流程、不改版本号。
-- `codebase-guide` 架构散文、已有 AGENTS 缺口补齐留到 P1；子工程地图与根 AGENTS 同步已实现。
+- `codebase-guide` 架构散文、已有 AGENTS 的自动重写留到 P1；缺口检测、子工程地图与根 AGENTS 同步已实现。
 
 ---
 
@@ -390,6 +391,16 @@ CodeGraph 是**可选增强**，不是质量门：
 
 该阶段只写机器事实，不生成架构散文；散文 TODO 仍由人/AI 补全。
 
+### 12.3 已有 AGENTS 的章节缺口
+
+- `harness_init --detect` 为已存在的入口文件计算 `root_files["AGENTS.md"].missing_sections`：
+  按 `lib.doc_sections()` 的必需章节与 `## <section>` 子串比对；
+- 初始化展示缺口，默认**跳过**；人可选择：
+  - 只追加缺失章节：subagent 读现有文件 + 缺口清单 + 模板要求，只在文件末尾追加，
+    输出到已存在的入口文件（AGENTS 优先；只有 CLAUDE 时追加 CLAUDE，不新建）；
+  - 重新生成：必须二次明确确认，可能覆盖人工内容；
+- `codebase_guide_init.py` 仍会 WARN 缺口，作为兜底检查；不自动改已有文件。
+
 ## 13. 兼容性
 
 - Plan 增加 `schema=2`、`summary`、`missing_sources`、`tier`、`template_kind`、`modules_enabled`、`build_suggestion`；保留旧字段。
@@ -451,7 +462,8 @@ code/custom/         自定义 path（kit.sources）
 - 根 AGENTS 标记块随 `addSource` 更新、块外人工内容不变；无标记旧文件不改写；
 - CodeGraph 缺失时 `--optional` 只 WARN；
 - 完整性校验覆盖 generic 项目；
-- overview 标记块写入、人工内容保留、重复执行不改写。
+- overview 标记块写入、人工内容保留、重复执行不改写；
+- 已有 AGENTS 缺章节进入计划，Build 等已有章节不误报。
 
 回归：`npm test`、`npm run pack:check`。
 
@@ -459,11 +471,10 @@ code/custom/         自定义 path（kit.sources）
 
 ## 16. 后续（P1/P2）
 
-1. 已有 `AGENTS.md` 的章节缺口分析 + 只追加修复。
-2. 专用模板：Gradle、React/Next/Nest、Go、Python、Rust。
-3. 模块级构建配置（monorepo / 多 App）。
-4. 生成物版本标记与漂移检查（`init --check`）。
-5. 文档质量评估 fixture（命令真实、无编造、长度上限）。
+1. 专用模板：Gradle、React/Next/Nest、Go、Python、Rust。
+2. 模块级构建配置（monorepo / 多 App）。
+3. 生成物版本标记与漂移检查（`init --check`）。
+4. 文档质量评估 fixture（命令真实、无编造、长度上限）。
 
 ---
 
@@ -476,6 +487,7 @@ code/custom/         自定义 path（kit.sources）
 - [x] CodeGraph 不自动全局安装，可跳过
 - [x] 根 AGENTS 地图随 addSource 增量更新，不动人工内容；旧版 HK 文件可自动补标记
 - [x] overview 子工程地图只改标记块，人工正文保留
+- [x] 已有 AGENTS 缺口可见，默认跳过、只追加可选
 - [x] 校验与计划同源
 - [x] 多语言 fixture 通过
 - [x] 未改版本号、未打 tag、未 npm publish

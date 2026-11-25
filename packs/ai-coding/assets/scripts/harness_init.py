@@ -88,6 +88,15 @@ def _codegraph_config(root: Path) -> dict:
     }
 
 
+def _missing_sections(project: dict) -> list:
+    ref = lib.instruction_file(Path(project["path_abs"]))
+    if ref is None:
+        return []
+    text = ref.read_text(encoding="utf-8", errors="ignore")
+    sections = lib.doc_sections(project["service_type"], project["role"], project["template_kind"])
+    return [s for s in sections if f"## {s}" not in text]
+
+
 def generate_plan(root: Path, tier_override: str = "") -> dict:
     root = Path(root)
     if tier_override and tier_override not in TIER_ORDER:
@@ -122,6 +131,7 @@ def generate_plan(root: Path, tier_override: str = "") -> dict:
             "AGENTS.md": {
                 "status": "EXISTS" if lib.instruction_file(Path(ref["path_abs"])) else "MISSING",
                 "template": _root_template(root, project),
+                "missing_sections": _missing_sections(project),
             },
         }
         if TIER_ORDER[tier] >= TIER_ORDER["standard"]:
@@ -179,6 +189,9 @@ def _print_interactive(root: Path, plan: dict) -> int:
         for fk, fi in sp["root_files"].items():
             mk = fi.get("missing_keys") or []
             suffix = f" → 补 {len(mk)} 个缺失字段 ({', '.join(mk)})" if mk else ""
+            ms = fi.get("missing_sections") or []
+            if ms:
+                suffix += f"；缺章节 ({', '.join(ms)})"
             print(f"  {'✅' if fi['status'] == 'EXISTS' else '⬜'} {fk}: {fi['status']}{suffix}")
         print(f"  {'✅' if sp['codegraph'] == 'EXISTS' else '⬜'} codegraph: {sp['codegraph']}"
               f"{'' if sp['codegraph_enabled'] else '（已禁用）'}")

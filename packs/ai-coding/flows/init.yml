@@ -14,7 +14,7 @@ stages:
   - name: 展示计划
     actor: PM
     do:
-      - 以表格向人展示每个子工程：类型/技术栈、角色、档位、模板（专用/通用）、L1 AGENTS.md、build.json（含 missing_keys）、docs/CODE_STANDARDS.md（standard/full 才有）、模块（仅 full 生成）
+      - 以表格向人展示每个子工程：类型/技术栈、角色、档位、模板（专用/通用）、L1 AGENTS.md（含 missing_sections 缺口）、build.json（含 missing_keys）、docs/CODE_STANDARDS.md（standard/full 才有）、模块（仅 full 生成）
       - `template_kind=generic` 的行必须标注「通用模板：未内置该技术栈，构建命令需人工确认」，不得按专用模板的口径汇报
       - `needs_manual=true` 的子工程单独列一段，说明原因
       - 若存在 `missing_sources`，列出缺失路径，提示先 /hk-setup --add 或修正 kit.json
@@ -69,7 +69,10 @@ stages:
   - name: L1 根 AGENTS.md
     actor: PM
     do:
-      - 对每个确认生成的子工程派发一个 subagent：模板 root-AGENTS.tmpl（存量工作区若只有 root-CLAUDE.tmpl 则兼容）全文 + 目标代码目录 + 输出 <子工程>/AGENTS.md；仅当 AGENTS.md 和 CLAUDE.md 都不存在时生成，已有任一则跳过
+      - 对每个确认生成的子工程派发一个 subagent：模板 root-AGENTS.tmpl（存量工作区若只有 root-CLAUDE.tmpl 则兼容）全文 + 目标代码目录 + 输出 <子工程>/AGENTS.md；仅当 AGENTS.md 和 CLAUDE.md 都不存在时生成
+      - 已有入口文件时：读取 plan.root_files.AGENTS.md.missing_sections；为空则跳过；非空时先向人展示缺口，用 ask_user_question 询问「跳过 / 只追加缺失章节 / 重新生成」，question 以「HK:AGENTS 缺口」开头，默认跳过
+      - 选择「只追加」：派 subagent 读现有 AGENTS.md/CLAUDE.md + 缺口章节清单 + 模板对应章节要求 + 代码目录；输出到**已存在的那个入口文件**（AGENTS.md 优先；只有 CLAUDE.md 时追加到 CLAUDE.md，不新建 AGENTS.md）；只允许在文件末尾追加缺失章节，绝不修改/删除已有段落；写完复核缺失章节已补齐
+      - 选择「重新生成」必须由人再次明确确认；先说明会覆盖现有内容，未再次确认不得动手
       - 通用模板要求 ≤80 行、只写可验证事实；无法确认的章节写「未确认（需人工补充）」，禁止编造
       - 「参考文档」段必须列 docs/CODE_STANDARDS.md（standard/full 档）—— 模板已写死该引用；minimal 档如无该文件，如实说明
   - name: 架构总览
@@ -103,6 +106,6 @@ stages:
     do:
       - 对每个子工程运行 `python3 .harness/scripts/harness.py env-auto <子工程名> --check`，汇总运行环境体检结果报人
 after:
-  - 向人汇报初始化总览：每个子工程生成了什么、跳过了什么（档位/模块/CodeGraph）、build.json 补齐了哪些键、编译/启动验证结论（✅通过 / ⚠️未验证及原因）、遗留 WARN 清单
+  - 向人汇报初始化总览：每个子工程生成了什么、跳过了什么（档位/模块/CodeGraph/AGENTS 缺口）、build.json 补齐了哪些键、编译/启动验证结论（✅通过 / ⚠️未验证及原因）、遗留 WARN 清单
   - 验证未通过或未声明的子工程不视为初始化失败：如实列出，并指引「修正 <子工程>/.harness/build.json 后手工复验：python3 .harness/scripts/harness.py run-field <子工程> compile|start」
   - 根 AGENTS.md 只描述工作区资源与子工程地图，构建/启动命令的权威来源永远是各子工程 .harness/build.json —— 不要把命令抄回 AGENTS.md
