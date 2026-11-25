@@ -14,6 +14,37 @@ Harness Kit 是 DeepSeek Harness 的多 Agent 工程流程插件：它把方案�
 
 ---
 
+## 在 DSH 中安装
+
+Harness Kit 是 **DSH 插件包**，不是独立应用。请安装到 DeepSeek Harness（DSH 0.2.x，带 Web 客户端；工作区向导会检查 `git` 和 `Python 3`）。
+
+### 应用内安装（推荐）
+
+1. 打开 **DSH → Plugins → Add plugin**
+2. 输入 `dsh-harness-kit@0.3.2`
+3. 安装后启用 bundle；如果 DSH 提示重启，完全退出并重新打开 DSH
+4. 在侧栏打开 **Harness Kit** → 「＋ 工作区」→ 创建并初始化工作区
+
+### 命令行安装
+
+```sh
+dsh plugin --profile desktop add dsh-harness-kit@0.3.2
+```
+
+需要先完全退出 DSH Desktop；其他 profile 把 `desktop` 换成实际名称。
+
+### 从源码安装
+
+```sh
+dsh plugin --profile desktop add /绝对路径/HarnessKit
+```
+
+安装后侧栏会出现 Harness Kit 面板。插件每小时检查一次 npm 最新版本；有新版本时顶栏会提示，更新仍需在 Plugins 页手动确认。还需要先创建一个工作区，才能使用任务、流程和审批功能。
+
+要求：DSH 0.2.x，带 Web 客户端（Desktop 或 `dsh web`）；`git` 与 `Python 3`（向导会检查并给出安装命令）；一个 DSH 会话工作目录作为 Harness 工作区。
+
+---
+
 ## 它先帮你把项目变成 AI 能读懂的样子
 
 Harness Kit 不只是"加流程"。创建完成后点「启动初始化编排」，它会探测已登记的子工程，把 AI 每次都要重新摸索的项目知识补齐：
@@ -213,40 +244,6 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 | `/hk-te [acquire\|release <任务> \| status]` | 测试环境串行租约 |
 | `/hk-local [...]` | 发现/确认 git-ignored 本地配置 |
 | `/hk-sync [--allow-deletions]` | 资产仓库同步（提交 → rebase → 追加合并 → push）；默认拦截核心资产批量删除/浅克隆，防误推 |
-
----
-
-## 安装
-
-### 应用内（推荐）
-
-**Plugins → Add plugin**，输入：
-
-```
-dsh-harness-kit@0.3.2
-```
-
-安装后启用 bundle。插件面板每小时检查一次 npm 最新版本；有新版本时顶栏会提示，更新仍需在 Plugins 页手动确认。
-
-### 命令行
-
-```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.3.2
-```
-
-需要先完全退出 DSH Desktop；其他 profile 把 `desktop` 换成实际名称。
-
-### 从源码
-
-```sh
-dsh plugin --profile desktop add /绝对路径/HarnessKit
-```
-
-### 要求
-
-- DeepSeek Harness 0.2.x，带 Web 客户端（Desktop 或 `dsh web`）
-- `git` 与 `Python 3`（向导会检查并给出安装命令）
-- 一个 DSH 会话工作目录，作为 Harness 工作区
 
 ---
 

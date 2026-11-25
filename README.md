@@ -18,6 +18,41 @@ English | [简体中文](README.zh-CN.md)
 
 ---
 
+## Install in DSH
+
+Harness Kit is a **DSH plugin bundle**, not a standalone app. Install it into DeepSeek Harness
+(DSH 0.2.x with the Web client; `git` and `Python 3` are checked by the workspace wizard).
+
+### In the app (recommended)
+
+1. Open **DSH → Plugins → Add plugin**
+2. Enter `dsh-harness-kit@0.3.2`
+3. Install, then enable the bundle. If DSH asks to restart, fully quit and reopen DSH
+4. Open **Harness Kit** in the sidebar → **＋ Workspace** → create and initialize a workspace
+
+### Command line
+
+```sh
+dsh plugin --profile desktop add dsh-harness-kit@0.3.2
+```
+
+Quit DSH Desktop first; replace `desktop` with your profile name for other profiles.
+
+### From a checkout
+
+```sh
+dsh plugin --profile desktop add /absolute/path/HarnessKit
+```
+
+After installation the Harness Kit panel appears in the sidebar. The panel checks npm for a newer
+version once an hour and shows a top-bar prompt; updating remains a manual action in Plugins. You
+still need to create a workspace before using tasks, flows or approvals.
+
+Requirements: DSH 0.2.x with the Web client (Desktop or `dsh web`), `git`, `Python 3` (the wizard
+checks both), and a DSH session working directory to use as the Harness workspace.
+
+---
+
 ## It makes your project legible to AI first
 
 Harness Kit is not only a workflow. After the workspace is created, **Start initialization
@@ -251,40 +286,6 @@ Advanced aliases remain available:
 | `/hk-te [acquire\|release <task> \| status]` | Serial test-environment lease |
 | `/hk-local [...]` | Discover/approve git-ignored local config files |
 | `/hk-sync [--allow-deletions]` | Sync the asset repository (commit → rebase → append merge → push); blocks mass deletions of core assets/shallow clones by default |
-
----
-
-## Install
-
-### In the app (recommended)
-
-**Plugins → Add plugin**, then enter:
-
-```
-dsh-harness-kit@0.3.2
-```
-
-Enable the bundle after installation. The panel checks npm for a newer version once an hour and shows a top-bar prompt; updating remains a manual action in Plugins.
-
-### Command line
-
-```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.3.2
-```
-
-Quit DSH Desktop first; replace `desktop` with your profile name for other profiles.
-
-### From a checkout
-
-```sh
-dsh plugin --profile desktop add /absolute/path/HarnessKit
-```
-
-### Requirements
-
-- DeepSeek Harness 0.2.x with the Web client (Desktop or `dsh web`)
-- `git` and `Python 3` (the wizard checks both and shows install commands)
-- A DSH session working directory to use as the Harness workspace
 
 ---
 

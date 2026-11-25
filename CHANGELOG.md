@@ -8,6 +8,8 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ### Changed
 
+- README / README.zh-CN 开头新增「在 DSH 中安装」：应用内 Add plugin、命令行、源码安装与
+  直接建工作区的顺序；删除后文重复的安装章节，保留更新的版本检查与运行要求。
 - 任务显式指定开发基线（`--base`）且主工作树干净时，即使当前停在 `test` 等非基线
   分支，`/hk-apply` 也会自动切到任务基线并创建任务分支；创建前先 fetch 该基线，
   本地基线只落后时直接用 `origin/<base>` 的最新提交，本地领先/分叉时保留本地基点。
