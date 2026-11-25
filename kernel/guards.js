@@ -3,11 +3,13 @@
 //  - phase-conditional (Bootstrap red line): writes to kit.json sources paths
 //    and e2e/ while any active task lacks a recorded human quality-gate verdict
 //    (see kernel/state.js — the verdict recorded in bugfix.md unlocks Dev).
+import fs from 'node:fs';
 import path from 'node:path';
 import { wsRoot, readKit } from './paths.js';
 import { lockedSourcePaths } from './state.js';
 
 const DESTRUCTIVE = /\bgit\s+reset\s+--hard\b|\bgit\s+clean\s+-[a-zA-Z]*f|\bgit\s+push\b[^|&;]*--force|\bgit\s+push\s+-f\b/;
+const NPM_PUBLISH = /\b(?:npm|pnpm|yarn)\s+publish\b/;
 const BASH_WRITE = />>?|\bsed\s+-i\b|\btee\b|\b(mv|cp|rm|touch|mkdir|install|rsync|patch)\b|\bgit\s+(apply|restore|checkout\s+--|commit|add)\b/;
 
 function normalizeTarget(ws, filePath) {
@@ -48,6 +50,16 @@ export function installGuards(ctx, logger) {
       ws = wsRoot(agent);
     } catch {
       return undefined; // no workspace context → not our call
+    }
+    // 本插件仓库的 npm 发布只允许 CI：推送 v* tag 后自动触发。
+    // 直接阻止本地 publish，避免误发/漏走 tag。
+    if (name === 'bash' && typeof args.command === 'string' && NPM_PUBLISH.test(args.command)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(ws, 'package.json'), 'utf8'));
+        if (pkg.name === 'dsh-harness-kit') {
+          return 'Harness Kit 发布红线：禁止本地 npm publish。请提交并推送 v* tag，由 CI 自动发布。';
+        }
+      } catch { /* 非本插件仓库，忽略 */ }
     }
     let kit;
     try {
