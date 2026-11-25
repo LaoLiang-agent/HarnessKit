@@ -3173,6 +3173,15 @@ section('初始化：根 AGENTS 子工程地图同步');
   fake(ws2, '.harness/kit.json', JSON.stringify({ version: 1, sources: [{ name: 'x', path: 'services/x', role: 'backend', branch: 'dev' }] }));
   const unmarked = syncRootAgents(ws2, null);
   ok('无标记的旧 AGENTS 不被改写', !unmarked.updated && unmarked.reason === 'unmarked' && fs.readFileSync(path.join(ws2, 'AGENTS.md'), 'utf8') === '# 手工维护，无标记\n');
+
+  // 旧版 Harness Kit 生成、无标记 → 自动补标记并刷新地图；首行不匹配的手工文件不动
+  const ws3 = mkws();
+  cleanups.push(ws3);
+  fake(ws3, 'AGENTS.md', '# 项目指南（Harness Kit 生成）\n\n## 子工程地图\n\n| 名称 | 路径 | 角色 | 分支 |\n|---|---|---|---|\n| old | `services/old` | backend | dev |\n\n## 工作区资源（.harness/）\n\n保留。\n');
+  const migrated = syncRootAgents(ws3, { sources: [{ name: 'new', path: 'services/new', role: 'backend', branch: 'dev' }] });
+  const migratedText = fs.readFileSync(path.join(ws3, 'AGENTS.md'), 'utf8');
+  ok('旧版生成文件自动补标记并刷新', migrated.updated && migrated.migrated && migratedText.includes('<!-- hk:sources:begin -->') && migratedText.includes('| new | `services/new`') && !migratedText.includes('| old |'));
+  ok('迁移保留表外内容', migratedText.includes('## 工作区资源（.harness/）') && migratedText.includes('保留。'));
 }
 
 // ---------------------------------------------------------------- report

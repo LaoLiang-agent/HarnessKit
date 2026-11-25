@@ -82,6 +82,29 @@ function sourcesBlock(kit) {
   ].join('\n');
 }
 
+function migrateLegacySourceMap(text) {
+  // 只迁移 Harness Kit 旧版生成的根文件：首行精确匹配 + 有「子工程地图」表。
+  // 手工维护的 AGENTS（首行不同）绝不猜测、不改写。
+  if (!text.startsWith('# 项目指南（Harness Kit 生成）')) return null;
+  const lines = text.split('\n');
+  const heading = lines.findIndex((l) => l.trim() === '## 子工程地图');
+  if (heading < 0) return null;
+  let start = -1;
+  let end = -1;
+  for (let i = heading + 1; i < lines.length; i++) {
+    if (lines[i].startsWith('|')) {
+      if (start < 0) start = i;
+      end = i;
+    } else if (start >= 0) {
+      break;
+    }
+  }
+  if (start < 0 || end < start) return null;
+  lines.splice(end + 1, 0, SOURCES_END);
+  lines.splice(start, 0, SOURCES_BEGIN);
+  return lines.join('\n');
+}
+
 /** 新工作区的完整根 AGENTS.md（只有 runInit 创建；syncRootAgents 不创建半成品）。 */
 function rootAgentsTemplate(kit) {
   return [
@@ -139,7 +162,15 @@ export function syncRootAgents(ws, kit = null, { create = false } = {}) {
   const text = fs.readFileSync(agents, 'utf8');
   const begin = text.indexOf(SOURCES_BEGIN);
   const end = text.indexOf(SOURCES_END);
-  if (begin < 0 || end < 0 || end < begin) return { updated: false, reason: 'unmarked' };
+  if (begin < 0 || end < 0 || end < begin) {
+    const migrated = migrateLegacySourceMap(text);
+    if (migrated) {
+      fs.writeFileSync(agents, migrated, 'utf8');
+      const again = syncRootAgents(ws, k, { create: false });
+      return { ...again, updated: true, migrated: true, reason: 'migrated' };
+    }
+    return { updated: false, reason: 'unmarked' };
+  }
   const next = text.slice(0, begin) + sourcesBlock(k) + text.slice(end + SOURCES_END.length);
   if (next === text) return { updated: false, reason: 'unchanged' };
   fs.writeFileSync(agents, next, 'utf8');
@@ -662,6 +693,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
     kept.push(hasAgents ? 'AGENTS.md' : 'CLAUDE.md（legacy，未改动）');
   }
   const agentsSync = syncRootAgents(ws, kit, { create: true });
+  if (agentsSync.migrated) kept.push('AGENTS.md（补齐子工程地图标记）');
   if (agentsSync.reason === 'unmarked') {
     warnings.push('根 AGENTS.md 无子工程地图标记（<!-- hk:sources:begin/end -->），已保留人工内容、未自动更新；如需托管请删除该段或手工加标记后重跑 /hk-init');
   }

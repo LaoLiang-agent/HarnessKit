@@ -366,7 +366,8 @@ CodeGraph 是**可选增强**，不是质量门：
 - 只替换标记块内表格，块外人工内容原样保留；
 - `/hk-init` 用 `create: true`，可创建完整根文件；
 - `/hk-setup --add` 用默认 `create: false`，只更新已有标记块，不生成半成品；
-- 老 AGENTS 无标记 → 不改写，返回 `unmarked`，由初始化报告 warning；
+- 旧版 Harness Kit 生成（首行 `# 项目指南（Harness Kit 生成）`）→ 自动补标记并刷新地图；
+- 其它无标记 AGENTS → 不改写，返回 `unmarked`，由初始化报告 warning；
 - 只有 `CLAUDE.md`、没有 `AGENTS.md` → 不创建，返回 `legacy`；
 - 子工程表路径直接取 `kit.sources[].path`，支持自定义路径。
 
@@ -456,7 +457,7 @@ code/custom/         自定义 path（kit.sources）
 - [x] 自定义 path / 嵌套 .NET / Maven 顶层模块可见
 - [x] build 建议可审计，人工值不被覆盖
 - [x] CodeGraph 不自动全局安装，可跳过
-- [x] 根 AGENTS 地图随 addSource 增量更新，不动人工内容
+- [x] 根 AGENTS 地图随 addSource 增量更新，不动人工内容；旧版 HK 文件可自动补标记
 - [x] 校验与计划同源
 - [x] 多语言 fixture 通过
 - [x] 未改版本号、未打 tag、未 npm publish
