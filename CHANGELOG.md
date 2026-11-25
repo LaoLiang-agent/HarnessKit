@@ -4,13 +4,30 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.2] - 2026-11-25
+
+### Added
+
+- 资产同步拆成「拉取远端」和「提交并同步」：拉取只更新，不提交、不 push；提交并同步先
+  预览待提交文件，可逐项勾选，标记疑似敏感/超大文件，只提交选中路径。
+- 新增可选发版脚本 `scripts/release.sh`，固化版本校验、测试、bump、commit、tag、push；
+  仍不执行 `npm publish`，发布只由 tag 触发的 CI 完成。
+
+### Changed
+
+- 飞书 SDK 预打包进 `kernel/im/vendor/feishu-sdk.cjs`，并改为 `devDependency`；发布包不再
+  包含 `@larksuiteoapi/node-sdk` / `protobufjs` 运行时依赖，也不再触发 pnpm 的
+  `ERR_PNPM_IGNORED_BUILDS` 构建审批。
+- 面板只列出含 `.harness/kit.json` 的工作区，避免把普通目录误显示为 Harness 工作区。
+- 在 `dsh-harness-kit` 仓库内，本地 `npm/pnpm/yarn publish` 会被护栏直接阻断；npm 发布
+  只走 `vX.Y.Z` tag + CI。
 
 ### Fixed
 
-- 面板「拉取远端」不再因为工作区有未提交资产改动而直接失败：改用
+- 面板「拉取远端」不再因为资产仓库有未提交改动而直接失败：改用
   `git pull --rebase --autostash` 暂存并在拉取后恢复本地改动；双方改同一文件时保留
   冲突标记和 autostash，返回可执行的解决指引，而不是误报成功或丢弃改动。
+- 「提交并同步」只勾选部分文件时，未勾选的脏文件不再阻断 pull。
 
 ## [0.3.1] - 2026-11-25
 
@@ -344,6 +361,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.3.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.2
 [0.3.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.1
 [0.3.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.0
 [0.2.5]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.5
@@ -359,3 +377,4 @@ First public release.
 [0.1.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.1
 [0.1.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.1.0
+
