@@ -1425,8 +1425,9 @@ section('结构化决策点（外来占用 → 可点选项 + 引擎停重试）
   git('add .', repo);
   git('commit -m mystery', repo);
   const r = await run('hk-apply', 'dec-task', ws, steered);
-  ok('外来分支 → kind=decision + code', r.kind === 'decision' && r.code === 'workspace-foreign');
+  ok('外来分支 → error（DSH 只接受 success/error，不能返回 decision）', r.kind === 'error' && r.code === 'workspace-foreign');
   ok('决策文本含主树现场（分支+工作区状态）', r.text.includes('foreign-branch') && r.text.includes('工作区干净'));
+  ok('错误文本携带可执行选项', r.text.includes('可选操作') && r.text.includes('/hk-apply dec-task --slot'));
   ok('选项含 --slot 重跑行', r.options?.some((o) => o.line === '/hk-apply dec-task --slot'));
   ok('决策点落盘（注意力/引擎可见）', readDecisions(ws)['dec-task']?.code === 'workspace-foreign');
   // 注意力项渲染数据

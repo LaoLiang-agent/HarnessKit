@@ -26,8 +26,20 @@ import { copyMaterials, cleanupStages } from './materials.js';
 const ok = (text) => ({ kind: 'success', text });
 const err = (text) => ({ kind: 'error', text });
 // 结构化决策点（B 方案）：需要人裁决但选项明确的场景（如工作区外来占用）。
-// 会话路由按 text 渲染；面板路由识别 kind 后渲染可点选项。options[].line 可直接重跑。
-const decision = (text, code, options) => ({ kind: 'decision', text, code, options });
+//
+// 注意：DSH 命令注册表只接受 success / error 两种 CommandResult；返回自定义 kind
+// 会在 normalizeResult 里抛 "unknown result kind"，会话里只看到这条 TypeError。
+// 因此对外仍是 error（附可执行选项），结构化 options 由 recordDecision 落盘，
+// 面板路由读 decisions.json 还原可点按钮。
+const decision = (text, code, options) => {
+  const choices = (options ?? []).map((o) => `- ${o.label}：\`${o.line}\``).join('\n');
+  return {
+    kind: 'error',
+    text: choices ? `${text}\n\n可选操作：\n${choices}` : text,
+    code,
+    options,
+  };
+};
 
 /** 把任务绑定到执行命令的当前会话（覆盖手敲命令等面板路由不在场的入口；取不到 id 则跳过）。 */
 function bindCurrentSession(ws, task, agent) {
@@ -333,6 +345,8 @@ async function hkFix({ agent, rawInput }) {
   const autoNamed = !!flags.auto;
   if (autoNamed) task = autoTaskName(ws, desc);
   if (!task || !TASK_NAME_RE.test(task)) return err('用法：/hk-fix [任务名] <一句话描述> [--full|--light] [--auto]（任务名限英文/数字/-_；留空或 --auto 按描述自动生成）');
+  // 先清旧决策，避免本次命令在更早的校验处失败时，面板误用上次的决策点。
+  clearDecision(ws, task);
 
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);
   if (fs.existsSync(taskDir)) {
@@ -359,7 +373,6 @@ async function hkFix({ agent, rawInput }) {
   const workerRefs = wctx.refs || '- （Worker 角色定义缺失）';
 
   // 并行开发：fix 也会改源码——清同名残留 + 分配工作区（fix/harness-<task>）
-  clearDecision(ws, task);
   await clearTaskWorkspaces(ws, kit, task);
   await removeTaskAnalysisWorktrees(ws, kit, task);
   const wt = await ensureTaskWorkspaces(ws, kit, task, { branchPrefix: 'fix', forceSlot: flags.slot === true });
@@ -378,7 +391,6 @@ async function hkFix({ agent, rawInput }) {
     recordDecision(ws, task, { code: 'workspace-foreign', text, options });
     return decision(text, 'workspace-foreign', options);
   }
-  clearDecision(ws, task);
   const wtNotice = renderWorkspaceNotice(wt, task);
   // 质量门评估可能读源码：同样给只读基线镜像 + --base 任务专属分析区
   const mirrors = await ensureBaselineMirrors(ws, kit);
@@ -602,6 +614,8 @@ async function hkApply({ agent, rawInput }) {
   if (inferred.error) return err(inferred.error);
   const task = inferred.task;
   const feedback = positional.slice(1).join(' ');
+  // 先清旧决策：否则本次因其它原因失败时，面板会把上次的决策点当成本次结果。
+  clearDecision(ws, task);
 
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);
   const proposalPath = path.join(taskDir, 'proposal.md');
@@ -647,7 +661,6 @@ async function hkApply({ agent, rawInput }) {
     recordDecision(ws, task, { code: 'workspace-foreign', text, options });
     return decision(text, 'workspace-foreign', options);
   }
-  clearDecision(ws, task);
   const wtNotice = renderWorkspaceNotice(wt, task);
 
   const prompt = compileFlowPrompt(loaded.flow, {

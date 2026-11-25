@@ -4,6 +4,14 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `/hk-apply` / `/hk-fix` 遇到主工作树分支占用时不再返回 DSH 命令注册表不支持的
+  `decision` 结果（会话里只显示 `command "hk-apply" returned unknown result kind "decision"`）。
+  改为标准 `error` 结果并在文本中列出可执行选项；面板仍从 `decisions.json` 还原可点按钮。
+
 ## [0.3.2] - 2026-11-25
 
 ### Added

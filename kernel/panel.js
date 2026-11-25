@@ -1247,20 +1247,30 @@ export function registerPanelApi(ctx) {
         // execute 返回 CommandExecution|undefined（语法/名称未解析时 undefined，且不落任何日志）；
         // 必须检查 result.kind——handler 失败（如任务撞名）时把真实错误透传给面板，
         // 否则用户只看到「已发送」而会话里什么都没发生。
+        //
+        // DSH 命令注册表只接受 success / error，自定义 decision kind 会在 normalizeResult
+        // 抛 TypeError。结构化决策点改为：handler 返回 error + 把 options 落到 decisions.json，
+        // 这里对比执行前后的决策台账，还原成面板可点选项。
+        const beforeDecisions = readDecisions(ws.path);
+        const commandTask = line.match(/^\/hk-(?:fix|apply)\s+([A-Za-z0-9][A-Za-z0-9_-]*)/)?.[1];
         const exec = await commands.execute(found.agent, line, [], new AbortController().signal);
         dbg({ ev: 'exec', sessionId: found.id, execUndefined: !exec, resultKind: exec?.result?.kind ?? null });
         if (!exec) {
           return sendJson(res, 400, { ok: false, error: `命令未注册或无法解析：${line}`, sessionId: found.id });
         }
-        if (exec.result?.kind === 'error') {
-          return sendJson(res, 200, { ok: false, error: exec.result.text || '命令执行失败', sessionId: found.id });
-        }
-        if (exec.result?.kind === 'decision') {
+        const afterDecisions = readDecisions(ws.path);
+        const decisionEntry = commandTask
+          ? afterDecisions[commandTask]
+          : Object.entries(afterDecisions).find(([t, d]) => JSON.stringify(beforeDecisions[t]) !== JSON.stringify(d))?.[1];
+        if (decisionEntry) {
           // 结构化决策点：面板渲染可点选项（不登记绑定——命令未成功执行）
           return sendJson(res, 200, {
-            ok: false, decision: true, code: exec.result.code,
-            text: exec.result.text, options: exec.result.options, sessionId: found.id,
+            ok: false, decision: true, code: decisionEntry.code,
+            text: decisionEntry.text, options: decisionEntry.options, sessionId: found.id,
           });
+        }
+        if (exec.result?.kind === 'error') {
+          return sendJson(res, 200, { ok: false, error: exec.result.text || '命令执行失败', sessionId: found.id });
         }
         // 任务↔会话绑定：命令成功才登记；命令行可解析出 ASCII 任务名即登记（--auto 自动命名场景由后续 hk-propose/apply 补绑）
         const boundTask = line.match(/^\/hk-(?:new|fix|propose|apply|archive)\s+([A-Za-z0-9][A-Za-z0-9_-]*)/)?.[1];
