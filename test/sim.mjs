@@ -2941,6 +2941,7 @@ section('client：工作区提醒');
   ok('新建任务支持多参考材料/目录/本机上传', clientSrc.includes('参考材料（可选，可多选文件 / 图片 / 整个原型目录）') && clientSrc.includes('/harness-kit/stage') && clientSrc.includes('上传文件…'));
   ok('多文件路径带引号传给 /hk-new', clientSrc.includes('quoteArg(r.path)') && clientSrc.includes("` --file ${quoteArg(r.path)}`"));
   ok('飞书配置步骤含个人版先建企业租户', clientSrc.includes('个人版账号：先创建企业租户') && clientSrc.includes('https://admin.feishu.cn/') && clientSrc.includes('旧应用不会迁移'));
+  ok('飞书启用开关勾选即保存', clientSrc.includes('toggleFeishuEnabled') && clientSrc.includes('勾选/取消会立即保存') && clientSrc.includes('启用开关切换会立即保存'));
 }
 
 // ---------------------------------------------------------------- report

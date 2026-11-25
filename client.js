@@ -1445,6 +1445,20 @@ window.__ModuleLoader__.load({
           channels: { ...prev.channels, [channel]: { ...(prev.channels?.[channel] ?? {}), ...nextPatch } },
         } : prev));
       };
+      // 统一保存入口：返回 Promise<boolean>，便于启用开关在失败时回滚 UI。
+      const persistImConfig = (config, okMessage = 'IM 配置已保存') => {
+        setImBusy(true);
+        return fetch('/harness-kit/im-config', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ workspace: ws.id, config }),
+        }).then(readJsonResponse).then((j) => {
+          toast(j.ok ? okMessage : (j.error || '保存失败'), j.ok);
+          return j.ok === true;
+        }).catch((e) => {
+          toast(e.message, false);
+          return false;
+        }).finally(() => setImBusy(false));
+      };
       const saveImConfig = () => {
         if (!imConfig) return;
         const f = imConfig.channels?.feishu ?? {};
@@ -1456,13 +1470,31 @@ window.__ModuleLoader__.load({
           toast('请先点「发送测试消息」，确认飞书能收到测试卡片后再启用', false);
           return;
         }
-        setImBusy(true);
-        fetch('/harness-kit/im-config', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ workspace: ws.id, config: imConfig }),
-        }).then(readJsonResponse).then((j) => {
-          toast(j.ok ? 'IM 配置已保存' : (j.error || '保存失败'), j.ok);
-        }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
+        persistImConfig(imConfig);
+      };
+      // 启用开关单独持久化：用户勾选后经常忘记再点保存，导致“看起来启用了但实际没保存”。
+      const toggleFeishuEnabled = (checked) => {
+        if (!imConfig) return;
+        const f = imConfig.channels?.feishu ?? {};
+        if (checked) {
+          if (!f.appId || !f.appSecret || !f.targetOpenId) {
+            toast('请先填写 App ID、App Secret，并获取 Open ID，再勾选启用', false);
+            return;
+          }
+          if (!feishuTested) {
+            toast('请先点「发送测试消息」，确认飞书能收到测试卡片后再勾选启用', false);
+            return;
+          }
+        }
+        const previous = imConfig;
+        const next = {
+          ...imConfig,
+          channels: { ...imConfig.channels, feishu: { ...f, enabled: checked } },
+        };
+        setImConfig(next);
+        persistImConfig(next, checked ? '飞书审批通知已启用并保存' : '飞书审批通知已停用并保存').then((ok) => {
+          if (!ok) setImConfig(previous);
+        });
       };
       const fetchFeishuOpenId = () => {
         const f = imConfig?.channels?.feishu ?? {};
@@ -1499,7 +1531,7 @@ window.__ModuleLoader__.load({
           if (j.ok) setFeishuTested(true);
           const enabled = imConfig?.channels?.feishu?.enabled === true;
           toast(j.ok
-            ? `测试消息已发送（${j.messageId ?? 'ok'}）${enabled ? '' : '；请勾选「启用飞书审批通知」并保存'}`
+            ? `测试消息已发送（${j.messageId ?? 'ok'}）${enabled ? '' : '；请勾选「启用飞书审批通知」（勾选即保存）'}`
             : (j.error || '发送失败'), j.ok);
         }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
       };
@@ -1753,20 +1785,8 @@ window.__ModuleLoader__.load({
                   h('input', {
                     type: 'checkbox',
                     checked: imConfig.channels?.feishu?.enabled === true,
-                    onChange: (e) => {
-                      if (e.target.checked) {
-                        const f = imConfig.channels?.feishu ?? {};
-                        if (!f.appId || !f.appSecret || !f.targetOpenId) {
-                          toast('请先填写 App ID、App Secret，并获取 Open ID，再勾选启用', false);
-                          return;
-                        }
-                        if (!feishuTested) {
-                          toast('请先点「发送测试消息」，确认飞书能收到测试卡片后再勾选启用', false);
-                          return;
-                        }
-                      }
-                      setImChannel('feishu', { enabled: e.target.checked });
-                    },
+                    disabled: imBusy,
+                    onChange: (e) => toggleFeishuEnabled(e.target.checked),
                   }),
                   '启用飞书审批通知'),
                 h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 } },
@@ -1782,7 +1802,9 @@ window.__ModuleLoader__.load({
                 h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 6 } },
                   '只允许你本人处理审批，不需要配置白名单。目标 Open ID 就是你的飞书用户 ID。'),
                 h('div', { style: { fontSize: 11, color: V.warn, marginBottom: 6 } },
-                  '测试消息只验证 App 凭据和目标 Open ID；审批推送还需要勾选「启用飞书审批通知」并保存。'),
+                  '测试消息只验证 App 凭据和目标 Open ID；审批推送还需要勾选「启用飞书审批通知」。勾选/取消会立即保存，不需要再点保存。'),
+                h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 6 } },
+                  'App ID / App Secret / 目标 Open ID 修改后仍需点「保存飞书配置」；启用开关切换会立即保存。'),
                 h('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
                   h('button', { style: S.btn(imBusy, true), disabled: imBusy, onClick: saveImConfig }, '保存飞书配置'),
                   h('button', { style: S.btn(imBusy || !imConfig.channels?.feishu?.targetOpenId), disabled: imBusy || !imConfig.channels?.feishu?.targetOpenId, onClick: () => testImChannel('feishu') }, '发送测试消息'))),

@@ -188,7 +188,8 @@ go only to the provider you configure.
   enterprise verification; existing tenants can skip). Switch to that tenant and create a **new**
   enterprise self-built app there with bot capability and long-connection events; an app created
   under a personal tenant does not migrate. Fill App ID/Secret, fetch your Open ID, send a test
-  message, then enable. A personal tenant gets `21001 Access denied due to platform policy` when
+  message, then enable (the enable toggle saves immediately; App ID/Secret/Open ID edits still need
+  the Save button). A personal tenant gets `21001 Access denied due to platform policy` when
   requesting `tenant_access_token`. HK approvals appear in both DSH and Feishu; the first answer wins. Finish
   one multi-question approval on one surface; "Feishu answers some, DSH finishes the rest" is
   merged, but the reverse is not supported because DSH partial answers stay client-side.
