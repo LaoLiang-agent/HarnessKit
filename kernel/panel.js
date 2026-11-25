@@ -295,7 +295,7 @@ export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = 
     // 只提示不挂「立即同步」动作（挂了只会得到"不适用"报错，2026-11-13 用户踩中）
     items.push(sync.layout === 'embedded'
       ? { level: 'warn', kind: 'sync-behind', text: `工作区根仓库落后远端 ${sync.behind} 个提交${sync.dirty ? '，.harness 有未提交变更' : ''}（资产随根仓库管理，在根仓库 git pull/push 即共享）` }
-      : { level: 'warn', kind: 'sync-behind', text: `资产仓库落后远端 ${sync.behind} 个提交${sync.dirty ? '，且有未提交变更' : ''}`, sync: true });
+      : { level: 'warn', kind: 'sync-behind', text: `资产仓库落后远端 ${sync.behind} 个提交${sync.dirty ? '（有未提交变更，拉取会自动暂存并恢复）' : ''}`, sync: true });
   }
   // M2：stale slot（任务已归档但分支未合入，槽位被保留占用）→ 提醒人确认合入后重跑归档释放
   for (const s of staleSlots) {

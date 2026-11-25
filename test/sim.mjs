@@ -1707,6 +1707,7 @@ section('零人工收尾：目标快进、重复收尾、失败前置、dry-run/
 }
 // ---------------------------------------------------------------- hk-sync
 section('hk-sync 资产同步');
+const { pullAssets, syncAssets } = await import(path.join(bundleRoot, 'kernel/sync.js'));
 {
   // 未绑定 git → 指引
   const ws = mkws();
@@ -1751,6 +1752,84 @@ section('hk-sync 资产同步');
   ok('本地未提交变更自动提交 + rebase 远端 + push', r3.kind === 'success' && r3.text.includes('自动提交') && r3.text.includes('push'));
   ok('远端新行与本地新文件合并生效', fs.existsSync(path.join(ws, '.harness/memory/index.md')) && boardRemote.includes('task-a'));
   ok('memory/index.md 已推到远端', fs.existsSync(path.join(other, 'memory/index.md')));
+}
+{
+  // 仅拉取：本地有未提交改动时用 --autostash，不得再直接失败
+  const tmp = mkws();
+  cleanups.push(tmp);
+  const bare = path.join(tmp, 'remote.git');
+  const seed = path.join(tmp, 'seed');
+  fs.mkdirSync(seed, { recursive: true });
+  fs.writeFileSync(path.join(seed, 'notes.md'), 'line1\nline2\nline3\n');
+  git('init -q -b main && git add -A && git commit -qm seed', seed);
+  git(`clone -q --bare ${seed} ${bare}`, tmp);
+  const ws = mkws();
+  cleanups.push(ws);
+  git(`clone -q ${bare} .harness`, ws);
+  git('config user.email t@t && git config user.name t', path.join(ws, '.harness'));
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [], assets: { mode: 'clone', url: bare, branch: 'main' } }));
+  const other = path.join(tmp, 'other');
+  git(`clone -q ${bare} ${other}`, tmp);
+  fs.writeFileSync(path.join(other, 'remote.md'), '# 远端新增\n');
+  git('add -A && git commit -qm remote-add && git push -q origin main', other);
+  fs.writeFileSync(path.join(ws, '.harness/notes.md'), 'line1\nline2\nlocal-edit\n');
+  const r = await pullAssets(ws, readKitJson(ws));
+  ok('本地未提交变更时拉取成功（autostash）', r.kind === 'success' && r.text.includes('自动暂存并恢复'));
+  ok('拉取后远端新文件已落地', fs.existsSync(path.join(ws, '.harness/remote.md')));
+  ok('拉取后本地未提交改动仍在', fs.readFileSync(path.join(ws, '.harness/notes.md'), 'utf8').includes('local-edit'));
+  ok('拉取后 HEAD 与远端一致', git('rev-parse HEAD', path.join(ws, '.harness')).trim() === git('rev-parse origin/main', path.join(ws, '.harness')).trim());
+}
+{
+  // 提交并同步：只勾选部分文件时，未勾选的脏文件不能让 pull 失败
+  const tmp = mkws();
+  cleanups.push(tmp);
+  const bare = path.join(tmp, 'remote.git');
+  const seed = path.join(tmp, 'seed');
+  fs.mkdirSync(seed, { recursive: true });
+  fs.writeFileSync(path.join(seed, 'a.md'), 'a-base\n');
+  fs.writeFileSync(path.join(seed, 'b.md'), 'b-base\n');
+  git('init -q -b main && git add -A && git commit -qm seed', seed);
+  git(`clone -q --bare ${seed} ${bare}`, tmp);
+  const ws = mkws();
+  cleanups.push(ws);
+  git(`clone -q ${bare} .harness`, ws);
+  git('config user.email t@t && git config user.name t', path.join(ws, '.harness'));
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [], assets: { mode: 'clone', url: bare, branch: 'main' } }));
+  const other = path.join(tmp, 'other');
+  git(`clone -q ${bare} ${other}`, tmp);
+  fs.writeFileSync(path.join(other, 'c.md'), 'remote\n');
+  git('add -A && git commit -qm remote-add && git push -q origin main', other);
+  fs.writeFileSync(path.join(ws, '.harness/a.md'), 'a-local\n');
+  fs.writeFileSync(path.join(ws, '.harness/b.md'), 'b-local\n');
+  const r = await syncAssets(ws, readKitJson(ws), { paths: ['a.md'] });
+  ok('部分勾选同步：未勾选脏文件不阻断 pull', r.kind === 'success' && r.text.includes('push'));
+  ok('部分勾选同步：只推送勾选文件', git('show main:a.md', bare) === 'a-local\n' && git('show main:b.md', bare) === 'b-base\n');
+  ok('部分勾选同步：未勾选改动仍在工作区', fs.readFileSync(path.join(ws, '.harness/b.md'), 'utf8') === 'b-local\n');
+}
+{
+  // 仅拉取：本地未提交改动与远端重叠 → 远端更新落地、原改动保底 stash、返回冲突指引
+  const tmp = mkws();
+  cleanups.push(tmp);
+  const bare = path.join(tmp, 'remote.git');
+  const seed = path.join(tmp, 'seed');
+  fs.mkdirSync(seed, { recursive: true });
+  fs.writeFileSync(path.join(seed, 'shared.md'), 'base\n');
+  git('init -q -b main && git add -A && git commit -qm seed', seed);
+  git(`clone -q --bare ${seed} ${bare}`, tmp);
+  const ws = mkws();
+  cleanups.push(ws);
+  git(`clone -q ${bare} .harness`, ws);
+  git('config user.email t@t && git config user.name t', path.join(ws, '.harness'));
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [], assets: { mode: 'clone', url: bare, branch: 'main' } }));
+  const other = path.join(tmp, 'other');
+  git(`clone -q ${bare} ${other}`, tmp);
+  fs.writeFileSync(path.join(other, 'shared.md'), 'remote\n');
+  git('add -A && git commit -qm remote-edit && git push -q origin main', other);
+  fs.writeFileSync(path.join(ws, '.harness/shared.md'), 'local\n');
+  const r = await pullAssets(ws, readKitJson(ws));
+  ok('重叠冲突 → 返回冲突指引而非误报成功', r.kind === 'error' && r.text.includes('冲突') && r.text.includes('stash'));
+  ok('冲突后原改动保存在 autostash', git('stash list', path.join(ws, '.harness')).includes('autostash'));
+  ok('冲突后远端更新未被回滚', git('rev-parse HEAD', path.join(ws, '.harness')).trim() === git('rev-parse origin/main', path.join(ws, '.harness')).trim());
 }
 {
   // 纯追加冲突 → 自动三路合并（双方都 append memory/index.md 不同行）
@@ -2222,7 +2301,7 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     ok('待归档入注意力（warn+归档命令）', items.some((i) => i.kind === 'archive' && i.line === '/hk-archive b'));
     ok('DONE 不进注意力', !items.some((i) => i.task === 'c'));
     const behind = attentionItems([], { state: 'behind', behind: 3, dirty: true });
-    ok('落后远端入注意力（warn）', behind.length === 1 && behind[0].kind === 'sync-behind' && behind[0].text.includes('3'));
+    ok('落后远端入注意力（warn，dirty 时说明自动暂存）', behind.length === 1 && behind[0].kind === 'sync-behind' && behind[0].text.includes('3') && behind[0].text.includes('自动暂存并恢复'));
     // embedded（随工作区根仓库）：落后/rebase 阻塞只指路，不挂「立即同步」动作
     const embBehind = attentionItems([], { state: 'behind', behind: 5, dirty: false, layout: 'embedded', repoRoot: '/x' });
     ok('embedded 落后指路不挂同步动作', embBehind.length === 1 && embBehind[0].kind === 'sync-behind' && embBehind[0].sync !== true && embBehind[0].text.includes('根仓库') && embBehind[0].text.includes('5'));

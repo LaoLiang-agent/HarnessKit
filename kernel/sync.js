@@ -147,7 +147,14 @@ export async function previewSync(ws) {
   });
 }
 
-/** 仅拉取远端：不提交、不 push；有未提交变更时拒绝 rebase。 */
+/**
+ * 仅拉取远端：不提交、不 push。
+ *
+ * 工作区常有未提交的资产改动（看板/交付物正在编辑），原先“脏就拒绝”会让面板的
+ * 「拉取」按钮必然失败。这里用 `--autostash` 把本地改动暂存，rebase 完再恢复：
+ * - 双方改动不重叠（常见：各自改看板不同行）→ 自动合并，工作区仍保持未提交；
+ * - 重叠冲突 → 远端更新已落地、原改动保留在 stash，返回可执行的冲突指引。
+ */
 export async function pullAssets(ws, kit) {
   const hd = path.join(ws, '.harness');
   if (!fs.existsSync(path.join(hd, '.git'))) {
@@ -162,25 +169,47 @@ export async function pullAssets(ws, kit) {
   if (currentBranch && currentBranch !== branch) {
     return fail(`当前分支 ${currentBranch} 与 kit.json 要求的 ${branch} 不一致；请先切换分支再拉取。`);
   }
-  const dirty = (await g(['status', '--porcelain'])).stdout.trim();
+  const dirty = !!(await g(['status', '--porcelain'])).stdout.trim();
   const fetched = await g(['fetch', remote, branch]);
   if (fetched.code !== 0) {
     const out = fetched.stderr || fetched.stdout;
     if (/couldn't find remote ref|does not appear to be/i.test(out)) return ok(`远端暂无 ${branch} 分支，无需拉取。`);
     return fail(`fetch 失败（未提交任何本地文件）：\n${out}`);
   }
-  if (dirty) {
-    return fail('本地有未提交变更，已只执行 fetch，未做 rebase。请先“提交并同步”，或手动处理后再拉取。');
-  }
-  const pull = await g(['pull', '--rebase', remote, branch]);
-  if (pull.code !== 0) {
-    const out = pull.stderr || pull.stdout;
+  const pull = await g(['pull', '--rebase', '--autostash', remote, branch]);
+  const out = pull.stderr || pull.stdout;
+  const conflicts = (await g(['diff', '--name-only', '--diff-filter=U'])).stdout
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (pull.code !== 0 || conflicts.length > 0) {
     if (/couldn't find remote ref|does not appear to be/i.test(out)) {
       return ok(`远端暂无 ${branch} 分支，无需拉取。`);
     }
+    if (conflicts.length > 0) {
+      const rebasing = fs.existsSync(path.join(hd, '.git', 'rebase-merge'))
+        || fs.existsSync(path.join(hd, '.git', 'rebase-apply'));
+      return fail(
+        `已拉取远端提交，但本地未提交改动与远端冲突（未覆盖你的任何改动）：\n${conflicts.map((f) => `- \`${f}\``).join('\n')}\n\n` +
+          (rebasing
+            ? `rebase 仍在进行中。解决冲突后执行 \`git add <文件> && git rebase --continue\`；如需放弃本次 rebase 回到拉取前状态：\`git rebase --abort\`（本地改动仍在 stash）。`
+            : '冲突标记已写入上述文件；解决后执行 `git add <文件>`，确认无误再 `git stash drop` 丢弃 autostash 副本。') +
+          '\n原改动完整保存在 `git stash` 中（标记 `autostash`），不会丢失。',
+      );
+    }
+    if (/untracked working tree files would be overwritten/i.test(out)) {
+      return fail(
+        `远端新增的文件与本地未跟踪文件同名，已停止拉取（未覆盖本地文件）。请先移动/改名或提交这些本地文件后重试：\n${out}`,
+      );
+    }
     return fail(`拉取失败（未提交任何本地文件）：\n${out}`);
   }
-  return ok(/already up[ -]to[ -]date/i.test(pull.stdout + pull.stderr) ? '远端无新提交。' : '已拉取并 rebase 远端提交。');
+  if (/already up[ -]to[ -]date/i.test(pull.stdout + pull.stderr)) {
+    return ok('远端无新提交。');
+  }
+  return ok(dirty
+    ? '已拉取并 rebase 远端提交；本地未提交变更已自动暂存并恢复。'
+    : '已拉取并 rebase 远端提交。');
 }
 
 export async function syncAssets(ws, kit, { allowDeletions = false, paths = null } = {}) {
@@ -242,8 +271,8 @@ export async function syncAssets(ws, kit, { allowDeletions = false, paths = null
     steps.push(`自动提交本地变更（\`${msg}\`）`);
   }
 
-  // 2. pull --rebase
-  const pull = await g(['pull', '--rebase', remote, branch]);
+  // 2. pull --rebase（选中路径提交时可能仍有未选中的脏文件；用 autostash 避免拉取被它阻断）
+  const pull = await g(['pull', '--rebase', '--autostash', remote, branch]);
   if (pull.code !== 0) {
     const out = pull.stderr || pull.stdout;
     if (/couldn't find remote ref|does not appear to be/i.test(out)) {
@@ -281,11 +310,23 @@ export async function syncAssets(ws, kit, { allowDeletions = false, paths = null
         return fail(
           `以下文件冲突，超出纯追加自动合并范围，已中止 rebase 回滚到同步前状态，转人工处理：\n${conflicts.map((f) => `- \`${f}\``).join('\n')}\n\n手工步骤：\`cd .harness && git pull --rebase ${remote} ${branch}\`，解冲突后 \`git rebase --continue && git push ${remote} ${branch}\`，或修复后重跑 \`/hk-sync\`。`,
         );
+      } else if (/untracked working tree files would be overwritten/i.test(out)) {
+        return fail(`远端新增文件与本地未跟踪文件同名，已停止同步（未覆盖本地文件）：\n${out}\n请先移动/改名或提交这些文件后重试。`);
       } else {
         return fail(`git pull --rebase 失败（无冲突标记，疑似网络/认证问题）：\n${out}`);
       }
     }
   } else {
+    const leftovers = (await g(['diff', '--name-only', '--diff-filter=U'])).stdout
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    if (leftovers.length > 0) {
+      return fail(
+        `已拉取远端并 rebase 本地提交，但未选中的本地改动与远端冲突：\n${leftovers.map((f) => `- \`${f}\``).join('\n')}\n\n` +
+          '原改动已保存在 autostash 中，不会丢失。解决上述文件的冲突并 `git add` 后，执行 `git stash drop` 丢弃 autostash 副本，再重跑 `/hk-sync`。',
+      );
+    }
     steps.push(/already up[ -]to[ -]date/i.test(pull.stdout + pull.stderr) ? '远端无新提交' : '已 rebase 远端新提交');
   }
 

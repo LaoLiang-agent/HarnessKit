@@ -4,6 +4,14 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- 面板「拉取远端」不再因为工作区有未提交资产改动而直接失败：改用
+  `git pull --rebase --autostash` 暂存并在拉取后恢复本地改动；双方改同一文件时保留
+  冲突标记和 autostash，返回可执行的解决指引，而不是误报成功或丢弃改动。
+
 ## [0.3.1] - 2026-11-25
 
 ### Fixed
