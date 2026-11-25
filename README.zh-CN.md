@@ -276,6 +276,11 @@ dsh plugin --profile desktop add /绝对路径/HarnessKit
 **数据去哪？**
 项目资产在本地 `.harness/` 和你的 git（共享时就是团队仓库）；插件不收集、不上传遥测；模型请求只发往你配置的 provider。
 
+**更新时提示 `ERR_PNPM_IGNORED_BUILDS: protobufjs` 怎么办？**
+0.3.x 的飞书 SDK 依赖 `protobufjs`，pnpm 11 默认要求审批依赖构建脚本。在 profile 的
+`pnpm-workspace.yaml` 加入 `allowBuilds: { protobufjs: true }`，或更新失败时按提示允许
+`protobufjs` 构建，然后重试即可；该脚本只检查版本兼容性，不联网。
+
 **支持哪些宿主？**
 当前只支持 DeepSeek Harness。MCP 宿主（Claude Code 等）尚未实现，文档不会假装支持。
 

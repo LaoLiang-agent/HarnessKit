@@ -319,6 +319,12 @@ machines, backup and later sharing.
 Project assets stay in your local `.harness/` and your git (your team's when shared). The plugin
 collects no telemetry; model requests go only to the provider you configure.
 
+**Update fails with `ERR_PNPM_IGNORED_BUILDS: protobufjs`?**
+The Feishu SDK used by 0.3.x depends on `protobufjs`; pnpm 11 requires build-script approval.
+Add `allowBuilds: { protobufjs: true }` to the profile's `pnpm-workspace.yaml`, or approve
+`protobufjs` when the update offers it, then retry. Its postinstall only checks version
+compatibility and does not access the network.
+
 **Which hosts are supported?**
 DeepSeek Harness only for now. MCP hosts are not implemented, and this document does not claim they
 are.
