@@ -271,7 +271,7 @@ window.__ModuleLoader__.load({
         }
       };
       const run = (line) => post('/harness-kit/command', { workspace: ws.id, line, sessionId });
-      const syncNow = () => post('/harness-kit/sync', { workspace: ws.id });
+      const pullNow = () => post('/harness-kit/sync/apply', { workspace: ws.id, mode: 'pull' });
       const openPanel = () => { try { ctx.get('layout')?.selectPanel?.('harness-kit'); } catch { /* ignore */ } };
       const jump = (task) => {
         const t = (ws.tasks ?? []).find((x) => x.task === task);
@@ -308,7 +308,8 @@ window.__ModuleLoader__.load({
           h('div', { style: { display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' } },
             (a.options ?? []).map((o) => btn(o.label, () => run(o.line), o.primary)),
             a.line && !(a.options ?? []).length && btn('处理', () => run(a.line), true),
-            a.sync && btn('立即同步', syncNow, true),
+            a.sync && btn('拉取远端', pullNow, false),
+            a.sync && btn('打开同步', openPanel, true),
             a.init && btn('运行初始化', () => run('/hk-init'), true),
             a.jump && a.task && btn('转到会话', () => jump(a.task), false)))),
         note && h('div', { style: { marginTop: 4, fontSize: 11, color: V.sub } }, note));
@@ -341,6 +342,52 @@ window.__ModuleLoader__.load({
         (d.notes ?? []).length > 0 && h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, d.notes.join('；')));
     }
 
+    // 资产同步预览：默认只勾选已跟踪修改/删除，新增文件默认不选，避免临时文件被提交。
+    function SyncPreviewModal({ state, busy, onToggle, onSelectSafe, onClose, onApply }) {
+      if (!state) return null;
+      const { data, selected } = state;
+      const count = Object.values(selected).filter(Boolean).length;
+      const row = (item) => h('label', {
+        key: item.path,
+        style: { display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12, padding: '2px 0', cursor: 'pointer' },
+      },
+        h('input', {
+          type: 'checkbox',
+          checked: !!selected[item.path],
+          onChange: () => onToggle(item.path),
+          style: { marginTop: 2 },
+        }),
+        h('span', { style: { fontFamily: 'monospace', wordBreak: 'break-all', color: item.suspicious ? V.warn : V.text } },
+          `${item.status} ${item.path}`),
+        item.suspicious && h('span', { style: { color: V.warn, whiteSpace: 'nowrap' } }, '⚠ 临时/敏感'),
+        item.large && h('span', { style: { color: V.warn, whiteSpace: 'nowrap' } }, '⚠ 大文件'));
+      const section = (title, items, emptyText) => h('div', { style: { marginTop: 10 } },
+        h('div', { style: { fontSize: 12, fontWeight: 600, marginBottom: 4 } }, `${title}（${items.length}）`),
+        items.length > 0 ? items.map(row) : h('div', { style: { fontSize: 11, color: V.sub } }, emptyText));
+      return h('div', { style: S.overlayBox, onClick: onClose },
+        h('div', {
+          style: { ...S.modal, width: 680, maxWidth: '94vw', maxHeight: '84vh', overflow: 'auto' },
+          onClick: (e) => e.stopPropagation(),
+        },
+          h('div', { style: { ...S.hTitle, marginBottom: 4 } }, '提交并同步'),
+          h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
+            `分支 ${data.branch} · 已跟踪修改 ${data.tracked.length} · 新增 ${data.untracked.length} · 删除 ${data.deleted.length}`),
+          h('div', { style: { fontSize: 12, color: V.sub } },
+            '默认不勾选新增文件；请确认没有日志、密钥、临时草稿后再提交。'),
+          section('已跟踪修改', data.tracked, '无'),
+          section('新增文件', data.untracked, '无'),
+          section('删除', data.deleted, '无'),
+          h('div', { style: { display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center', marginTop: 14 } },
+            h('button', { style: S.btn(false), onClick: onSelectSafe }, '只选安全项'),
+            h('div', { style: { display: 'flex', gap: 8 } },
+              h('button', { style: S.btn(false), onClick: onClose }, '取消'),
+              h('button', {
+                style: S.btn(busy || count === 0, true),
+                disabled: busy || count === 0,
+                onClick: onApply,
+              }, busy ? '提交中…' : `提交所选并同步（${count}）`)))));
+    }
+
     function Panel({ uiWorkspace }) {
       const [data, setData] = useState(null);
       // 工作区选择记忆：打开插件时恢复上次选择的工作区（而非列表第一个）
@@ -358,6 +405,7 @@ window.__ModuleLoader__.load({
       const [histQuery, setHistQuery] = useState('');
       const [modal, setModal] = useState(null); // {name, desc, refs:[{path,name,kind}], pathDraft}
       const [histInsight, setHistInsight] = useState(null); // 历史任务运行记录弹窗
+      const [syncPreview, setSyncPreview] = useState(null); // 资产同步预览 {data, selected}
       const [browse, setBrowse] = useState(null); // 参考材料浏览：{dir, parent, entries, selected, loading, error}
       const [uploading, setUploading] = useState(null); // {done,total} 本机上传进度
       const uploadBatch = useRef(null);
@@ -524,23 +572,93 @@ window.__ModuleLoader__.load({
           .catch((e) => setInsight((prev) => ({ ...prev, [t.task]: { loading: false, data: null, error: e.message } })));
       }, [ws]);
 
-      const syncNow = useCallback(() => {
+      const pullSync = useCallback(async () => {
         if (!ws) return;
-        // embedded 兜底：不 POST（host 会回"不适用"），直接指路
         if (ws.sync?.layout === 'embedded') {
           toast('资产随工作区根仓库管理：在根仓库 git pull/push 即共享，面板同步不适用', false);
           return;
         }
         setBusy(true);
-        toast('同步中…（git fetch/rebase/push）');
-        fetch('/harness-kit/sync', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ workspace: ws.id }),
-        }).then((r) => r.json()).then((j) => {
-          toast(j.text || (j.ok ? '同步完成' : '同步失败'), j.ok);
+        toast('拉取远端…');
+        try {
+          const r = await fetch('/harness-kit/sync/apply', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ workspace: ws.id, mode: 'pull' }),
+          });
+          const j = await r.json();
+          toast(j.text || (j.ok ? '拉取完成' : '拉取失败'), j.ok);
           setTimeout(fetchState, 800);
-        }).catch((e) => toast(e.message, false)).finally(() => setBusy(false));
+        } catch (e) {
+          toast(e.message, false);
+        } finally {
+          setBusy(false);
+        }
       }, [ws, toast, fetchState]);
+
+      const openSyncPreview = useCallback(async () => {
+        if (!ws) return;
+        if (ws.sync?.layout === 'embedded') {
+          toast('资产随工作区根仓库管理：在根仓库 git pull/push 即共享，面板同步不适用', false);
+          return;
+        }
+        setBusy(true);
+        try {
+          const r = await fetch('/harness-kit/sync/preview', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ workspace: ws.id }),
+          });
+          const j = await r.json();
+          if (!j.ok || !j.preview) { toast(j.text || j.error || '读取待提交文件失败', false); return; }
+          const selected = {};
+          for (const f of j.preview.tracked ?? []) selected[f.path] = true;
+          for (const f of j.preview.deleted ?? []) selected[f.path] = true;
+          for (const f of j.preview.untracked ?? []) selected[f.path] = false;
+          setSyncPreview({ data: j.preview, selected });
+        } catch (e) {
+          toast(e.message, false);
+        } finally {
+          setBusy(false);
+        }
+      }, [ws, toast]);
+
+      const toggleSyncPath = useCallback((path) => {
+        setSyncPreview((prev) => prev ? { ...prev, selected: { ...prev.selected, [path]: !prev.selected[path] } } : prev);
+      }, []);
+
+      const selectSafeSync = useCallback(() => {
+        setSyncPreview((prev) => {
+          if (!prev) return prev;
+          const selected = {};
+          const safeDir = /^(deliverables|specs|memory|tasks)\//;
+          for (const f of prev.data.tracked ?? []) selected[f.path] = true;
+          for (const f of prev.data.deleted ?? []) selected[f.path] = true;
+          for (const f of prev.data.untracked ?? []) {
+            selected[f.path] = !f.suspicious && !f.large && safeDir.test(f.path);
+          }
+          return { ...prev, selected };
+        });
+      }, []);
+
+      const applySync = useCallback(async () => {
+        if (!ws || !syncPreview) return;
+        const paths = Object.entries(syncPreview.selected).filter(([, v]) => v).map(([p]) => p);
+        if (paths.length === 0) { toast('请选择至少一个文件', false); return; }
+        setBusy(true);
+        try {
+          const r = await fetch('/harness-kit/sync/apply', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ workspace: ws.id, mode: 'commit', paths }),
+          });
+          const j = await r.json();
+          toast(j.text || (j.ok ? '同步完成' : '同步失败'), j.ok);
+          if (j.ok) setSyncPreview(null);
+          setTimeout(fetchState, 800);
+        } catch (e) {
+          toast(e.message, false);
+        } finally {
+          setBusy(false);
+        }
+      }, [ws, syncPreview, toast, fetchState]);
 
       // 参考材料浏览：打开/进入目录（宿主无文件选择器，走 /harness-kit/browse 列举；可跨目录多选）
       const browseInto = useCallback(async (dir) => {
@@ -757,7 +875,9 @@ window.__ModuleLoader__.load({
         }, `↑ ${updateInfo.latest} 可用`),
         // embedded（.harness 随工作区根仓库管理）：同步对象是根仓库，面板不能替用户动代码仓库，
         // 不提供「立即同步」（旧版点了只会得到"/hk-sync 不适用"报错）；提示由注意力项给出。
-        ws && ws.sync?.layout !== 'embedded' && h('button', { style: S.btn(busy), disabled: busy, onClick: syncNow }, '立即同步'),
+        ws && ws.sync?.layout !== 'embedded' && h('span', { style: { display: 'inline-flex', gap: 6 } },
+          h('button', { style: S.btn(busy), disabled: busy, onClick: pullSync }, '拉取'),
+          h('button', { style: S.btn(busy), disabled: busy, onClick: openSyncPreview }, '提交并同步')),
         h('span', { style: { flex: 1 } }),
         h('button', { style: { ...S.btn(false), fontSize: 12 }, title: '新建 / 打开工作区', onClick: () => setObMode('choice') }, '＋ 工作区'),
         ws && h('button', { style: S.iconBtn, title: '新建任务', onClick: startTaskModal }, '＋'),
@@ -945,7 +1065,8 @@ window.__ModuleLoader__.load({
               }, o.label)),
               a.line && h('button', { style: S.btn(busy, true), disabled: busy, onClick: () => run(a.line) }, '处理'),
               a.init && h('button', { style: S.btn(busy, true), disabled: busy, onClick: () => run('/hk-init') }, '运行初始化编排'),
-              a.sync && h('button', { style: S.btn(busy, true), disabled: busy, onClick: syncNow }, a.kind === 'sync-blocked' ? '查看' : '立即同步'),
+              a.sync && h('button', { style: S.btn(busy, false), disabled: busy, onClick: pullSync }, '拉取远端'),
+              a.sync && h('button', { style: S.btn(busy, true), disabled: busy, onClick: openSyncPreview }, '提交并同步'),
             ))),
           // 泳道
           active.length === 0
@@ -988,6 +1109,16 @@ window.__ModuleLoader__.load({
             h(InsightView, { ins: insight[histInsight.task], onRefresh: () => loadInsight(histInsight), showButton: false }),
             h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: 10 } },
               h('button', { style: S.btn(false), onClick: () => setHistInsight(null) }, '关闭')))),
+
+        // 资产同步预览
+        syncPreview && h(SyncPreviewModal, {
+          state: syncPreview,
+          busy,
+          onToggle: toggleSyncPath,
+          onSelectSafe: selectSafeSync,
+          onClose: () => setSyncPreview(null),
+          onApply: applySync,
+        }),
 
         // 立项模态（需求 / fix 直通 两种模式；任务名可选，留空由 AI 按描述生成）
         modal && h('div', { style: S.overlayBox },

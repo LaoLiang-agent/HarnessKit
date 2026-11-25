@@ -20,7 +20,7 @@ import { harnessDir, readKit, writeKit, defaultKit } from './paths.js';
 import { loadFlow } from './flows.js';
 import { runGit } from './exec.js';
 import { checkEnvironment } from './env.js';
-import { assetsLayout, syncAssets } from './sync.js';
+import { assetsLayout, syncAssets, previewSync, pullAssets } from './sync.js';
 import { runInit, formatInitReport, inspectDir } from './setup.js';
 import { readTaskSessions, recordTaskSession } from './bindings.js';
 import { scanAutoAdvance, markAdvanceFired } from './advance.js';
@@ -1153,6 +1153,47 @@ export function registerPanelApi(ctx) {
         if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
         const r = await syncAssets(ws.path, kit, { allowDeletions: allowDeletions === true });
         syncCache.delete(ws.path); // 同步后强制下次重检
+        sendJson(res, r.kind === 'success' ? 200 : 409, { ok: r.kind === 'success', text: r.text });
+      } catch (cause) {
+        sendJson(res, 500, { ok: false, error: cause.message });
+      }
+    },
+  });
+
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/sync/preview',
+    async handler(req, res) {
+      if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      try {
+        const { workspace } = JSON.parse(await readBody(req) || '{}');
+        const ws = findWs(registry, workspace);
+        if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+        const r = await previewSync(ws.path);
+        sendJson(res, r.kind === 'success' ? 200 : 409, { ok: r.kind === 'success', text: r.text, preview: r.preview });
+      } catch (cause) {
+        sendJson(res, 500, { ok: false, error: cause.message });
+      }
+    },
+  });
+
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/sync/apply',
+    async handler(req, res) {
+      if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      try {
+        const { workspace, mode = 'commit', paths = null, allowDeletions } = JSON.parse(await readBody(req) || '{}');
+        const ws = findWs(registry, workspace);
+        if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+        const kit = readKit(ws.path);
+        if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
+        if (mode !== 'pull' && mode !== 'commit') return sendJson(res, 400, { ok: false, error: 'mode 必须是 pull 或 commit' });
+        if (mode === 'pull' && paths !== null) return sendJson(res, 400, { ok: false, error: '拉取模式不接受 paths' });
+        const r = mode === 'pull'
+          ? await pullAssets(ws.path, kit)
+          : await syncAssets(ws.path, kit, { allowDeletions: allowDeletions === true, paths });
+        syncCache.delete(ws.path);
         sendJson(res, r.kind === 'success' ? 200 : 409, { ok: r.kind === 'success', text: r.text });
       } catch (cause) {
         sendJson(res, 500, { ok: false, error: cause.message });

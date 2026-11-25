@@ -14,7 +14,7 @@ export function isAppendOnly(rel) {
   return APPEND_ONLY_FILES.has(rel) || APPEND_ONLY_RE.test(rel);
 }
 
-const ok = (text) => ({ kind: 'success', text });
+const ok = (text, extra) => ({ kind: 'success', text, ...(extra ?? {}) });
 const fail = (text) => ({ kind: 'error', text });
 
 // 资产同步防误删：一次同步删除太多已跟踪文件，通常不是正常业务变更，而是本地 clone
@@ -23,11 +23,56 @@ const MASS_DELETE_MIN = 10;
 const MASS_DELETE_RATIO = 0.05;
 const CORE_ASSET_DIRS = ['specs/', 'memory/', 'tasks/', 'codebase-guide/'];
 
+const SUSPICIOUS_RE = /(^|\/)(?:\.env(?:\..*)?|\.DS_Store|id_rsa.*|.*\.(?:log|tmp|draft\.md|key|pem|p12|pfx))$/i;
+const LARGE_FILE_BYTES = 5 * 1024 * 1024;
+
+/** 把 git status 的 -z 输出拆成 已跟踪/未跟踪/删除 三类（preview 与 apply 共用）。 */
+export function parseAssetStatus(raw, hd) {
+  const tracked = [];
+  const untracked = [];
+  const deleted = [];
+  const parts = String(raw ?? '').split('\0');
+  for (let i = 0; i < parts.length; i += 1) {
+    const rec = parts[i];
+    if (!rec) continue;
+    const code = rec.slice(0, 2);
+    const rel = rec.slice(3);
+    if (!rel) continue;
+    if (code[0] === 'R' || code[0] === 'C') i += 1; // 下一段是旧路径
+    const item = { path: rel, status: code };
+    if (code === '??') {
+      item.suspicious = SUSPICIOUS_RE.test(rel);
+      try {
+        const st = fs.statSync(path.join(hd, rel));
+        item.bytes = st.size;
+        item.large = st.isFile() && st.size > LARGE_FILE_BYTES;
+      } catch { /* ignore */ }
+      untracked.push(item);
+    } else if (code.includes('D')) deleted.push(item);
+    else tracked.push(item);
+  }
+  return { tracked, untracked, deleted };
+}
+
+function safePaths(hd, paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return { error: '未选择要提交的文件' };
+  const out = [];
+  for (const raw of paths) {
+    if (typeof raw !== 'string' || !raw.trim()) return { error: '提交路径为空' };
+    const rel = raw.replaceAll('\\', '/').replace(/^\.\//, '');
+    if (rel.startsWith('/') || rel.split('/').includes('..')) return { error: `非法路径：${raw}` };
+    const abs = path.resolve(hd, rel);
+    if (abs !== hd && !abs.startsWith(hd + path.sep)) return { error: `路径越界：${raw}` };
+    out.push(rel);
+  }
+  return { paths: [...new Set(out)] };
+}
+
 /**
  * 同步前安全检查（导出供测试）。
  * @returns {Promise<{ok:true, tracked:number, deleted:string[]}|{ok:false, text:string}>}
  */
-export async function checkSyncSafety(hd, { allowDeletions = false } = {}) {
+export async function checkSyncSafety(hd, { allowDeletions = false, paths = null } = {}) {
   const g = (args) => runGit(args, { cwd: hd, timeoutMs: 30_000 });
   const shallow = await g(['rev-parse', '--is-shallow-repository']);
   if (shallow.code === 0 && shallow.stdout.trim() === 'true') {
@@ -43,7 +88,8 @@ export async function checkSyncSafety(hd, { allowDeletions = false } = {}) {
     g(['diff', '--name-only', '--diff-filter=D']),
     g(['diff', '--cached', '--name-only', '--diff-filter=D']),
   ]);
-  const deleted = [...new Set(delOut.flatMap((r) => (r.code === 0 ? r.stdout.split('\n').filter(Boolean) : [])))];
+  const allDeleted = [...new Set(delOut.flatMap((r) => (r.code === 0 ? r.stdout.split('\n').filter(Boolean) : [])))];
+  const deleted = Array.isArray(paths) ? allDeleted.filter((f) => paths.includes(f)) : allDeleted;
   if (allowDeletions || deleted.length === 0) return { ok: true, tracked, deleted };
   // 只对核心资产做“批量删除”硬拦截：deliverables 的任务目录归档删除是正常操作，
   // 不应因为一次移动 10+ 个交付物文件而误伤。clone 不完整通常会同时丢掉 specs/memory/tasks。
@@ -85,7 +131,59 @@ export async function assetsLayout(ws) {
   return { layout: 'embedded', repoRoot, rel };
 }
 
-export async function syncAssets(ws, kit, { allowDeletions = false } = {}) {
+/** 同步预览：只读 git status，供 UI 让用户勾选要提交的文件。 */
+export async function previewSync(ws) {
+  const hd = path.join(ws, '.harness');
+  if (!fs.existsSync(path.join(hd, '.git'))) {
+    return fail('资产目录 `.harness/` 没有独立 git（embedded/本地模式），面板同步不适用。');
+  }
+  const g = (args) => runGit(args, { cwd: hd, timeoutMs: 30_000 });
+  const branch = (await g(['branch', '--show-current'])).stdout.trim() || 'unknown';
+  const raw = await g(['status', '--porcelain=v1', '-z']);
+  if (raw.code !== 0) return fail(`读取 git status 失败：${raw.stderr || raw.stdout}`);
+  const files = parseAssetStatus(raw.stdout, hd);
+  return ok(`待提交 ${files.tracked.length + files.untracked.length + files.deleted.length} 个文件`, {
+    preview: { branch, ...files },
+  });
+}
+
+/** 仅拉取远端：不提交、不 push；有未提交变更时拒绝 rebase。 */
+export async function pullAssets(ws, kit) {
+  const hd = path.join(ws, '.harness');
+  if (!fs.existsSync(path.join(hd, '.git'))) {
+    return fail('资产目录 `.harness/` 没有独立 git，面板拉取不适用；请在根仓库 git pull。');
+  }
+  const g = (args) => runGit(args, { cwd: hd, timeoutMs: 120_000 });
+  const remotes = (await g(['remote'])).stdout.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (remotes.length === 0) return fail('资产仓库尚无远端，无法拉取。');
+  const remote = remotes.includes('origin') ? 'origin' : remotes[0];
+  const currentBranch = (await g(['branch', '--show-current'])).stdout.trim();
+  const branch = kit?.assets?.branch || currentBranch || 'master';
+  if (currentBranch && currentBranch !== branch) {
+    return fail(`当前分支 ${currentBranch} 与 kit.json 要求的 ${branch} 不一致；请先切换分支再拉取。`);
+  }
+  const dirty = (await g(['status', '--porcelain'])).stdout.trim();
+  const fetched = await g(['fetch', remote, branch]);
+  if (fetched.code !== 0) {
+    const out = fetched.stderr || fetched.stdout;
+    if (/couldn't find remote ref|does not appear to be/i.test(out)) return ok(`远端暂无 ${branch} 分支，无需拉取。`);
+    return fail(`fetch 失败（未提交任何本地文件）：\n${out}`);
+  }
+  if (dirty) {
+    return fail('本地有未提交变更，已只执行 fetch，未做 rebase。请先“提交并同步”，或手动处理后再拉取。');
+  }
+  const pull = await g(['pull', '--rebase', remote, branch]);
+  if (pull.code !== 0) {
+    const out = pull.stderr || pull.stdout;
+    if (/couldn't find remote ref|does not appear to be/i.test(out)) {
+      return ok(`远端暂无 ${branch} 分支，无需拉取。`);
+    }
+    return fail(`拉取失败（未提交任何本地文件）：\n${out}`);
+  }
+  return ok(/already up[ -]to[ -]date/i.test(pull.stdout + pull.stderr) ? '远端无新提交。' : '已拉取并 rebase 远端提交。');
+}
+
+export async function syncAssets(ws, kit, { allowDeletions = false, paths = null } = {}) {
   const hd = path.join(ws, '.harness');
   const g = (args) => runGit(args, { cwd: hd, timeoutMs: 300_000 });
 
@@ -120,14 +218,24 @@ export async function syncAssets(ws, kit, { allowDeletions = false } = {}) {
     );
   }
 
-  const safety = await checkSyncSafety(hd, { allowDeletions });
+  const safety = await checkSyncSafety(hd, { allowDeletions, paths });
   if (!safety.ok) return fail(safety.text);
 
   const steps = [];
 
-  // 1. 自动提交本地变更（资产仓库为 harness 专有，提交信息显式标注）
+  // 1. 提交本地变更（显式选择时只提交所选路径；旧调用仍可 commit-all）
+  let stageArgs;
+  if (Array.isArray(paths)) {
+    const safe = safePaths(hd, paths);
+    if (safe.error) return fail(safe.error);
+    const scoped = await g(['status', '--porcelain', '--', ...safe.paths]);
+    if (!scoped.stdout.trim()) return fail('所选文件已无未提交变更，请重新预览。');
+    stageArgs = ['add', '-A', '--', ...safe.paths];
+  } else {
+    stageArgs = ['add', '-A'];
+  }
   if ((await g(['status', '--porcelain'])).stdout.trim()) {
-    await g(['add', '-A']);
+    await g(stageArgs);
     const msg = `harness: sync ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
     const c = await g(['commit', '-m', msg]);
     if (c.code !== 0) return fail(`自动提交失败：\n${c.stderr || c.stdout}`);
