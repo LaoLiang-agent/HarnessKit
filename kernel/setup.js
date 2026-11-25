@@ -7,7 +7,7 @@ import { readKit, writeKit, defaultKit, harnessDir, packDir, kitPath, migrateLeg
 
 export function guessRole(name) {
   if (/front|web|ui|next|react|vue|angular|svelte/i.test(name)) return 'frontend';
-  if (/app|android|ios|mobile/i.test(name)) return 'app';
+  if (/app|android|ios|mobile/i.test(name)) return 'mobile';
   return 'backend';
 }
 
@@ -599,13 +599,18 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
   }
   const scanned = [];
   const servicesDir = path.join(ws, 'services');
+  const requestedPaths = new Set((sources || []).map((s) => s?.path || (s?.name ? `services/${s.name}` : '')).filter(Boolean));
   if (fs.existsSync(servicesDir)) {
     for (const e of fs.readdirSync(servicesDir, { withFileTypes: true })) {
-      if (!e.isDirectory()) continue;
+      if (!e.isDirectory() || e.name.startsWith('.')) continue;
       const rel = `services/${e.name}`;
       if (kit.sources.some((s) => s.path === rel)) continue;
+      // 显式 sources 声明的路径交给 addSource 的 strictPath 校验；
+      // 预扫描先登记会让“非 git 残留目录”被误认为已登记成功。
+      if (requestedPaths.has(rel)) continue;
       const abs = path.join(ws, rel);
-      if (!fs.existsSync(path.join(abs, '.git'))) continue;
+      // 本地目录/压缩包解压的源码也应有登记与根地图；不强制 .git。
+      // 分支能读就读，读不到回落 master（只作展示，不用于 git 操作）。
       const b = await runGit(['branch', '--show-current'], { cwd: abs });
       kit.sources.push({ name: e.name, path: rel, role: guessRole(e.name), roleSource: 'guess', branch: b.code === 0 && b.stdout.trim() ? b.stdout.trim() : 'master' });
       scanned.push(rel);

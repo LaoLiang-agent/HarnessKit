@@ -632,7 +632,7 @@ def _dotnet_modules(path: Path, tdir: str) -> list:
             if not f.endswith(".csproj"):
                 continue
             stem = Path(f).stem
-            if stem.endswith((".Tests", ".Test", ".Spec")):
+            if stem.endswith((".Tests", ".Test", ".Spec", "Tests", "Test", "Spec")):
                 continue
             csproj = base_p / f
             if base_p == path:
@@ -754,7 +754,9 @@ def infer_build(project: dict) -> dict:
         if len(runnable) == 1:
             rel = _rel_posix(runnable[0].parent, p)
             put("start", _suggest(f'dotnet run --project "{rel}"', str(runnable[0].relative_to(p)), "medium"))
-    elif st and st.startswith("node") or st in ("mobile-app", "uniapp"):
+    elif (st and st.startswith("node")) or st in ("mobile-app", "uniapp", "vue-multimodule"):
+        if not (p / "package.json").is_file():
+            return out  # HBuilderX 形态的 uni-app：无 npm 脚本，命令需人工确认
         pm = _node_pm(p)
         lock = {"npm": "package-lock.json", "pnpm": "pnpm-lock.yaml",
                 "yarn": "yarn.lock", "bun": "bun.lockb"}.get(pm, "")

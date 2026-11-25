@@ -198,10 +198,27 @@ def check_project(project: dict, check_only: bool, passed: int, failed: int,
     return passed, failed, warned, generated
 
 
+def _plan_tiers(root: Path) -> dict:
+    """读取刚生成的初始化计划，保留 --tier full 这类“本次覆盖”。
+
+    tier 是初始化流程的临时选择，没有写入 kit.json；如果 checker 只按默认档位，
+    full 档生成的模块文档会被跳过检查（2026-11 验收发现）。计划是本次生成的产物，
+    以它为准；计划不存在/损坏时静默回退默认档位。
+    """
+    try:
+        plan = lib.read_json(root / ".harness" / ".logs" / "workflow" / "harness-init-plan.json")
+        if plan.get("schema") != 2:
+            return {}
+        return {p.get("path_abs"): p.get("tier") for p in plan.get("subprojects") or [] if p.get("path_abs")}
+    except Exception:
+        return {}
+
+
 def main():
     check_only = "--check-only" in sys.argv[1:]
     root = lib.ROOT
     refs, warnings = lib.enumerate_projects(root)
+    tiers = _plan_tiers(root)
     passed = failed = warned = generated = 0
 
     if not refs:
@@ -213,6 +230,8 @@ def main():
         project = lib.detect_project(ref["path_abs"], name=ref["name"], source=ref["source"])
         project["path"] = ref["path"]
         project["path_abs"] = ref["path_abs"]
+        if tiers.get(ref["path_abs"]) in ("minimal", "standard", "full"):
+            project["tier"] = tiers[ref["path_abs"]]
         passed, failed, warned, generated = check_project(
             project, check_only, passed, failed, warned, generated)
 

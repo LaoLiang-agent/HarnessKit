@@ -3150,6 +3150,8 @@ section('初始化：多语言探测 / 三档生成 / build 建议');
   });
   ok('CodeGraph 缺失时 optional 只 WARN', cg.includes('不自动全局安装') && !cg.includes('📦 codegraph 未安装，安装:'));
 
+  // 恢复默认档位，避免 full 计划的临时 tier 影响校验断言
+  execFileSync(python, [script, '--detect'], { cwd: ws, encoding: 'utf8' });
   // 校验器与计划同源：generic 项目也被检查（缺文档时 exit 1 属预期）
   let check = '';
   try {
