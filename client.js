@@ -315,7 +315,13 @@ window.__ModuleLoader__.load({
         note && h('div', { style: { marginTop: 4, fontSize: 11, color: V.sub } }, note));
     }
 
-    // 运行记录：公共视图，活动任务展开区与历史任务弹窗共用。
+    // 运行记录摘要：卡片里只留一行，完整表格进弹窗，避免长任务把卡片撑长。
+    function insightSummary(d) {
+      const n = (x) => (typeof x === 'number' ? x.toLocaleString() : '—');
+      return `覆盖率 ${d.coverage}${d.source === 'archive' ? ' · 归档快照' : ''} · ${d.totals?.agents ?? 0} 个 Agent · ${n(d.totals?.totalTokens)} tokens · ${Math.round((d.totals?.activeDurationMs || 0) / 1000)}s`;
+    }
+
+    // 运行记录：公共视图，活动任务弹窗与历史任务弹窗共用。
     function InsightView({ ins, onRefresh, showButton = true }) {
       const n = (x) => (typeof x === 'number' ? x.toLocaleString() : '—');
       const button = showButton && h('button', {
@@ -330,15 +336,15 @@ window.__ModuleLoader__.load({
       return h('div', { style: { marginTop: 4 } },
         button,
         h('div', { style: { fontSize: 11, color: d.coverage === 'complete' ? V.ok : V.warn, margin: '4px 0' } },
-          `覆盖率 ${d.coverage}${d.source === 'archive' ? ' · 归档快照' : ''} · ${d.totals?.agents ?? 0} 个 Agent · ${n(d.totals?.totalTokens)} tokens · ${Math.round((d.totals?.activeDurationMs || 0) / 1000)}s`),
+          insightSummary(d)),
         h('table', { style: S.table },
-          h('thead', null, h('tr', null, ['Agent', '模型', '轮次', 'tokens', '耗时'].map((x) => h('th', { key: x, style: S.th }, x)))),
+          h('thead', null, h('tr', null, ['Agent', '模型', '轮次', 'tokens', '耗时'].map((x) => h('th', { key: x, style: { ...S.th, position: 'sticky', top: 0, background: V.bg, zIndex: 1 } }, x)))),
           h('tbody', null, (d.agents ?? []).map((a) => h('tr', { key: a.label },
-            h('td', { style: S.td }, a.label),
-            h('td', { style: S.td }, `${a.provider || '—'}/${a.model || '—'}${a.reasoningEffort ? ` · ${a.reasoningEffort}` : ''}`),
-            h('td', { style: S.td }, n(a.turns)),
-            h('td', { style: S.td }, n(a.totalTokens)),
-            h('td', { style: S.td }, `${Math.round((a.activeDurationMs || 0) / 1000)}s`))))),
+            h('td', { style: { ...S.td, whiteSpace: 'nowrap' } }, a.label),
+            h('td', { style: { ...S.td, whiteSpace: 'nowrap' } }, `${a.provider || '—'}/${a.model || '—'}${a.reasoningEffort ? ` · ${a.reasoningEffort}` : ''}`),
+            h('td', { style: { ...S.td, whiteSpace: 'nowrap' } }, n(a.turns)),
+            h('td', { style: { ...S.td, whiteSpace: 'nowrap' } }, n(a.totalTokens)),
+            h('td', { style: { ...S.td, whiteSpace: 'nowrap' } }, `${Math.round((a.activeDurationMs || 0) / 1000)}s`))))),
         (d.notes ?? []).length > 0 && h('div', { style: { fontSize: 11, color: V.sub, marginTop: 4 } }, d.notes.join('；')));
     }
 
@@ -404,7 +410,7 @@ window.__ModuleLoader__.load({
       const [histOpen, setHistOpen] = useState(false);
       const [histQuery, setHistQuery] = useState('');
       const [modal, setModal] = useState(null); // {name, desc, refs:[{path,name,kind}], pathDraft}
-      const [histInsight, setHistInsight] = useState(null); // 历史任务运行记录弹窗
+      const [insightModal, setInsightModal] = useState(null); // 任务运行记录弹窗（活动/历史共用）
       const [syncPreview, setSyncPreview] = useState(null); // 资产同步预览 {data, selected}
       const [browse, setBrowse] = useState(null); // 参考材料浏览：{dir, parent, entries, selected, loading, error}
       const [uploading, setUploading] = useState(null); // {done,total} 本机上传进度
@@ -1018,7 +1024,17 @@ window.__ModuleLoader__.load({
             t.apply && t.apply !== '—' && h('div', null, h('b', null, 'Apply：'), t.apply),
             t.progress.deliverables.length > 0 && h('div', null, h('b', null, '产物：'), t.progress.deliverables.join('、')),
             t.hint && t.hint !== '—' && h('div', null, h('b', null, '续接：'), t.hint),
-            h(InsightView, { ins: insight[t.task], onRefresh: () => loadInsight(t) }),
+            (() => {
+              const ins = insight[t.task];
+              return h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 } },
+                h('button', {
+                  style: { ...S.btn(!!ins?.loading), padding: '2px 10px', fontSize: 11 },
+                  disabled: !!ins?.loading,
+                  onClick: () => { setInsightModal(t); loadInsight(t); },
+                }, ins?.loading ? '读取运行记录…' : '查看运行记录'),
+                ins?.data && h('span', { style: { fontSize: 11, color: V.sub } }, insightSummary(ins.data)),
+                ins?.error && h('span', { style: { fontSize: 11, color: V.err } }, ins.error));
+            })(),
             t.progress.pendingApproval && h('div', { style: { color: V.warn } }, `⛔ ${t.progress.pendingApproval} 等待人工审批（在会话中答复，并写入通过标记）`)),
         );
       };
@@ -1096,19 +1112,31 @@ window.__ModuleLoader__.load({
                   h('td', { style: S.td }, relDay(t.updated)),
                   h('td', { style: S.td }, h('button', {
                     style: { ...S.btn(false), padding: '1px 8px', fontSize: 11 },
-                    onClick: () => { setHistInsight(t); loadInsight(t); },
+                    onClick: () => { setInsightModal(t); loadInsight(t); },
                   }, '运行记录')))))))),
         ),
-        // 历史任务运行记录弹窗（优先读归档快照，避免同一会话串多个任务）
-        histInsight && h('div', { style: S.overlayBox, onClick: () => setHistInsight(null) },
+        // 任务运行记录弹窗（活动/历史共用；优先读归档快照，避免同一会话串多个任务）
+        insightModal && h('div', { style: S.overlayBox, onClick: () => setInsightModal(null) },
           h('div', {
-            style: { ...S.modal, width: 760, maxWidth: '92vw', maxHeight: '82vh', overflow: 'auto' },
+            style: {
+              ...S.modal,
+              width: 880,
+              maxWidth: '94vw',
+              height: '72vh',
+              maxHeight: '86vh',
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            },
             onClick: (e) => e.stopPropagation(),
           },
-            h('div', { style: { ...S.hTitle, marginBottom: 8 } }, `运行记录 · ${histInsight.task}`),
-            h(InsightView, { ins: insight[histInsight.task], onRefresh: () => loadInsight(histInsight), showButton: false }),
-            h('div', { style: { display: 'flex', justifyContent: 'flex-end', marginTop: 10 } },
-              h('button', { style: S.btn(false), onClick: () => setHistInsight(null) }, '关闭')))),
+            h('div', { style: { ...S.hTitle, marginBottom: 8, flexShrink: 0 } }, `运行记录 · ${insightModal.task}`),
+            h('div', { style: { flex: 1, minHeight: 0, overflow: 'auto', paddingRight: 4 } },
+              h(InsightView, { ins: insight[insightModal.task], onRefresh: () => loadInsight(insightModal), showButton: false })),
+            h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, flexShrink: 0 } },
+              h('button', { style: S.btn(false), onClick: () => loadInsight(insightModal) }, '刷新'),
+              h('button', { style: S.btn(false), onClick: () => setInsightModal(null) }, '关闭')))),
 
         // 资产同步预览
         syncPreview && h(SyncPreviewModal, {

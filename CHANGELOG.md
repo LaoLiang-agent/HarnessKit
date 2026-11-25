@@ -27,6 +27,9 @@ All notable changes to Harness Kit are documented here. The format follows
 - 任务显式指定开发基线（`--base`）且主工作树干净时，即使当前停在 `test` 等非基线
   分支，`/hk-apply` 也会自动切到任务基线并创建任务分支；创建前先 fetch 该基线，
   本地基线只落后时直接用 `origin/<base>` 的最新提交，本地领先/分叉时保留本地基点。
+- 活动任务的运行记录改为弹窗展示：看板卡片里只保留「查看运行记录」按钮和一行覆盖率
+  摘要，完整 Agent 表格在固定高度的弹窗内滚动，表头吸顶，不再把卡片底部和侧边撑长；
+  历史任务复用同一个弹窗。
 
 ### Fixed
 
