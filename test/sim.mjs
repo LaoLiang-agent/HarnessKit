@@ -2160,7 +2160,7 @@ section('飞书 tenant_access_token 错误解释');
 {
   const { explainFeishuTokenError } = await import(path.join(bundleRoot, 'kernel/panel.js'));
   const policy = explainFeishuTokenError({ code: 21001, msg: 'Access denied due to platform policy.' });
-  ok('21001 → 解释为企业租户/平台策略', policy.code === 21001 && policy.hint.includes('个人版') && policy.hint.includes('企业'));
+  ok('21001 → 解释为租户类型/平台策略', policy.code === 21001 && policy.hint.includes('应用类型') && policy.hint.includes('不会随租户切换迁移'));
   const secret = explainFeishuTokenError({ code: 10014, msg: 'app secret invalid' });
   ok('10014 → 解释为 App ID/Secret 或应用类型', secret.hint.includes('App ID') && secret.hint.includes('商店应用'));
   ok('未知错误不强行给错指引', explainFeishuTokenError({ code: 99999, msg: 'unknown' }).hint === '');

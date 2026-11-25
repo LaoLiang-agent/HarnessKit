@@ -322,8 +322,9 @@ collects no telemetry; model requests go only to the provider you configure.
 
 **Feishu Open ID lookup fails with `21001 Access denied due to platform policy`?**
 This is a Feishu platform-policy rejection, not a wrong App ID/Secret or a plugin permission.
-A personal Feishu tenant cannot obtain `tenant_access_token` for an enterprise self-built app.
-Use an enterprise/team tenant and create the app there. In an enterprise tenant, ask the admin to
+`Enterprise self-built app` is an app type, not a tenant type: a personal tenant can create that
+app type but still cannot obtain `tenant_access_token`. Use an enterprise/team tenant and create a
+**new** app there; an existing app does not migrate when you switch tenants. In an enterprise tenant, ask the admin to
 check the app's release state, availability scope and security policy, or contact Feishu support.
 
 **Update fails with `ERR_PNPM_IGNORED_BUILDS: protobufjs`?**

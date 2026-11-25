@@ -550,7 +550,7 @@ export function explainFeishuTokenError(res = {}) {
   if (code === 21001 || /platform\s*policy|access denied due to policy/i.test(msg)) {
     return {
       code,
-      hint: '飞书以「平台策略」拒绝了 tenant_access_token。个人版飞书租户不支持企业自建应用获取该凭证；请改用企业/团队租户，在该租户的开放平台创建「企业自建应用」。若已是企业租户，请让管理员检查应用发布状态、可用范围与安全策略，或联系飞书客服。',
+      hint: '飞书以「平台策略」拒绝了 tenant_access_token。注意：「企业自建应用」是应用类型，不等于企业租户；个人租户里也能创建该类型应用，但 tenant_access_token 仍会被拒。请创建/切换到企业或团队租户后，在该租户下新建应用（旧应用不会随租户切换迁移）。若已是企业租户，请让管理员检查应用发布状态、可用范围与安全策略，或联系飞书客服。',
     };
   }
   if (code === 10014 || code === 10003 || code === 10013) {

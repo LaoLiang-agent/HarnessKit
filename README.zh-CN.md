@@ -277,7 +277,7 @@ dsh plugin --profile desktop add /绝对路径/HarnessKit
 项目资产在本地 `.harness/` 和你的 git（共享时就是团队仓库）；插件不收集、不上传遥测；模型请求只发往你配置的 provider。
 
 **飞书获取 Open ID 报 `21001 Access denied due to platform policy`？**
-这是飞书平台策略拒绝，不是 App ID/Secret 或插件权限问题。个人版飞书租户不支持企业自建应用获取 `tenant_access_token`；请换用企业/团队租户，在该租户的开放平台创建「企业自建应用」。若已是企业租户，请管理员检查应用发布状态、可用范围和安全策略，或联系飞书客服。
+这是飞书平台策略拒绝，不是 App ID/Secret 或插件权限问题。「企业自建应用」是应用类型，不等于企业租户；个人租户里也能创建该类型应用，但 `tenant_access_token` 仍会被拒。请换用企业/团队租户，在该租户的开放平台**新建**应用（旧应用不会随租户切换迁移）。若已是企业租户，请管理员检查应用发布状态、可用范围和安全策略，或联系飞书客服。
 
 **更新时提示 `ERR_PNPM_IGNORED_BUILDS: protobufjs` 怎么办？**
 这是 0.3.1 及更早版本的问题：飞书 SDK 依赖 `protobufjs`，pnpm 11 默认要求审批依赖构建脚本。
