@@ -1,0 +1,38 @@
+---
+description: Python 服务根 AGENTS.md 生成指令
+target: services/{{SUB_PROJECT}}/AGENTS.md
+variables:
+  SUB_PROJECT: "子工程目录名"
+---
+
+请分析目标子工程目录（实际路径以派发消息为准）下的 Python 工程结构与代码，生成根级 AGENTS.md。
+
+## 必须包含的章节
+
+### Build
+<!-- 从 pyproject.toml / requirements.txt / poetry.lock / uv.lock / Pipfile 提取真实命令：
+     依赖安装、语法编译检查、pytest、ruff/lint、启动。无法确认的写「未确认（需人工补充）」。 -->
+
+### 项目概述
+<!-- 2-3 句话：服务用途、Python 版本、框架（FastAPI/Django/Flask）、入口模块。 -->
+
+### 目录结构
+<!-- 列出包目录、tests/、alembic/migrations/、scripts/ 等实际目录及职责。 -->
+
+### 关键框架模式
+<!-- 扫描 2-3 个有代表性的模块：依赖注入/工厂、路由/视图、ORM/数据库会话、
+     配置加载（pydantic-settings/dynaconf）、异步/同步边界。 -->
+
+### 关键约定
+<!-- 从代码归纳：模块/函数命名、类型注解、异常、日志、测试组织。 -->
+
+### 模块发现
+<!-- 列出主要包及职责；单包服务注明「单包」。 -->
+
+### 参考文档
+<!-- 固定列出 docs/CODE_STANDARDS.md（本次初始化同时生成）。 -->
+
+## 约束
+- 文件总行数不超过 160 行
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 只写能从 pyproject/锁文件/代码中证实的事实

@@ -3081,6 +3081,7 @@ section('初始化：多语言探测 / 三档生成 / build 建议');
   fake(ws, 'services/py-api/pyproject.toml', '[project]\nname = "py-api"\n');
   fake(ws, 'services/gradle-api/settings.gradle', 'rootProject.name = "g"\ninclude(":app")\n');
   fake(ws, 'services/gradle-api/build.gradle', 'plugins { id "java" }\n');
+  fake(ws, 'services/gradle-api/app/build.gradle', 'plugins { id "java" }\n');
   fake(ws, 'services/rust-api/Cargo.toml', '[package]\nname = "rust-api"\n');
   fake(ws, 'services/rust-api/src/main.rs', 'fn main() {}\n');
   fake(ws, 'services/unknown/src/Main.kt', 'fun main() {}\n');
@@ -3103,11 +3104,14 @@ section('初始化：多语言探测 / 三档生成 / build 建议');
 
   ok('plan schema 2 且 skipped=0', plan.schema === 2 && plan.summary.skipped === 0);
   ok('Go/Python/Rust/Gradle/Node 全部进计划', ['go-api', 'py-api', 'rust-api', 'gradle-api', 'web', 'nest'].every((n) => by[n]));
-  ok('未内置栈走 generic + minimal', ['go-api', 'py-api', 'rust-api', 'gradle-api', 'web', 'nest'].every((n) => by[n].template_dir === 'generic' && by[n].tier === 'minimal' && by[n].needs_manual));
-  ok('React 不再被静默跳过', by.web.service_type === 'node-spa' && by.web.role === 'mobile');
-  ok('Gradle 可识别', by['gradle-api'].service_type.startsWith('gradle'));
+  ok('Go/Python/Rust 走专用模板', ['go-api', 'py-api', 'rust-api'].every((n) => by[n].template_dir !== 'generic' && by[n].tier === 'standard' && !!by[n].root_files['docs/CODE_STANDARDS.md']));
+  ok('未知技术栈走 generic + minimal', by.unknown.template_dir === 'generic' && by.unknown.tier === 'minimal' && by.unknown.needs_manual);
+  ok('React 不再被静默跳过且走 Node 专用模板', by.web.service_type === 'node-spa' && by.web.role === 'mobile' && by.web.template_dir === 'javascript/node-app' && by.web.tier === 'standard' && !!by.web.root_files['docs/CODE_STANDARDS.md']);
+  ok('Nest 走 Node 专用模板', by.nest.service_type === 'node-backend' && by.nest.template_dir === 'javascript/node-app' && by.nest.tier === 'standard');
+  ok('Gradle 可识别且走专用模板', by['gradle-api'].service_type === 'gradle-multimodule' && by['gradle-api'].template_dir === 'java/gradle' && by['gradle-api'].tier === 'standard');
+  ok('Gradle 子项目被发现', by['gradle-api'].modules.some((m) => m.path === 'app'));
   ok('Java 专用模板 + standard 含规范', by.java.template_kind === 'dedicated' && by.java.tier === 'standard' && !!by.java.root_files['docs/CODE_STANDARDS.md']);
-  ok('generic minimal 不生成规范', !by['go-api'].root_files['docs/CODE_STANDARDS.md']);
+  ok('generic minimal 不生成规范', !by.unknown.root_files['docs/CODE_STANDARDS.md']);
   ok('.NET src 布局发现模块', by.dotnet.modules.some((m) => m.path === 'src/Api'));
   ok('Maven 顶层模块被发现', by.java.modules.some((m) => m.path === 'core'));
   ok('自定义 path 可见且路径正确', by.custom.path === 'code/custom');
@@ -3155,7 +3159,7 @@ section('初始化：多语言探测 / 三档生成 / build 建议');
   } catch (e) {
     check = String(e.stdout || '');
   }
-  ok('完整性校验覆盖 generic 项目', check.includes('go-api (go, minimal)') && check.includes('web (node-spa, minimal)'));
+  ok('完整性校验覆盖 generic 与专用模板', check.includes('unknown (unknown, minimal)') && check.includes('go-api (go, standard)'));
 }
 
 

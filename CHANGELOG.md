@@ -8,6 +8,9 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ### Added
 
+- 新增 Gradle/Kotlin、Node（React/Next/Nest/Express）、Go、Python、Rust 专用模板；
+  Gradle 多模块从 `settings.gradle(.kts)` 的 `include` 发现子项目，Go/Python/Rust 走
+  backend 文档形态。
 - 工程初始化不再静默丢弃未内置技术栈：新增 `generic` 模板兜底，Go / Python / Rust /
   Gradle / React / Next / Nest 等子工程都会进入初始化计划，并标注「通用模板，命令需人工确认」。
 - 初始化支持三档生成：`minimal`（根 AGENTS + build）/ `standard`（+ CODE_STANDARDS）/

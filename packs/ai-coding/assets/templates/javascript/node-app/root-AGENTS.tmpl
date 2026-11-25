@@ -1,0 +1,39 @@
+---
+description: Node.js / React / Angular / Next / Nest / Express 工程根 AGENTS.md 生成指令
+target: services/{{SUB_PROJECT}}/AGENTS.md
+variables:
+  SUB_PROJECT: "子工程目录名"
+---
+
+请分析目标子工程目录（实际路径以派发消息为准）下的工程结构与代码，生成根级 AGENTS.md。
+
+## 必须包含的章节
+
+### Build
+<!-- 只写 package.json scripts 与锁文件能证实的命令：包管理器、install、build、test、lint、dev/start。
+     优先尊重 packageManager 字段与 pnpm/yarn/bun 锁文件；无法确认的写「未确认（需人工补充）」。 -->
+
+### 项目概述
+<!-- 2-3 句话：应用形态（React/Angular SPA / Next SSR / Nest API / Express 服务）、语言（TS/JS）、入口。 -->
+
+### 目录结构
+<!-- 列出顶层目录与职责：src/app/pages/components/server/api/packages 等，按实际存在写。 -->
+
+### 关键框架模式
+<!-- 根据实际框架提取：React 组件/状态边界、Next 路由与 Server/Client 组件、Nest 模块/Provider、
+     Express 中间件、数据请求封装。不要写工程没有的框架。 -->
+
+### 关键约定
+<!-- 从代码归纳：命名、TypeScript 严格度、API 封装、错误处理、环境变量、测试方式。 -->
+
+### 模块发现
+<!-- 微前端/workspace 列出 apps/*、packages/* 及其职责；单应用注明「单应用，无子模块」。 -->
+
+### 参考文档
+<!-- 固定列出 docs/CODE_STANDARDS.md（本次初始化同时生成）；再补充实际存在的 README/文档。 -->
+
+## 约束
+- 文件总行数不超过 160 行
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 只写能从 package.json、配置和代码中证实的事实
+- 不把 React 工程写成 Vue/Vuex，也不把 SPA 写成 SSR

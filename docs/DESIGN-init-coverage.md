@@ -42,7 +42,7 @@
 
 ### 2.2 非目标（后续）
 
-- 不一次性补全 Gradle/React/Go/Python/Rust 的专用模板；先走 generic。
+- 专用模板已覆盖 Gradle、Node/React/Next/Nest、Go、Python、Rust；后续只做框架专属细化与模块级构建。
 - 不做任意 monorepo 的模块级构建编排。
 - 不自动猜测 `start-ok` / `start-port` 并当事实。
 - 不改发布流程、不改版本号。
@@ -195,14 +195,22 @@
 
 ### 7.1 generic 模板
 
-新增：
+新增模板：
 
 ```text
-packs/ai-coding/assets/templates/generic/
-├── root-AGENTS.tmpl      # ≤80 行，只写可验证事实
-├── CODE_STANDARDS.tmpl   # 一页以内，观察到的约定而非“必须遵守”
-└── build.tmpl            # install/compile/test/lint/start 全空
+templates/
+├── generic/              # 未内置栈兜底（minimal）
+├── java/gradle/          # Gradle/Kotlin：root / module / CODE_STANDARDS / build
+├── javascript/node-app/  # React/Angular/Next/Nest/Express：root / CODE / build
+├── go/service/           # Go：root / CODE / build
+├── python/service/       # Python：root / CODE / build
+└── rust/service/         # Rust：root / CODE / build
 ```
+
+`PREFERRED_TEMPLATE` 把 `gradle*` 映射到 `java/gradle`，把
+`node-spa/node-ssr/node-backend/node-generic` 统一到 `javascript/node-app`；
+模板提示词要求按实际框架写，不把 React 写成 Vue、不把 SPA 写成 SSR。
+Gradle 多模块从 `settings.gradle(.kts)` 的 `include` 发现模块。
 
 要点：
 
@@ -454,7 +462,8 @@ code/custom/         自定义 path（kit.sources）
 
 - `skipped=0`，所有项目进计划；
 - generic/minimal 与专用/standard 的档位、root_files 正确；
-- React/Gradle/Nest/Go/Python/Rust 不再静默跳过；
+- React/Gradle/Nest/Go/Python/Rust 不再静默跳过，且走各自专用模板；
+- Gradle `include(":app")` 子项目被发现；
 - .NET `src` 模块、Maven 顶层模块被发现；
 - 自定义 path 与缺失来源可见；
 - `--tier full` 生效但不写回；
@@ -471,10 +480,10 @@ code/custom/         自定义 path（kit.sources）
 
 ## 16. 后续（P1/P2）
 
-1. 专用模板：Gradle、React/Next/Nest、Go、Python、Rust。
-2. 模块级构建配置（monorepo / 多 App）。
-3. 生成物版本标记与漂移检查（`init --check`）。
-4. 文档质量评估 fixture（命令真实、无编造、长度上限）。
+1. 模块级构建配置（monorepo / 多 App）。
+2. 生成物版本标记与漂移检查（`init --check`）。
+3. 文档质量评估 fixture（命令真实、无编造、长度上限）。
+4. React/Vue 的 App 级 AGENTS.md 模板与模块发现。
 
 ---
 
@@ -488,6 +497,7 @@ code/custom/         自定义 path（kit.sources）
 - [x] 根 AGENTS 地图随 addSource 增量更新，不动人工内容；旧版 HK 文件可自动补标记
 - [x] overview 子工程地图只改标记块，人工正文保留
 - [x] 已有 AGENTS 缺口可见，默认跳过、只追加可选
+- [x] Gradle/Node/Go/Python/Rust 专用模板生效
 - [x] 校验与计划同源
 - [x] 多语言 fixture 通过
 - [x] 未改版本号、未打 tag、未 npm publish

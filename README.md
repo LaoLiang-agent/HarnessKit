@@ -67,8 +67,7 @@ would otherwise rediscover every time:
 - `.harness/scripts`, `rules`, `templates`: board, health checks, spec lint and coding baselines
 
 Initialization comes in three tiers: `minimal` (AGENTS + build), `standard` (+ coding rules) and
-`full` (+ module docs). Unsupported stacks use a clearly marked generic template with a deliberately
-small footprint. You confirm the plan before anything is written; existing files are skipped and
+`full` (+ module docs). Dedicated templates cover Java Maven / Gradle, .NET, Vue / uni-app, Node (React / Next / Nest / Express), Go, Python and Rust. Unsupported stacks use a clearly marked generic template with a deliberately small footprint. You confirm the plan before anything is written; existing files are skipped and
 `build.json` only gains missing keys and never overwrites custom values. CodeGraph is not installed globally by default; you are asked
 whether to install it or skip.
 

@@ -57,7 +57,7 @@ Harness Kit 不只是"加流程"。创建完成后点「启动初始化编排」
 - `.harness/scripts`、`rules`、`templates`：看板、体检、规格校验与编码底线
 
 初始化分三档：`minimal`（AGENTS + build）、`standard`（+ 编码规范）、`full`（+ 模块文档）。
-未内置的技术栈走通用模板，会明确标注并只生成精简内容。生成前先给计划确认；已存在的文件跳过，
+内置专用模板：Java Maven / Gradle、.NET、Vue / uni-app、Node（React / Next / Nest / Express）、Go、Python、Rust；未内置的技术栈走通用模板，会明确标注并只生成精简内容。生成前先给计划确认；已存在的文件跳过，
 `build.json` 只补缺失键，不覆盖人工定制值。CodeGraph 默认不自动全局安装，缺失时会询问安装或跳过。
 
 ---

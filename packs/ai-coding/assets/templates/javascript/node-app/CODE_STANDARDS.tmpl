@@ -1,0 +1,42 @@
+---
+description: Node.js / React / Next / Nest 编码规范生成指令
+target: services/{{SUB_PROJECT}}/docs/CODE_STANDARDS.md
+variables:
+  SUB_PROJECT: "子工程目录名"
+---
+
+请分析目标子工程下的现有代码，归纳实际编码规范，生成 CODE_STANDARDS.md。
+
+## 必须包含的章节
+
+### 命名与文件组织
+<!-- 组件、hooks、服务、模块、测试文件的命名与目录约定 -->
+
+### TypeScript 与类型边界
+<!-- strict 配置、any 使用限制、API DTO/校验、前后端共享类型的方式 -->
+
+### 组件与状态
+<!-- React 组件边界、hooks 规则、全局状态方案、服务端状态与客户端状态划分（按实际框架） -->
+
+### 路由与数据请求
+<!-- Next/React Router、API 封装、鉴权注入、错误与 loading 处理 -->
+
+### 服务端边界（如适用）
+<!-- Nest/Express 中间件顺序、DTO 校验、异常过滤器、Prisma/ORM 事务边界 -->
+
+### 安全与注入防护
+<!-- XSS（dangerouslySetInnerHTML）、CSRF、SSRF、命令/模板注入、密钥与环境变量 -->
+
+### 资源释放
+<!-- 事件监听、定时器、订阅、AbortController、流/连接清理 -->
+
+### 异常与日志
+<!-- 错误边界、全局异常处理、日志封装与级别、禁止裸 console.log -->
+
+### 禁止事项
+<!-- 不超过 5 条，每条说明原因 -->
+
+## 硬约束
+- 只归纳代码中能证实的事实；与 `.harness/rules/code-standards.md` 冲突的写法标「待整改」。
+- 不重复 ESLint/Prettier 已强制的格式规则；优先引用其配置路径。
+- 总行数不超过 120 行。

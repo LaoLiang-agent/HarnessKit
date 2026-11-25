@@ -1,0 +1,42 @@
+---
+description: Go 服务编码规范生成指令
+target: services/{{SUB_PROJECT}}/docs/CODE_STANDARDS.md
+variables:
+  SUB_PROJECT: "子工程目录名"
+---
+
+请分析目标子工程下的现有代码，归纳实际编码规范，生成 CODE_STANDARDS.md。
+
+## 必须包含的章节
+
+### 包与命名
+<!-- 包名、导出标识符、接口命名（-er）、测试文件命名 -->
+
+### 分层与依赖方向
+<!-- cmd/internal/pkg 的依赖方向，handler/service/repository 边界，禁止的循环依赖 -->
+
+### 错误处理
+<!-- error wrapping（%w）、errors.Is/As、sentinel error、panic 使用边界 -->
+
+### Context 与超时
+<!-- context 传递、取消、超时、请求级值的使用限制 -->
+
+### 并发与资源
+<!-- goroutine 生命周期、channel 关闭、sync、连接池/文件/response body 释放 -->
+
+### 日志与可观测性
+<!-- 日志库、结构化字段、trace/request id、禁止裸 fmt.Println 生产日志 -->
+
+### 安全与注入
+<!-- SQL/命令/模板注入防护、输入校验、密钥管理 -->
+
+### 测试
+<!-- 表驱动测试、testify/标准库、mock 边界、集成测试方式 -->
+
+### 禁止事项
+<!-- 不超过 5 条，每条说明原因 -->
+
+## 硬约束
+- 只归纳代码中能证实的事实；与 `.harness/rules/code-standards.md` 冲突的写法标「待整改」。
+- 不重复 gofmt/goimports 已强制的格式规则。
+- 总行数不超过 120 行。

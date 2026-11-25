@@ -1,0 +1,38 @@
+---
+description: Rust 服务根 AGENTS.md 生成指令
+target: services/{{SUB_PROJECT}}/AGENTS.md
+variables:
+  SUB_PROJECT: "子工程目录名"
+---
+
+请分析目标子工程目录（实际路径以派发消息为准）下的 Rust 工程结构与代码，生成根级 AGENTS.md。
+
+## 必须包含的章节
+
+### Build
+<!-- 从 Cargo.toml / Cargo.lock 提取真实命令：build、test、clippy、run；
+     workspace 时注明默认 members 与启动 crate；无法确认的写「未确认（需人工补充）」。 -->
+
+### 项目概述
+<!-- 2-3 句话：服务用途、Rust edition、异步运行时（tokio/async-std）、Web 框架（axum/actix/rocket）。 -->
+
+### 目录结构
+<!-- 列出 src/、tests/、benches/、crates/ 或 workspace members 及职责。 -->
+
+### 关键框架模式
+<!-- 扫描 2-3 个有代表性的模块：错误类型设计、状态共享、路由/中间件、配置加载、
+     async 任务与优雅停机。 -->
+
+### 关键约定
+<!-- 从代码归纳：模块可见性、错误处理（thiserror/anyhow）、日志（tracing）、测试组织。 -->
+
+### 模块发现
+<!-- 列出 workspace members 或主要模块；单 crate 注明「单 crate」。 -->
+
+### 参考文档
+<!-- 固定列出 docs/CODE_STANDARDS.md（本次初始化同时生成）。 -->
+
+## 约束
+- 文件总行数不超过 160 行
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 只写能从 Cargo 配置和代码中证实的事实

@@ -1,0 +1,38 @@
+---
+description: Go 服务根 AGENTS.md 生成指令
+target: services/{{SUB_PROJECT}}/AGENTS.md
+variables:
+  SUB_PROJECT: "子工程目录名"
+---
+
+请分析目标子工程目录（实际路径以派发消息为准）下的 Go 工程结构与代码，生成根级 AGENTS.md。
+
+## 必须包含的章节
+
+### Build
+<!-- 从 go.mod 的 go 版本与目录结构提取真实命令：install（如需）、build、test、vet、run。
+     启动入口在 cmd/* 时写 `go run ./cmd/<name>`；无法确认的写「未确认（需人工补充）」。 -->
+
+### 项目概述
+<!-- 2-3 句话：服务用途、Go 版本、HTTP/RPC 框架（net/http/gin/echo/fiber/grpc）、入口。 -->
+
+### 目录结构
+<!-- 列出 cmd/、internal/、pkg/、api/、migrations/ 等实际目录及职责。 -->
+
+### 关键框架模式
+<!-- 扫描 2-3 个有代表性的包：依赖注入/初始化顺序、handler→service→repository 分层、
+     配置加载、错误包装、中间件。 -->
+
+### 关键约定
+<!-- 从代码归纳：包命名、接口定义位置、context 传递、日志、测试组织。 -->
+
+### 模块发现
+<!-- 列出 cmd/* 与 internal/ 下的主要包及职责；单入口服务注明「单入口」。 -->
+
+### 参考文档
+<!-- 固定列出 docs/CODE_STANDARDS.md（本次初始化同时生成）。 -->
+
+## 约束
+- 文件总行数不超过 160 行
+- 每个章节必须有实际内容，不得输出 TODO、待补充、留空
+- 只写能从 go.mod、目录和代码中证实的事实

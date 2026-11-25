@@ -111,6 +111,12 @@ try {
     'packs/ai-coding/assets/templates/generic/root-AGENTS.tmpl',
     'packs/ai-coding/assets/templates/generic/CODE_STANDARDS.tmpl',
     'packs/ai-coding/assets/templates/generic/build.tmpl',
+    'packs/ai-coding/assets/templates/java/gradle/root-AGENTS.tmpl',
+    'packs/ai-coding/assets/templates/java/gradle/build.tmpl',
+    'packs/ai-coding/assets/templates/javascript/node-app/root-AGENTS.tmpl',
+    'packs/ai-coding/assets/templates/go/service/root-AGENTS.tmpl',
+    'packs/ai-coding/assets/templates/python/service/root-AGENTS.tmpl',
+    'packs/ai-coding/assets/templates/rust/service/root-AGENTS.tmpl',
   ]) {
     if (!fs.existsSync(path.join(pkgRoot, file))) fail(`missing ${file}`)
   }

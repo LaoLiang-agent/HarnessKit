@@ -425,16 +425,16 @@ FULLSTACK_SECTIONS = ("Build", "项目概述", "目录结构", "关键框架模�
 PREFERRED_TEMPLATE = {
     "maven-multimodule": "java/maven-multimodule",
     "maven": "java/maven",
-    "gradle-multimodule": "java/gradle-multimodule",
+    "gradle-multimodule": "java/gradle",
     "gradle": "java/gradle",
     "vue-multimodule": "javascript/vue-multimodule",
     "mobile-app": "javascript/mobile-app",
     "uniapp": "javascript/uniapp",
     "dotnet": "dotnet/dotnet-multimodule",
-    "node-spa": "javascript/node-spa",
-    "node-ssr": "javascript/node-ssr",
-    "node-backend": "javascript/node-backend",
-    "node-generic": "javascript/node-generic",
+    "node-spa": "javascript/node-app",
+    "node-ssr": "javascript/node-app",
+    "node-backend": "javascript/node-app",
+    "node-generic": "javascript/node-app",
     "go": "go/service",
     "python": "python/service",
     "rust": "rust/service",
@@ -663,9 +663,31 @@ def _vue_modules(path: Path, tdir: str) -> list:
     return out
 
 
+def _gradle_modules(path: Path, tdir: str) -> list:
+    out, seen = [], set()
+    for f in ("settings.gradle", "settings.gradle.kts"):
+        settings = path / f
+        if not settings.is_file():
+            continue
+        text = settings.read_text(encoding="utf-8", errors="ignore")
+        for raw in re.findall(r"['\"]:?([A-Za-z0-9_./:-]+)['\"]", text):
+            rel = raw.replace(":", "/").strip("/")
+            if not rel or rel in seen:
+                continue
+            candidate = (path / rel).resolve()
+            if not candidate.is_dir() or not _within(candidate, path.resolve()):
+                continue
+            seen.add(rel)
+            out.append(_module_record(candidate, path, Path(rel).name, "backend",
+                                      _template_instruction(tdir, "module"), ("路径", "domain")))
+    return out
+
+
 def detect_modules(path: Path, service_type: str, tdir: str) -> list:
     if service_type in ("maven", "maven-multimodule"):
         return _maven_modules(path, tdir)
+    if service_type == "gradle-multimodule":
+        return _gradle_modules(path, tdir)
     if service_type == "dotnet":
         return _dotnet_modules(path, tdir)
     if service_type == "vue-multimodule":

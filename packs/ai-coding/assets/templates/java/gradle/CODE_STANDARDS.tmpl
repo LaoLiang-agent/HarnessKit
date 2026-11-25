@@ -1,0 +1,42 @@
+---
+description: Java/Kotlin Gradle 编码规范生成指令
+target: services/{{SUB_PROJECT}}/docs/CODE_STANDARDS.md
+variables:
+  SUB_PROJECT: "子工程目录名"
+---
+
+请分析目标子工程下的现有代码，归纳实际编码规范，生成 CODE_STANDARDS.md。
+
+## 必须包含的章节
+
+### 包与模块命名
+<!-- 从实际代码与 Gradle 模块划分中归纳 -->
+
+### 分层约定
+<!-- Controller/Service/Repository/Model 等层的职责边界；Kotlin 工程注明扩展函数/协程的使用边界 -->
+
+### 依赖与 Gradle 配置
+<!-- 版本管理方式（version catalog / ext / plugin）、依赖声明位置、禁止的配置写法 -->
+
+### 异常处理
+<!-- 异常类型、统一错误响应、协程取消/超时的处理方式 -->
+
+### 日志规范
+<!-- 日志框架、级别、结构化字段；禁止裸 println -->
+
+### 注入防护
+<!-- 参数化查询、输入校验、模板/命令注入防护 -->
+
+### 资源释放与并发
+<!-- 连接/句柄释放、线程池/协程作用域、共享状态同步 -->
+
+### 缓存一致性
+<!-- 写操作后的缓存失效规则（如适用） -->
+
+### 禁止事项
+<!-- 不超过 5 条，每条说明原因 -->
+
+## 硬约束
+- 只归纳代码中能证实的事实；发现与 `.harness/rules/code-standards.md` 冲突的写法标「待整改」，不得写成推荐。
+- 不重复 ktlint/checkstyle 已强制的格式规则；优先引用其配置路径。
+- 总行数不超过 120 行。
