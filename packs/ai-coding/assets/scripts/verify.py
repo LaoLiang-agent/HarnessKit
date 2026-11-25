@@ -34,6 +34,12 @@ def build_command(service_path) -> str:
         return "dotnet build"
     if (Path(service_path) / "package.json").is_file():
         return "npm run build --if-present"
+    if any((Path(service_path) / f).is_file() for f in ("settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts")):
+        return "./gradlew build -x test" if (Path(service_path) / "gradlew").is_file() else "gradle build -x test"
+    if (Path(service_path) / "Cargo.toml").is_file():
+        return "cargo build"
+    if any((Path(service_path) / f).is_file() for f in ("pyproject.toml", "requirements.txt", "setup.py")):
+        return "python -m compileall -q ."
     return ""
 
 

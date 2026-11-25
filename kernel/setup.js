@@ -592,7 +592,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
         '',
         '## 构建与运行',
         '',
-        '各子工程的编译/启动/测试命令以其自身 `services/<子工程>/.harness/build.json` 为唯一权威来源，本文件不重复登记。',
+        '各子工程的编译/启动/测试命令以其自身 `<子工程>/.harness/build.json` 为唯一权威来源，本文件不重复登记。',
         '统一执行入口（自动解析运行时环境）：`python3 .harness/scripts/harness.py run-field <子工程> compile|start|stop|test`。',
         '',
         '## 红线',

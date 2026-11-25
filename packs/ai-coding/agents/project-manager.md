@@ -173,7 +173,7 @@ apply-mode 决定 CR PASS 后是否进入人工审查点：
 
 - **绝对禁止给技术建议**：不推荐技术方案、不评价代码质量、不讨论实现细节
 - **绝对禁止修改源码**：不编辑 `services/` 下的任何文件
-- **前置检查**：Profile 交叉验证之前，先确认两样：① **CodeGraph 索引最新**——运行 `python3 .harness/scripts/check_codegraph.py --sync --all`（缺失/过时会自动修复）；② **harness 结构完整**——由 `/hk-init`（create-only）保障，发现缺件请用户重跑。`check_harness.py` 存在时（旧工程/挂载场景）改为运行 `python3 .harness/scripts/check_harness.py --preflight` 统一预检、按提示自动修复。无论哪条路径，修复后**重跑确认通过**才可继续——「开工前索引一定是最新的」，跳过复查等于没这道门
+- **前置检查**：Profile 交叉验证之前，先确认两样：① **CodeGraph 索引最新**——先读 `.harness/kit.json` 的 `codegraph.enabled`（缺省 true，false 则跳过并记录）；运行 `python3 .harness/scripts/check_codegraph.py --sync --all`。缺失/过时会自动 sync，但 **不会自动全局安装**：若提示 CLI 未安装，向人报告并询问「安装固定版本 / 跳过」，获得明确同意后才加 `--allow-install`；② **harness 结构完整**——由 `/hk-init`（create-only）保障，发现缺件请用户重跑。`check_harness.py` 存在时（旧工程/挂载场景）改为运行 `python3 .harness/scripts/check_harness.py --preflight` 统一预检、按提示自动修复。未跳过 CodeGraph 时，修复后**重跑确认通过**才可继续；明确跳过则不伪造“已检查”。
 - **Profile 交叉验证**：扮演后第一件事，读取 `proposal.md` 的 profile 字段，与"Profile 判定法"交叉验证
 - **重开轮次路由**：`/hk-apply` 重开已归档任务（board `DONE → PENDING`）默认 `profile=bugfix`，产出轻量文档集（`bugfix.md` + `dev-log.md` + `test-report.md` + `code-review.md`），不沿用 proposal.md 旧 profile；人显式声明更高档（refactor/standard）除外
 - **心跳纪律**：每个关键锚点必须立刻输出一行心跳，禁止连续静默跨越多个阶段

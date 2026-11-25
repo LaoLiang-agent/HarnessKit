@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 // 插件内部会自己 spawn `git commit`（资产仓库初始化/同步）。CI 与干净机器没有全局
@@ -3056,6 +3056,93 @@ section('client：工作区提醒');
   })());
   ok('飞书配置步骤含个人版先建企业租户', clientSrc.includes('个人版账号：先创建企业租户') && clientSrc.includes('https://admin.feishu.cn/') && clientSrc.includes('旧应用不会迁移'));
   ok('飞书启用开关勾选即保存', clientSrc.includes('toggleFeishuEnabled') && clientSrc.includes('勾选/取消会立即保存') && clientSrc.includes('启用开关切换会立即保存'));
+}
+
+
+// ---------------------------------------------------------------- init 多语言探测
+section('初始化：多语言探测 / 三档生成 / build 建议');
+{
+  const ws = mkws();
+  cleanups.push(ws);
+  // 已知栈：Java 多模块 + Vue 多 App + .NET src 布局
+  fake(ws, 'services/java/pom.xml', '<project><modules><module>core</module></modules></project>\n');
+  fake(ws, 'services/java/core/pom.xml', '<project/>\n');
+  fake(ws, 'services/java/core/src/Main.java', 'class Main {}\n');
+  fake(ws, 'services/dotnet/src/Api/Api.csproj', '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>\n');
+  fake(ws, 'services/vue/package.json', JSON.stringify({ dependencies: { vue: '3' }, scripts: { build: 'vite build', test: 'vitest' } }));
+  fake(ws, 'services/vue/apps/admin/App.vue', '<template/>\n');
+  // 未内置栈
+  fake(ws, 'services/web/package.json', JSON.stringify({ dependencies: { react: '18' }, scripts: { build: 'vite build', test: 'vitest', lint: 'eslint .' }, packageManager: 'pnpm@9.0.0' }));
+  fake(ws, 'services/web/pnpm-lock.yaml', 'lockfileVersion: 9\n');
+  fake(ws, 'services/nest/package.json', JSON.stringify({ dependencies: { '@nestjs/core': '10' }, scripts: { build: 'nest build' } }));
+  fake(ws, 'services/go-api/go.mod', 'module example.com/go-api\n\ngo 1.22\n');
+  fake(ws, 'services/go-api/cmd/server/main.go', 'package main\nfunc main() {}\n');
+  fake(ws, 'services/py-api/pyproject.toml', '[project]\nname = "py-api"\n');
+  fake(ws, 'services/gradle-api/settings.gradle', 'rootProject.name = "g"\ninclude(":app")\n');
+  fake(ws, 'services/gradle-api/build.gradle', 'plugins { id "java" }\n');
+  fake(ws, 'services/rust-api/Cargo.toml', '[package]\nname = "rust-api"\n');
+  fake(ws, 'services/rust-api/src/main.rs', 'fn main() {}\n');
+  fake(ws, 'services/unknown/src/Main.kt', 'fun main() {}\n');
+  await run('hk-init', '', ws);
+
+  // 自定义 path + 缺失来源：都必须在计划中可见
+  fake(ws, 'code/custom/go.mod', 'module example.com/custom\n');
+  const kit = readKitJson(ws);
+  kit.sources.push({ name: 'custom', path: 'code/custom', role: 'backend' });
+  kit.sources.push({ name: 'gone', path: 'services/gone', role: 'backend' });
+  fs.writeFileSync(path.join(ws, '.harness/kit.json'), JSON.stringify(kit, null, 2));
+
+  const python = execSync('python3 -c "import sys; print(sys.executable)"', { encoding: 'utf8' }).trim();
+  const script = path.join(ws, '.harness/scripts/harness_init.py');
+  execFileSync(python, [script, '--detect'], { cwd: ws, encoding: 'utf8' });
+  const plan = JSON.parse(fs.readFileSync(path.join(ws, '.harness/.logs/workflow/harness-init-plan.json'), 'utf8'));
+  const by = Object.fromEntries(plan.subprojects.map((p) => [p.name, p]));
+
+  ok('plan schema 2 且 skipped=0', plan.schema === 2 && plan.summary.skipped === 0);
+  ok('Go/Python/Rust/Gradle/Node 全部进计划', ['go-api', 'py-api', 'rust-api', 'gradle-api', 'web', 'nest'].every((n) => by[n]));
+  ok('未内置栈走 generic + minimal', ['go-api', 'py-api', 'rust-api', 'gradle-api', 'web', 'nest'].every((n) => by[n].template_dir === 'generic' && by[n].tier === 'minimal' && by[n].needs_manual));
+  ok('React 不再被静默跳过', by.web.service_type === 'node-spa' && by.web.role === 'mobile');
+  ok('Gradle 可识别', by['gradle-api'].service_type.startsWith('gradle'));
+  ok('Java 专用模板 + standard 含规范', by.java.template_kind === 'dedicated' && by.java.tier === 'standard' && !!by.java.root_files['docs/CODE_STANDARDS.md']);
+  ok('generic minimal 不生成规范', !by['go-api'].root_files['docs/CODE_STANDARDS.md']);
+  ok('.NET src 布局发现模块', by.dotnet.modules.some((m) => m.path === 'src/Api'));
+  ok('Maven 顶层模块被发现', by.java.modules.some((m) => m.path === 'core'));
+  ok('自定义 path 可见且路径正确', by.custom.path === 'code/custom');
+  ok('缺失来源如实报告', plan.missing_sources.some((w) => w.path === 'services/gone'));
+
+  // --tier full 只影响本次计划
+  execFileSync(python, [script, '--detect', '--tier', 'full'], { cwd: ws, encoding: 'utf8' });
+  const full = JSON.parse(fs.readFileSync(path.join(ws, '.harness/.logs/workflow/harness-init-plan.json'), 'utf8'));
+  const fullJava = full.subprojects.find((p) => p.name === 'java');
+  ok('--tier full 生效且模块启用', fullJava.tier === 'full' && fullJava.modules_enabled === true && full.summary.full > 0);
+
+  // build 建议：pnpm 锁文件 + scripts，且不覆盖人工值
+  const dry = execFileSync(python, [script, '--write-build', 'web', '--dry-run'], { cwd: ws, encoding: 'utf8' });
+  ok('build 建议识别 pnpm/build/lint', dry.includes('pnpm install --frozen-lockfile') && dry.includes('pnpm run build') && dry.includes('pnpm run lint'));
+  execFileSync(python, [script, '--write-build', 'web'], { cwd: ws, encoding: 'utf8' });
+  const webBuild = JSON.parse(fs.readFileSync(path.join(ws, 'services/web/.harness/build.json'), 'utf8'));
+  ok('build.json 写入 install/compile/test/lint', webBuild.install === 'pnpm install --frozen-lockfile' && webBuild.compile === 'pnpm run build' && webBuild.test === 'pnpm test' && webBuild.lint === 'pnpm run lint');
+  webBuild.compile = 'custom-build';
+  fs.writeFileSync(path.join(ws, 'services/web/.harness/build.json'), JSON.stringify(webBuild, null, 2));
+  execFileSync(python, [script, '--write-build', 'web'], { cwd: ws, encoding: 'utf8' });
+  ok('人工改过的非默认 compile 不被覆盖', JSON.parse(fs.readFileSync(path.join(ws, 'services/web/.harness/build.json'), 'utf8')).compile === 'custom-build');
+
+  // CodeGraph 可选：没有 codegraph/npm 时 --optional 不阻断
+  const cg = execFileSync(python, [path.join(ws, '.harness/scripts/check_codegraph.py'), '--all', '--optional'], {
+    cwd: ws, encoding: 'utf8', env: { ...process.env, PATH: '/nonexistent' },
+  });
+  ok('CodeGraph 缺失时 optional 只 WARN', cg.includes('不自动全局安装') && !cg.includes('📦 codegraph 未安装，安装:'));
+
+  // 校验器与计划同源：generic 项目也被检查（缺文档时 exit 1 属预期）
+  let check = '';
+  try {
+    check = execFileSync(python, [path.join(ws, '.harness/scripts/codebase_guide_init.py'), '--check-only'], {
+      cwd: ws, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    check = String(e.stdout || '');
+  }
+  ok('完整性校验覆盖 generic 项目', check.includes('go-api (go, minimal)') && check.includes('web (node-spa, minimal)'));
 }
 
 // ---------------------------------------------------------------- report

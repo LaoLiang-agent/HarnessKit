@@ -10,7 +10,7 @@ Harness Kit 把方案、开发、评审、测试拆给固定角色，在关键�
 
 ## 它还会补齐项目上下文
 
-创建完成后点「启动初始化编排」，它会探测已登记的子工程，生成/补齐根 `AGENTS.md`、子工程 `AGENTS.md`（已有 `CLAUDE.md` 则跳过）、`docs/CODE_STANDARDS.md`、`<子工程>/.harness/build.json`（构建/启动/测试命令）、`codebase-guide/` 模块文档与 `.codegraph/` 索引；已有文件跳过，生成前先给计划确认。
+创建完成后点「启动初始化编排」，它会探测已登记的子工程，生成/补齐根 `AGENTS.md` 与子工程 `AGENTS.md`（已有 `CLAUDE.md` 则跳过）、`<子工程>/.harness/build.json`；标准/完整档追加 `docs/CODE_STANDARDS.md`，完整档再生成模块级文档。未知技术栈走通用模板并明确标注。`.codegraph/` 索引可选，未安装时询问安装或跳过。生成前先给计划确认。
 
 ## 三步上手（界面）
 

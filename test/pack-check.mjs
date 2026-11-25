@@ -107,6 +107,13 @@ try {
   ok('index.js loads as an ES module and exports apply()')
 
   if (fs.readdirSync(path.join(pkgRoot, 'packs')).length === 0) fail('packs/ is empty')
+  for (const file of [
+    'packs/ai-coding/assets/templates/generic/root-AGENTS.tmpl',
+    'packs/ai-coding/assets/templates/generic/CODE_STANDARDS.tmpl',
+    'packs/ai-coding/assets/templates/generic/build.tmpl',
+  ]) {
+    if (!fs.existsSync(path.join(pkgRoot, file))) fail(`missing ${file}`)
+  }
   ok('content pack is present')
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true })

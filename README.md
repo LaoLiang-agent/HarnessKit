@@ -60,14 +60,17 @@ orchestration** probes the registered source repositories and fills in the proje
 would otherwise rediscover every time:
 
 - a root `AGENTS.md`; existing `CLAUDE.md` is left untouched and also read by DSH
-- per-repository `AGENTS.md` (or an existing `CLAUDE.md`) and `docs/CODE_STANDARDS.md` (coding rules)
-- `<repo>/.harness/build.json`: build, start and test commands
-- `codebase-guide/`: module docs loaded on demand instead of into every prompt
-- per-repository `.codegraph/`: class, method and call-chain indexes the AI can query instead of reading everything
+- per-repository `AGENTS.md` (or an existing `CLAUDE.md`) and `<repo>/.harness/build.json`
+- `docs/CODE_STANDARDS.md` (standard/full) and module-level `AGENTS.md` (full only)
+- `codebase-guide/`: workspace architecture skeleton, filled in on demand
+- per-repository `.codegraph/` (optional): class, method and call-chain indexes
 - `.harness/scripts`, `rules`, `templates`: board, health checks, spec lint and coding baselines
 
-You confirm the plan before anything is written; existing files are skipped and `build.json` only
-gains missing keys. If CodeGraph is not installed, the scripts try to install it, and you can skip it.
+Initialization comes in three tiers: `minimal` (AGENTS + build), `standard` (+ coding rules) and
+`full` (+ module docs). Unsupported stacks use a clearly marked generic template with a deliberately
+small footprint. You confirm the plan before anything is written; existing files are skipped and
+`build.json` only gains missing keys and never overwrites custom values. CodeGraph is not installed globally by default; you are asked
+whether to install it or skip.
 
 ---
 
@@ -322,7 +325,7 @@ rework and handover cost earlier instead of removing them.
 **Is it worth it for a solo developer?**
 Yes. Solo work loses context and rhythm most easily: the harness keeps each round's specs, lessons
 and decisions in files, so the next session does not start from zero. The CR/TE roles act as a fixed
-second pass, and the generated `AGENTS.md` (or existing `CLAUDE.md`), `build.json` and CodeGraph index save the AI from
+second pass, and the generated `AGENTS.md` (or existing `CLAUDE.md`), `build.json` and an optional CodeGraph index save the AI from
 re-reading the project every time.
 
 **Do I have to use the full flow?**

@@ -316,7 +316,7 @@ async function hkInit({ agent, rawInput }) {
       const pm = resolveRole(ws, kit, 'project-manager');
       const prompt = compileFlowPrompt(loaded.flow, {
         task: '工程初始化',
-        desc: '探测 services/ 下子工程的技术栈与结构，按模板生成子工程文档（AGENTS.md（已有 CLAUDE.md 则跳过）/ build.json / CODE_STANDARDS.md / 模块级 AGENTS.md）；再与人协作补齐各端 build.json 的编译/启动命令并实跑一次编译+启动验证（成功后停掉服务）；最后建 CodeGraph 代码索引 —— 原 /harness-init 流程',
+        desc: '探测子工程技术栈与结构，按三档生成文档（minimal: AGENTS+build；standard: +CODE_STANDARDS；full: +模块文档）；未知技术栈走 generic 模板并标注；再与人协作补齐 build.json 命令并实跑编译+启动验证；CodeGraph 可选（默认不自动全局安装）—— 原 /harness-init 流程',
         flowFile: loaded.file,
         artifacts: '各子工程（生成清单见 .harness/.logs/workflow/harness-init-plan.json）',
         roleSections: pm ? `### PM 角色（你立即切换到此身份）\n\n${pm.body}` : undefined,

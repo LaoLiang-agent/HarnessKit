@@ -2,9 +2,12 @@
 # .harness/scripts/check_codegraph.py
 # 检查子工程 CodeGraph 索引是否存在且最新。
 # 用法: check_codegraph.py <子工程路径> | --all | --sync <路径> | --sync --all
+#       [--allow-install] [--optional]
 # 退出码: 0=OK, 1=STALE, 2=MISSING, 3=ERROR（--sync 时为**同步后**的状态）
-# codegraph 未安装时自动 npm 安装（lib.ensure_codegraph），失败则干净报错而非 traceback。
+# codegraph 缺失时**默认不自动安装**；--allow-install 才执行 npm 全局安装（固定 major）。
+# --optional：缺失/损坏/失败以 0 退出并打印 WARN，供初始化等可选阶段使用。
 import json
+import os
 import sys
 from pathlib import Path
 import lib
@@ -124,31 +127,64 @@ def ensure_gitignore(sp: Path):
 
 def sync_one(sp: Path):
     ensure_gitignore(sp)
+    exe = lib.codegraph_path()
+    if not exe:
+        print("  ⚠ codegraph CLI 不在 PATH，无法同步")
+        return
     # 「→ 需执行」前缀不能省：此前直接打印命令本体，与真正的执行输出并排，
     # 读起来像「已经跑过了」。加前缀后一眼可分「待执行」与「已执行」。
     if not (sp / ".codegraph").is_dir():
         print(f"  → 需执行: codegraph init {sp}")
-        lib.run(["codegraph", "init", str(sp)])
+        lib.run([exe, "init", str(sp)])
     else:
         print(f"  → 需执行: codegraph sync {sp}")
-        lib.run(["codegraph", "sync", str(sp)])
+        lib.run([exe, "sync", str(sp)])
+
+
+def _config():
+    kit = lib.read_json(ROOT / ".harness" / "kit.json")
+    cfg = kit.get("codegraph") if isinstance(kit.get("codegraph"), dict) else {}
+    return cfg
+
+
+def _skipped_paths(kit_cfg):
+    kit = lib.read_json(ROOT / ".harness" / "kit.json")
+    out = set()
+    for s in kit.get("sources") or []:
+        if not isinstance(s, dict) or s.get("codegraph") is not False:
+            continue
+        raw = str(s.get("path") or "").strip()
+        if raw:
+            out.add(os.path.normcase(os.path.realpath(ROOT / raw)))
+    return out
 
 
 def main():
     argv = sys.argv[1:]
+    allow_install = "--allow-install" in argv
+    optional = "--optional" in argv
+    argv = [a for a in argv if a not in ("--allow-install", "--optional", "--no-install")]
+    cfg = _config()
+    if cfg.get("enabled", True) is False:
+        print("CodeGraph 已在 kit.json codegraph.enabled=false 中禁用，跳过。")
+        return 0
+    skipped = _skipped_paths(cfg)
+
     sync_mode = False
     if argv and argv[0] == "--sync":
         sync_mode = True
         argv = argv[1:]
 
-    ok_cg, cg_msg = lib.ensure_codegraph()
+    ok_cg, cg_msg = lib.ensure_codegraph(allow_install=allow_install, pin=cfg.get("pin"))
     if not ok_cg:
-        print(cg_msg)
-        return 3
+        print(("⚠ " if optional else "") + cg_msg)
+        return 0 if optional else 3
 
     if not argv or argv[0] == "--all":
         exit_code, stale, missing = 0, [], []
-        all_dirs = lib.discover_service_dirs(ROOT)
+        all_dirs = [(p["name"], Path(p["path_abs"])) for p in lib.enumerate_projects(ROOT)[0]]
+        all_dirs = [(n, p) for n, p in all_dirs
+                    if os.path.normcase(os.path.realpath(p)) not in skipped]
         for _, sp in all_dirs:
             code, msg = check_one(sp)
             print(msg)
@@ -190,6 +226,8 @@ def main():
         else:
             if missing or stale:
                 print("\n提示: 运行 check_codegraph.py --sync --all 自动更新")
+        if optional:
+            return 0
         if missing:
             return 2
         if stale:
@@ -200,7 +238,10 @@ def main():
     sp = ROOT / "services" / argv[0].rstrip("/") if not Path(argv[0]).is_dir() else Path(argv[0])
     if not sp.is_dir():
         print(f"错误: 子工程路径不存在: {argv[0]}")
-        return 3
+        return 0 if optional else 3
+    if os.path.normcase(os.path.realpath(sp)) in skipped:
+        print(f"{sp.name}: 已按 kit.sources[].codegraph=false 跳过")
+        return 0
     code, msg = check_one(sp)
     print(msg)
     if sync_mode:
@@ -208,8 +249,7 @@ def main():
         sync_one(sp)
         code, msg = check_one(sp)   # 同步后重新取证，退出码反映同步后的真实状态
         print(msg)
-    return code
-
+    return 0 if optional and code != 0 else code
 
 if __name__ == "__main__":
     sys.exit(main())

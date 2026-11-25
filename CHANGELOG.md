@@ -8,6 +8,13 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ### Added
 
+- 工程初始化不再静默丢弃未内置技术栈：新增 `generic` 模板兜底，Go / Python / Rust /
+  Gradle / React / Next / Nest 等子工程都会进入初始化计划，并标注「通用模板，命令需人工确认」。
+- 初始化支持三档生成：`minimal`（根 AGENTS + build）/ `standard`（+ CODE_STANDARDS）/
+  `full`（+ 模块文档）；专用模板默认 standard，通用模板默认 minimal，可用
+  `--detect --tier full` 或 `kit.sources[].tier` 覆盖。
+- 新增 `harness_init.py --write-build`：按包管理器/脚本/wrapper 给出 install、compile、
+  test、lint 建议，人工确认后写盘；不覆盖人工定制值。
 - 飞书远程审批覆盖 DSH 工具权限弹窗（`approval/request`，例如 `danger-full-access` 或需要
   审批的 bash 操作）：权限原因和工具名会推送到飞书，可直接点「允许一次 / 拒绝」；与 DSH
   弹窗先答先得，飞书先答时 Web 卡片自动收起，「允许一次」只对本次操作生效。权限卡片默认
@@ -15,6 +22,10 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ### Changed
 
+- CodeGraph 改为可选能力：默认不再自动 `npm install -g`，缺失时只 WARN；需人确认后
+  使用 `--allow-install`，并固定 `@colbymchenry/codegraph@^1.4.0`。
+- 初始化计划与完整性校验共用同一套项目枚举/技术栈探测：支持 `kit.sources[].path`
+  自定义/嵌套路径、`.NET src/<Project>` 模块、Maven 顶层模块；generic 项目也会被校验。
 - README / README.zh-CN 开头新增「在 DSH 中安装」：应用内 Add plugin、命令行、源码安装与
   直接建工作区的顺序；删除后文重复的安装章节，保留更新的版本检查与运行要求。
 - README 补充面板「拉取 / 提交并同步」、`--base` 任务分支基点与 clean 主树自动切换、
@@ -35,6 +46,10 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ### Fixed
 
+- 修复初始化 `generate_plan` 对 `nodejs / go / python / unknown` 直接 `continue`，
+  导致纯 Go/React 工程被误报「未探测到子工程」的问题。
+- 修复前端 `build.json` 没有 `install` 且 `compile` 为空，导致初始化编译验证长期空缺；
+  `run-field` 现在支持 `install` / `lint`。
 - IM 配置变更（启用/停用、App ID/Secret、目标 Open ID）会在下一次提问时重建 bridge；
   旧实现只在首次创建时读配置，改了 Open ID 或先配置后启用会一直发到旧目标/一直不发，
   表现为「DSH 有决策弹窗、飞书没通知」。连接失败的 bridge 不再被缓存，下一次提问会重试。

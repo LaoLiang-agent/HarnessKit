@@ -7,7 +7,7 @@
 # 于是报出与被改代码无关的怪错。走这里 = 强制先按子工程声明的版本解析运行时。
 #
 # 用法:
-#   python3 .harness/scripts/run_field.py <子工程> <字段>            # compile / test / package / package-incr
+#   python3 .harness/scripts/run_field.py <子工程> <字段>            # install / compile / test / lint / package / package-incr
 #   python3 .harness/scripts/run_field.py <子工程> start             # 启动并按判据判定，**不自动停止**
 #   python3 .harness/scripts/run_field.py <子工程> stop              # 停止（人工显式执行）
 #   python3 .harness/scripts/run_field.py <子工程> compile --timeout 600
@@ -24,7 +24,7 @@ import json, os, re, subprocess, sys, time
 from pathlib import Path
 import lib
 
-FIELDS = ("compile", "test", "package", "package-incr", "start", "stop")
+FIELDS = ("install", "compile", "test", "package", "package-incr", "lint", "start", "stop")
 START_OK = "start-ok"
 START_TIMEOUT = "start-timeout"
 START_PORT = "start-port"

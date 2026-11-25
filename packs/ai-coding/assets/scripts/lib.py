@@ -137,8 +137,66 @@ def resolve_service_dir(arg):
     return None
 
 
+def _gradle_files(p: Path) -> bool:
+    return any((p / f).is_file() for f in ("settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts"))
+
+
+def _has_gradle_include(p: Path) -> bool:
+    for f in ("settings.gradle", "settings.gradle.kts"):
+        path = p / f
+        if path.is_file() and re.search(r"(?m)^\s*include\b", path.read_text(encoding="utf-8", errors="ignore")):
+            return True
+    return False
+
+
+def _node_package(p: Path) -> dict:
+    try:
+        data = json.loads((p / "package.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _node_dep_names(p: Path) -> set:
+    pkg = _node_package(p)
+    deps = pkg.get("dependencies") if isinstance(pkg.get("dependencies"), dict) else {}
+    dev = pkg.get("devDependencies") if isinstance(pkg.get("devDependencies"), dict) else {}
+    return set(deps) | set(dev)
+
+
+def _has_node_backend(p: Path) -> bool:
+    return bool(_node_dep_names(p) & {"@nestjs/core", "express", "fastify", "koa", "hono"})
+
+
+def _apps_dep_names(p: Path) -> set:
+    """根是 workspace 壳时，从 apps/<name>/package.json 汇总依赖。"""
+    apps = p / "apps"
+    if not apps.is_dir():
+        return set()
+    out = set()
+    for d in sorted(apps.iterdir()):
+        if d.is_dir() and not d.name.startswith(".") and (d / "package.json").is_file():
+            out |= _node_dep_names(d)
+    return out
+
+
+def _has_dotnet_project(p: Path) -> bool:
+    """根目录或浅层子目录（常见 src/<Project>）是否有 .sln/.csproj。"""
+    if list(p.glob("*.sln")) or list(p.glob("*.csproj")):
+        return True
+    for base, dirs, files in os.walk(p):
+        depth = len(Path(base).relative_to(p).parts)
+        dirs[:] = [d for d in dirs if d not in ("bin", "obj", "node_modules", ".git", ".harness")
+                   and depth < 3 and not d.startswith(".")]
+        if any(f.endswith(".csproj") for f in files):
+            return True
+    return False
+
+
 def detect_service_type(service_path) -> str:
-    """检测服务类型，返回 vue-multimodule|mobile-app|uniapp|maven-multimodule|maven|nodejs|dotnet|go|python|unknown
+    """检测服务类型，返回：
+    vue-multimodule|mobile-app|uniapp|node-spa|node-ssr|node-backend|node-generic|
+    maven-multimodule|maven|gradle-multimodule|gradle|dotnet|go|python|rust|unknown
 
     Vue 前端按**结构**细分：带 apps/ 子应用容器的是微前端工程（vue-multimodule），
     不带的是单应用 SPA（mobile-app，移动端 H5 / 桌面 SPA 同构）。
@@ -152,25 +210,31 @@ def detect_service_type(service_path) -> str:
         if "<modules>" in pom:
             return "maven-multimodule"
         return "maven"
+    if _gradle_files(p):
+        return "gradle-multimodule" if _has_gradle_include(p) else "gradle"
+    if _has_dotnet_project(p):
+        return "dotnet"
     # uni-app 必须先于 package.json 的 vue 分支判定：CLI 形态同样含 vue 依赖，
     # 先判 vue 会把 uni-app 工程当成普通 H5 SPA（HBuilderX 形态更无 package.json 可判）。
     if is_uniapp(p):
         return "uniapp"
-    if (p / "package.json").is_file():
-        try:
-            d = json.loads((p / "package.json").read_text(encoding="utf-8"))
-            deps = json.dumps({**d.get("dependencies", {}), **d.get("devDependencies", {})})
-            if '"vue"' in deps:
-                return "vue-multimodule" if (p / "apps").is_dir() else "mobile-app"
-        except json.JSONDecodeError:
-            pass
-        return "nodejs"
-    if list(p.glob("*.sln")) or list(p.glob("*.csproj")):
-        return "dotnet"
-    if (p / "go.mod").is_file():
+    if (p / "package.json").is_file() or (p / "apps").is_dir():
+        deps = _node_dep_names(p) | _apps_dep_names(p)
+        if "vue" in deps:
+            return "vue-multimodule" if (p / "apps").is_dir() else "mobile-app"
+        if deps & {"next", "nuxt", "@remix-run/react"}:
+            return "node-ssr"
+        if deps & {"react", "react-dom", "@angular/core", "svelte", "solid-js"}:
+            return "node-spa"
+        if deps & {"@nestjs/core", "express", "fastify", "koa", "hono"}:
+            return "node-backend"
+        return "node-generic" if (p / "package.json").is_file() else "unknown"
+    if (p / "go.mod").is_file() or (p / "go.work").is_file():
         return "go"
-    if any((p / f).is_file() for f in ("pyproject.toml", "requirements.txt", "setup.py")):
+    if any((p / f).is_file() for f in ("pyproject.toml", "requirements.txt", "setup.py", "Pipfile")):
         return "python"
+    if (p / "Cargo.toml").is_file():
+        return "rust"
     return "unknown"
 
 
@@ -301,9 +365,11 @@ def detect_service_role(service_path) -> str:
     角色由**结构**推断，与子工程目录名无关——目录叫 backend/frontend/app 还是别的都不影响判定。
     """
     p = Path(service_path)
-    has_backend = (p / "pom.xml").is_file() or bool(list(p.glob("*.sln"))) or bool(list(p.glob("*.csproj"))) \
-        or (p / "go.mod").is_file() \
-        or any((p / f).is_file() for f in ("pyproject.toml", "requirements.txt", "setup.py"))
+    has_backend = (p / "pom.xml").is_file() or _gradle_files(p) \
+        or _has_dotnet_project(p) \
+        or (p / "go.mod").is_file() or (p / "go.work").is_file() \
+        or any((p / f).is_file() for f in ("pyproject.toml", "requirements.txt", "setup.py", "Pipfile")) \
+        or (p / "Cargo.toml").is_file() or _has_node_backend(p)
     has_frontend = _has_frontend_marker(p)
     if has_backend and has_frontend:
         return "fullstack"
@@ -342,6 +408,483 @@ def list_frontend_projects(path: Path):
             continue
         _collect_frontend_projects(d, d.name, out)
     return out
+
+
+# ─── 统一项目枚举 / 探测（初始化计划与完整性校验共用）────────────
+# 为什么放在 lib：harness_init.py 生成计划、codebase_guide_init.py 校验文档，
+# 过去各写一套分类，导致「计划里被跳过、校验时又报缺」的自相矛盾。
+INSTRUCTION_NAMES = ("AGENTS.md", "CLAUDE.md")
+TEMPLATES_DIR = ROOT / ".harness" / "templates"
+TIERS = ("minimal", "standard", "full")
+GENERIC_SECTIONS = ("Build", "项目概述", "目录结构", "关键约定", "参考文档")
+BACKEND_SECTIONS = ("Build", "项目概述", "关键框架模式", "关键约定", "模块发现", "参考文档")
+FRONTEND_SECTIONS = ("Build", "项目概述", "目录结构", "关键框架模式", "关键约定", "参考文档")
+FULLSTACK_SECTIONS = ("Build", "项目概述", "目录结构", "关键框架模式", "关键约定", "模块发现", "参考文档")
+
+# 专用模板只在目录真实存在时生效；未来新增模板无需改探测主流程。
+PREFERRED_TEMPLATE = {
+    "maven-multimodule": "java/maven-multimodule",
+    "maven": "java/maven",
+    "gradle-multimodule": "java/gradle-multimodule",
+    "gradle": "java/gradle",
+    "vue-multimodule": "javascript/vue-multimodule",
+    "mobile-app": "javascript/mobile-app",
+    "uniapp": "javascript/uniapp",
+    "dotnet": "dotnet/dotnet-multimodule",
+    "node-spa": "javascript/node-spa",
+    "node-ssr": "javascript/node-ssr",
+    "node-backend": "javascript/node-backend",
+    "node-generic": "javascript/node-generic",
+    "go": "go/service",
+    "python": "python/service",
+    "rust": "rust/service",
+}
+GENERIC_TEMPLATE = "generic"
+
+
+def instruction_file(path):
+    """已有入口文件：AGENTS.md 优先，兼容旧 CLAUDE.md。"""
+    base = Path(path)
+    for name in INSTRUCTION_NAMES:
+        candidate = base / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _template_instruction(tdir: str, stem: str) -> str:
+    for name in (f"{stem}-AGENTS.tmpl", f"{stem}-CLAUDE.tmpl"):
+        if (TEMPLATES_DIR / tdir / name).is_file():
+            return f"{tdir}/{name}"
+    return f"{tdir}/{stem}-AGENTS.tmpl"
+
+
+def resolve_template(template_override: str, service_type: str) -> tuple:
+    """返回 (template_dir, kind, warnings)。kind ∈ dedicated|generic|override。
+
+    override 只接受 .harness/templates 下的相对目录；目录不存在或越界都回落 generic，
+    绝不让计划指向一个不存在的模板。
+    """
+    warnings = []
+    override = (template_override or "").strip().replace("\\", "/")
+    if override:
+        candidate = (TEMPLATES_DIR / override).resolve()
+        try:
+            inside = candidate.is_relative_to(TEMPLATES_DIR.resolve())
+        except AttributeError:  # Python < 3.9
+            inside = str(candidate).startswith(str(TEMPLATES_DIR.resolve()) + os.sep)
+        if inside and candidate.is_dir() and any((candidate / f).is_file() for f in ("root-AGENTS.tmpl", "root-CLAUDE.tmpl")):
+            return override, "override", warnings
+        warnings.append(f"模板覆盖 {override!r} 不存在或非法，已回落 generic")
+    preferred = PREFERRED_TEMPLATE.get(service_type, "")
+    preferred_dir = TEMPLATES_DIR / preferred if preferred else None
+    if preferred_dir and preferred_dir.is_dir() and any((preferred_dir / f).is_file() for f in ("root-AGENTS.tmpl", "root-CLAUDE.tmpl")):
+        return preferred, "dedicated", warnings
+    return GENERIC_TEMPLATE, "generic", warnings
+
+
+def doc_sections(service_type: str, role: str, template_kind: str) -> tuple:
+    """根文档必需章节。generic/override 先按通用章节表，不能拿专用模板标准要求它。"""
+    if template_kind in ("generic", "override"):
+        return GENERIC_SECTIONS
+    if role == "backend":
+        return BACKEND_SECTIONS
+    if role in ("frontend", "mobile"):
+        return FRONTEND_SECTIONS
+    if role == "fullstack":
+        return FULLSTACK_SECTIONS
+    return GENERIC_SECTIONS
+
+
+def _within(child: Path, parent: Path) -> bool:
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def enumerate_projects(root: Path = ROOT) -> tuple:
+    """枚举子工程：kit.sources 优先，services/* 补扫，realpath 去重。
+
+    返回 (projects, warnings)。projects: [{name, path, path_abs, source, source_kind}]。
+    不在 services 下递归找 git 仓库——嵌套仓库必须显式登记，避免把模块误当子工程。
+    """
+    root = Path(root)
+    projects, warnings, seen = [], [], set()
+
+    def add(name, rel, abs_path, source, source_kind):
+        key = os.path.normcase(os.path.realpath(abs_path))
+        if key in seen:
+            return
+        seen.add(key)
+        projects.append({
+            "name": name,
+            "path": rel,
+            "path_abs": str(abs_path),
+            "source": source,
+            "source_kind": source_kind,
+        })
+
+    kit = read_json(root / ".harness" / "kit.json")
+    for raw in kit.get("sources") or []:
+        if not isinstance(raw, dict):
+            continue
+        rel = str(raw.get("path") or "").strip().replace("\\", "/")
+        if not rel:
+            warnings.append({"code": "source_path_missing", "path": rel, "message": "sources 项缺少 path，已跳过"})
+            continue
+        candidate = (root / rel).resolve()
+        if not _within(candidate, root.resolve()):
+            warnings.append({"code": "source_path_escape", "path": rel, "message": "sources.path 越出工作区，已跳过"})
+            continue
+        if not candidate.is_dir():
+            warnings.append({"code": "missing_source", "path": rel,
+                             "message": f"kit.sources 登记但目录不存在：{rel}"})
+            continue
+        add(raw.get("name") or candidate.name, rel.rstrip("/"), candidate, raw, "kit")
+
+    svc = root / SERVICES_DIR
+    if svc.is_dir():
+        for d in sorted(svc.iterdir()):
+            if not d.is_dir() or d.name.startswith(".") or d.name in ("node_modules", "target", "dist", "build"):
+                continue
+            rel = f"{SERVICES_DIR}/{d.name}"
+            add(d.name, rel, d, {}, "scan")
+
+    return projects, warnings
+
+
+def _rel_posix(path, base) -> str:
+    return Path(path).resolve().relative_to(Path(base).resolve()).as_posix()
+
+
+def _module_record(path: Path, base: Path, name: str, kind: str, template: str, meta_keys: tuple) -> dict:
+    existing = instruction_file(path)
+    return {
+        "name": name or path.name,
+        "path": _rel_posix(path, base),
+        "kind": kind,
+        "template": template,
+        "status": "EXISTS" if existing is not None else "MISSING",
+        "meta_keys": list(meta_keys),
+    }
+
+
+def list_maven_modules(path: Path):
+    """枚举 Maven 模块：顶层 pom+src 目录 + 扁平容器（聚合 pom、自身无 src）下的模块子目录。"""
+    out, seen, containers = [], set(), []
+    for d in sorted(path.iterdir()):
+        if not d.is_dir() or d.name.startswith("."):
+            continue
+        if (d / "pom.xml").is_file() and (d / "src").is_dir():
+            if d.name not in MODULE_DIR_EXCLUDES:
+                out.append({"name": d.name, "parent": str(path), "path": str(d)})
+                seen.add(d.name)
+        elif is_maven_container(d):
+            containers.append(d)
+    for child in containers:
+        for d in sorted(child.iterdir()):
+            if not (d.is_dir() and (d / "src").is_dir()):
+                continue
+            if d.name.startswith(".") or d.name in MODULE_DIR_EXCLUDES or d.name in seen:
+                continue
+            out.append({"name": d.name, "parent": str(child), "path": str(d)})
+    return out
+
+
+def _maven_modules(path: Path, tdir: str) -> list:
+    out, seen = [], set()
+
+    def add(rel_dir: Path):
+        rel = _rel_posix(rel_dir, path)
+        if rel in seen:
+            return
+        seen.add(rel)
+        out.append(_module_record(rel_dir, path, Path(rel).name, "backend",
+                                  _template_instruction(tdir, "module"), ("路径", "domain")))
+
+    pom = path / "pom.xml"
+    if pom.is_file():
+        text = pom.read_text(encoding="utf-8", errors="ignore")
+        for rel in re.findall(r"<module>\s*([^<]+?)\s*</module>", text):
+            candidate = (path / rel.strip()).resolve()
+            if candidate.is_dir() and _within(candidate, path.resolve()):
+                add(candidate)
+    if not out:
+        for m in list_maven_modules(path):
+            add(Path(m["path"]))
+    return out
+
+
+def _dotnet_modules(path: Path, tdir: str) -> list:
+    """递归收集 .NET 项目（支持 src/<Project> 布局），排除测试项目与产物目录。"""
+    out, seen = [], set()
+    for base, dirs, files in os.walk(path):
+        base_p = Path(base)
+        depth = len(base_p.relative_to(path).parts)
+        dirs[:] = [d for d in dirs if d not in ("bin", "obj", "node_modules", ".git", ".harness")
+                   and depth < 4 and not d.startswith(".")]
+        for f in files:
+            if not f.endswith(".csproj"):
+                continue
+            stem = Path(f).stem
+            if stem.endswith((".Tests", ".Test", ".Spec")):
+                continue
+            csproj = base_p / f
+            if base_p == path:
+                continue  # 根项目由 L1 AGENTS.md 覆盖，不重复生成模块文档
+            rel = _rel_posix(base_p, path)
+            if rel in seen:
+                continue
+            seen.add(rel)
+            front = _has_blazor_wasm(csproj)
+            stem_tpl = "app" if front else "module"
+            out.append(_module_record(base_p, path, stem, "frontend" if front else "backend",
+                                      _template_instruction(tdir, stem_tpl),
+                                      ("职责", "domain") if front else ("domain",)))
+    return out
+
+
+def _vue_modules(path: Path, tdir: str) -> list:
+    apps = path / "apps"
+    if not apps.is_dir():
+        return []
+    out = []
+    for d in sorted(apps.iterdir()):
+        if not d.is_dir() or d.name.startswith(".") or d.name in ("node_modules", "target", "dist", "build"):
+            continue
+        if not (list(d.glob("*.vue")) or (d / "store").is_dir() or (d / "views").is_dir() or (d / "router").is_dir()):
+            continue
+        out.append(_module_record(d, path, d.name, "frontend", _template_instruction(tdir, "app"), ("职责", "domain")))
+    comp = apps / "component"
+    if comp.is_dir() and not any(m["path"] == "apps/component" for m in out):
+        out.append(_module_record(comp, path, "component", "frontend", _template_instruction(tdir, "app"), ()))
+    return out
+
+
+def detect_modules(path: Path, service_type: str, tdir: str) -> list:
+    if service_type in ("maven", "maven-multimodule"):
+        return _maven_modules(path, tdir)
+    if service_type == "dotnet":
+        return _dotnet_modules(path, tdir)
+    if service_type == "vue-multimodule":
+        return _vue_modules(path, tdir)
+    return []
+
+
+def _node_pm(p: Path) -> str:
+    pkg = _node_package(p)
+    declared = str(pkg.get("packageManager") or "").split("@", 1)[0].strip().lower()
+    if declared in ("npm", "pnpm", "yarn", "bun"):
+        return declared
+    for lock, pm in (("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"),
+                     ("bun.lockb", "bun"), ("bun.lock", "bun"), ("package-lock.json", "npm")):
+        if (p / lock).is_file():
+            return pm
+    return "npm"
+
+
+def _node_script(p: Path, name: str) -> str:
+    scripts = _node_package(p).get("scripts") or {}
+    value = scripts.get(name) if isinstance(scripts, dict) else ""
+    return str(value or "")
+
+
+def _suggest(value, source, confidence="high"):
+    return {"value": value, "source": source, "confidence": confidence} if value else None
+
+
+def infer_build(project: dict) -> dict:
+    """按工程事实推导构建命令。只给建议，不写盘、不执行。"""
+    p = Path(project["path_abs"])
+    st = project.get("service_type")
+    out = {}
+
+    def put(key, item):
+        if item:
+            out[key] = item
+
+    if st in ("maven", "maven-multimodule"):
+        mvn = "./mvnw" if (p / "mvnw").is_file() else "mvn"
+        put("compile", _suggest(f"{mvn} compile", f"{mvn} wrapper" if mvn == "./mvnw" else "pom.xml"))
+        put("test", _suggest(f"{mvn} test", "pom.xml"))
+    elif st in ("gradle", "gradle-multimodule"):
+        gradle = "./gradlew" if (p / "gradlew").is_file() else "gradle"
+        put("compile", _suggest(f"{gradle} build -x test", f"{gradle} wrapper" if gradle == "./gradlew" else "gradle"))
+        put("test", _suggest(f"{gradle} test", "gradle"))
+    elif st == "dotnet":
+        put("compile", _suggest("dotnet build", ".sln/.csproj"))
+        put("test", _suggest("dotnet test", ".sln/.csproj"))
+        runnable = []
+        for base, dirs, files in os.walk(p):
+            dirs[:] = [d for d in dirs if d not in ("bin", "obj", "node_modules", ".git", ".harness")]
+            for f in files:
+                if not f.endswith(".csproj"):
+                    continue
+                csproj = Path(base) / f
+                text = csproj.read_text(encoding="utf-8", errors="ignore")
+                if "Microsoft.NET.Sdk.Web" in text or "OutputType>Exe" in text:
+                    runnable.append(csproj)
+        if len(runnable) == 1:
+            rel = _rel_posix(runnable[0].parent, p)
+            put("start", _suggest(f'dotnet run --project "{rel}"', str(runnable[0].relative_to(p)), "medium"))
+    elif st and st.startswith("node") or st in ("mobile-app", "uniapp"):
+        pm = _node_pm(p)
+        lock = {"npm": "package-lock.json", "pnpm": "pnpm-lock.yaml",
+                "yarn": "yarn.lock", "bun": "bun.lockb"}.get(pm, "")
+        install = {
+            "npm": "npm ci" if (p / "package-lock.json").is_file() else "npm install",
+            "pnpm": "pnpm install --frozen-lockfile",
+            "yarn": "yarn install --frozen-lockfile",
+            "bun": "bun install --frozen-lockfile",
+        }.get(pm, f"{pm} install")
+        put("install", _suggest(install, f"{pm} lock" if lock else "package.json"))
+        build = _node_script(p, "build")
+        if build:
+            put("compile", _suggest(f"{pm} run build", "package.json#scripts.build"))
+        elif (p / "tsconfig.json").is_file():
+            put("compile", _suggest(f"{pm} exec tsc --noEmit", "tsconfig.json", "medium"))
+        if _node_script(p, "test"):
+            put("test", _suggest(f"{pm} test", "package.json#scripts.test"))
+        if _node_script(p, "lint"):
+            put("lint", _suggest(f"{pm} run lint", "package.json#scripts.lint"))
+        for name in ("dev", "start", "serve"):
+            if _node_script(p, name):
+                put("start", _suggest(f"{pm} run {name}", f"package.json#scripts.{name}", "medium"))
+                break
+    elif st == "go":
+        put("compile", _suggest("go build ./...", "go.mod"))
+        put("test", _suggest("go test ./...", "go.mod"))
+        put("lint", _suggest("go vet ./...", "go.mod", "medium"))
+        cmds = sorted((p / "cmd").glob("*/main.go")) if (p / "cmd").is_dir() else []
+        if len(cmds) == 1:
+            put("start", _suggest(f"go run ./cmd/{cmds[0].parent.name}", "cmd/*/main.go", "medium"))
+    elif st == "python":
+        venv_py = p / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        py = f'"{venv_py}"' if venv_py.is_file() else "python"
+        if (p / "poetry.lock").is_file():
+            put("install", _suggest("poetry install", "poetry.lock"))
+        elif (p / "uv.lock").is_file():
+            put("install", _suggest("uv sync", "uv.lock"))
+        elif (p / "Pipfile").is_file():
+            put("install", _suggest("pipenv install", "Pipfile"))
+        elif (p / "requirements.txt").is_file():
+            put("install", _suggest("pip install -r requirements.txt", "requirements.txt"))
+        put("compile", _suggest(
+            f"{py} -m compileall -q . -x '(^|/)(\\.venv|venv|node_modules|build|dist)/'",
+            "pyproject.toml", "medium"))
+        if (p / "pytest.ini").is_file() or (p / "tests").is_dir() or (p / "pyproject.toml").is_file():
+            put("test", _suggest("pytest", "pytest config/tests", "medium"))
+        if (p / "manage.py").is_file():
+            put("start", _suggest(f"{py} manage.py runserver", "manage.py", "medium"))
+    elif st == "rust":
+        put("compile", _suggest("cargo build", "Cargo.toml"))
+        put("test", _suggest("cargo test", "Cargo.toml"))
+        put("lint", _suggest("cargo clippy", "Cargo.toml", "medium"))
+        if (p / "src" / "main.rs").is_file():
+            put("start", _suggest("cargo run", "src/main.rs", "medium"))
+    return out
+
+
+def _detect_framework(p: Path, st: str) -> str:
+    if st in ("vue-multimodule", "mobile-app"):
+        return "vue"
+    if st == "uniapp":
+        return "uni-app"
+    if st == "node-ssr":
+        deps = _node_dep_names(p)
+        return "next" if "next" in deps else "nuxt" if "nuxt" in deps else "remix"
+    if st == "node-spa":
+        deps = _node_dep_names(p)
+        for name in ("react", "@angular/core", "svelte", "solid-js"):
+            if name in deps:
+                return name
+    if st == "node-backend":
+        deps = _node_dep_names(p)
+        for name in ("@nestjs/core", "express", "fastify", "koa", "hono"):
+            if name in deps:
+                return name
+    if st == "dotnet":
+        return "dotnet"
+    if st in ("maven", "maven-multimodule"):
+        return "spring-boot" if "<artifactId>spring-boot" in (p / "pom.xml").read_text(encoding="utf-8", errors="ignore") else "java"
+    if st in ("gradle", "gradle-multimodule"):
+        return "gradle"
+    if st == "go":
+        return "go"
+    if st == "python":
+        text = ""
+        for f in ("pyproject.toml", "requirements.txt"):
+            if (p / f).is_file():
+                text = (p / f).read_text(encoding="utf-8", errors="ignore").lower()
+                break
+        for name in ("fastapi", "django", "flask"):
+            if name in text:
+                return name
+        return "python"
+    if st == "rust":
+        return "rust"
+    return ""
+
+
+def detect_project(service_path, name: str = "", source=None) -> dict:
+    """探测一个子工程。计划与校验的唯一入口。"""
+    p = Path(service_path)
+    source = source or {}
+    warnings = []
+    stype = str(source.get("type") or detect_service_type(p))
+    role = str(source.get("role") or detect_service_role(p))
+    tdir, tkind, twarn = resolve_template(str(source.get("template") or ""), stype)
+    warnings.extend(twarn)
+    tier = str(source.get("tier") or ("minimal" if tkind == "generic" else "standard"))
+    if tier not in TIERS:
+        warnings.append(f"非法 tier {tier!r}，已回落 standard")
+        tier = "standard"
+    language = {
+        "maven": "java", "maven-multimodule": "java",
+        "gradle": "kotlin" if list(p.glob("*.kts")) else "java",
+        "gradle-multimodule": "kotlin" if list(p.glob("*.kts")) else "java",
+        "dotnet": "csharp", "go": "go", "python": "python", "rust": "rust",
+    }.get(stype)
+    if not language:
+        if stype in ("vue-multimodule", "mobile-app", "uniapp", "node-spa", "node-ssr",
+                     "node-backend", "node-generic"):
+            language = "typescript" if (p / "tsconfig.json").is_file() else "javascript"
+        else:
+            language = "unknown"
+    build_tool = {
+        "maven": "maven", "maven-multimodule": "maven",
+        "gradle": "gradle", "gradle-multimodule": "gradle",
+        "dotnet": "dotnet", "go": "go", "python": "pip", "rust": "cargo",
+    }.get(stype, "")
+    if stype.startswith("node") or stype in ("mobile-app", "uniapp"):
+        build_tool = _node_pm(p)
+    if stype == "python":
+        build_tool = "poetry" if (p / "poetry.lock").is_file() else \
+            "uv" if (p / "uv.lock").is_file() else \
+            "pipenv" if (p / "Pipfile").is_file() else "pip"
+    descriptor = {
+        "name": name or p.name,
+        "path": _rel_posix(p, ROOT),
+        "path_abs": str(p.resolve()),
+        "source": source.get("name") or "scan",
+        "service_type": stype,
+        "language": language,
+        "build_tool": build_tool,
+        "framework": _detect_framework(p, stype),
+        "role": role,
+        "template_dir": tdir,
+        "template_kind": tkind,
+        "supported": tkind == "dedicated",
+        "needs_manual": tkind != "dedicated",
+        "tier": tier,
+        "modules": detect_modules(p, stype, tdir),
+        "codegraph": "EXISTS" if (p / ".codegraph").is_dir() else "MISSING",
+        "warnings": warnings,
+    }
+    descriptor["build_suggestion"] = infer_build(descriptor)
+    return descriptor
 
 
 def get_build_field(service_path, field: str) -> str:
@@ -788,9 +1331,10 @@ def pick_services(all_names: list, spec):
 
 
 # ─── CodeGraph ────────────────────────────────────────────────────
-# codegraph 未安装时自动 `npm install -g`（CodeGraph 是 npm 全局包）。
-# 钩子场景用 respect_cooldown=True：自动安装失败后冷却期内不重试，避免每次编辑都挂起在 npm 上。
+# CodeGraph 是可选增强：默认不自动全局安装，只有调用方显式 allow_install=True 才装。
+# 安装固定 major 版本，避免未来 CLI 破坏命令；钩子场景可传 respect_cooldown。
 CODEGRAPH_PKG = "@colbymchenry/codegraph"
+CODEGRAPH_PIN_DEFAULT = "^1.4.0"
 _INSTALL_COOLDOWN = 10 * 60  # 冷却秒数
 CODEGRAPH_COOLDOWN_FILE = ROOT / ".harness" / ".logs" / ".codegraph-install-cooldown"
 
@@ -800,29 +1344,49 @@ def codegraph_path() -> str:
     return shutil.which("codegraph") or ""
 
 
-def ensure_codegraph(verbose=True, respect_cooldown=False) -> tuple:
-    """确保 codegraph 已安装；未安装时自动 npm 全局安装。
+def codegraph_version() -> str:
+    exe = codegraph_path()
+    if not exe:
+        return ""
+    r = run([exe, "--version"])
+    return (r.stdout or r.stderr or "").strip().splitlines()[0] if r.returncode == 0 else ""
 
-    :return: (ok: bool, msg: str)。ok=False 时 msg 含失败原因与手动安装指引。
-    :param respect_cooldown: True 时若上次自动安装失败仍在冷却期，不再重试。
+
+def codegraph_install_spec(pin=None) -> str:
+    pin = (pin or os.environ.get("HK_CODEGRAPH_PIN") or CODEGRAPH_PIN_DEFAULT).strip()
+    return f"{CODEGRAPH_PKG}@{pin}" if pin else CODEGRAPH_PKG
+
+
+def ensure_codegraph(verbose=True, respect_cooldown=False, allow_install=False, pin=None) -> tuple:
+    """确保 codegraph 已安装；**默认不自动全局安装**。
+
+    2026-11 多语言适配：Java/.NET 机器可能没有 npm，自动 `npm install -g` 会让初始化
+    卡在可选能力上。只有调用方（人确认后）显式传 allow_install=True 才安装，并固定
+    major 版本（默认 ^1.4.0），避免未来 CLI 破坏命令。
+
+    :return: (ok: bool, msg: str)。ok=False 时 msg 含手动安装指引。
     """
     if codegraph_path():
         return True, ""
+    spec = codegraph_install_spec(pin)
+    if not allow_install:
+        return False, (f"codegraph 未安装（不自动全局安装）。安装: npm install -g {spec}；"
+                       f"或在初始化中确认后重试")
     if respect_cooldown:
         try:
             if CODEGRAPH_COOLDOWN_FILE.is_file() and \
                     time.time() - CODEGRAPH_COOLDOWN_FILE.stat().st_mtime < _INSTALL_COOLDOWN:
                 return False, (f"codegraph 未安装（自动安装失败后冷却期内，稍后会自动重试）；"
-                               f"手动安装: npm install -g {CODEGRAPH_PKG}")
+                               f"手动安装: npm install -g {spec}")
         except OSError:
             pass
     if verbose:
-        print(f"  📦 codegraph 未安装，自动安装: npm install -g {CODEGRAPH_PKG}")
+        print(f"  📦 codegraph 未安装，安装: npm install -g {spec}")
     try:
-        r = subprocess.run(_resolve_exe(["npm", "install", "-g", CODEGRAPH_PKG]),
+        r = subprocess.run(_resolve_exe(["npm", "install", "-g", spec]),
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
     except FileNotFoundError:
-        return False, f"未找到 npm 命令；请先安装 Node.js/npm，再执行: npm install -g {CODEGRAPH_PKG}"
+        return False, f"未找到 npm 命令；请先安装 Node.js/npm，再执行: npm install -g {spec}"
     if r.returncode == 0 and codegraph_path():
         if verbose:
             print(f"  ✅ codegraph 已安装: {codegraph_path()}")
@@ -834,7 +1398,7 @@ def ensure_codegraph(verbose=True, respect_cooldown=False) -> tuple:
         pass
     detail = (r.stderr or r.stdout or "").strip().splitlines()
     tail = "；".join(detail[-2:]) if detail else f"npm exit {r.returncode}"
-    return False, f"codegraph 自动安装失败（{tail}）。手动安装: npm install -g {CODEGRAPH_PKG}"
+    return False, f"codegraph 自动安装失败（{tail}）。手动安装: npm install -g {spec}"
 
 # ─── 看板「分支」列 helper（fix 流程用）──────────────────────────
 def _board_rows(root: Path) -> list:

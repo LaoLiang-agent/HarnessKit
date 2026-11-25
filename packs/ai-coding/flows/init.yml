@@ -7,15 +7,24 @@ stages:
     do:
       - 运行 `python3 .harness/scripts/harness_init.py --detect`
       - 计划写入 .harness/.logs/workflow/harness-init-plan.json —— 用 read 读该文件，不要解析 stdout
-      - 计划含每个子工程的类型（maven-multimodule / maven / vue-multimodule / mobile-app / uniapp / dotnet）、角色、模板路径、各文件状态（EXISTS / MISSING）、build.json 的 missing_keys
-      - 若没有任何子工程被探测到（services/ 为空或全部已齐），如实向人报告并结束，不要编造生成项
+      - 计划 schema 2：每个子工程含 type / service_type / role / tier / template_dir / template_kind / supported / needs_manual / modules / root_files / build_suggestion
+      - 三档生成：minimal（根 AGENTS + build.json）/ standard（+ docs/CODE_STANDARDS.md）/ full（+ 模块 AGENTS）；默认专用模板 standard、通用模板 minimal
+      - `summary.skipped` 必须为 0；`missing_sources` 与 `warnings` 必须如实展示，禁止把未探测到说成「工程已齐」
+      - 若没有任何子工程：报告 services/ 与 kit.sources 状态后结束，不要编造生成项
   - name: 展示计划
     actor: PM
     do:
-      - 以表格向人展示每个子工程：类型、模板、L1 AGENTS.md（已有 CLAUDE.md 也算已存在，不生成缺少的）/ L1.5 .harness/build.json / L2 docs/CODE_STANDARDS.md 各项状态（✅已存在跳过 / ♻️补齐缺失键 / ⬜待生成）、模块级 AGENTS.md（已有 CLAUDE.md 也算已存在）的缺失清单
+      - 以表格向人展示每个子工程：类型/技术栈、角色、档位、模板（专用/通用）、L1 AGENTS.md、build.json（含 missing_keys）、docs/CODE_STANDARDS.md（standard/full 才有）、模块（仅 full 生成）
+      - `template_kind=generic` 的行必须标注「通用模板：未内置该技术栈，构建命令需人工确认」，不得按专用模板的口径汇报
+      - `needs_manual=true` 的子工程单独列一段，说明原因
+      - 若存在 `missing_sources`，列出缺失路径，提示先 /hk-setup --add 或修正 kit.json
   - name: 生成确认
     actor: PM
-    gate: 把计划交人确认（全部生成 / 逐项确认 / 取消），用 ask_user_question 工具，question 以「HK:初始化确认」开头；确认前不得写任何子工程文件
+    gate: 把计划交人确认（全部生成 / 只生成 minimal / 逐项确认 / 取消），用 ask_user_question 工具，question 以「HK:初始化确认」开头；确认前不得写任何子工程文件
+    do:
+      - 默认按计划中的 tier 执行；人选择「完整档」时，用 `python3 .harness/scripts/harness_init.py --detect --tier full` 重新生成计划后再确认
+      - 也可在 kit.sources[].tier 中按子工程指定 minimal / standard / full；CLI `--tier` 是本次全局覆盖，不写回 kit.json
+      - 通用模板子工程必须明确告知：文档为通用骨架，不保证框架细节
   - name: build.json 落盘
     actor: PM
     do:
@@ -23,20 +32,22 @@ stages:
       - status MISSING → 将 .harness/templates/<模板目录>/build.tmpl 内容整体写入 <子工程>/.harness/build.json
       - status EXISTS 且 missing_keys 非空 → 只补缺失键，绝不覆盖已有值（已有值是工程事实）；用 python3 -c 读两侧 JSON 取差集追加
       - build.json 非法 JSON → 停下报给人，不要当空配置继续
-      - 模板留空的键（前端/移动的 compile、所有工程的 start-ok 等）不在本阶段编造，由下一阶段「启动命令补齐」按工程事实推断并经人确认后填入
-  - name: 启动命令补齐（人机协作）
+      - 本阶段不写推断命令；install / compile / test / lint 的统一确认在下一阶段完成
+  - name: 构建命令确认（人机协作）
     actor: PM
-    gate: 补齐方案必须经人确认后才写盘；未经确认不得改 build.json；question 以「HK:启动命令补齐」开头
+    gate: 命令方案必须经人确认后才写盘；未经确认不得改 build.json；question 以「HK:构建命令确认」开头
     do:
-      - 目标：初始化完成后每个子工程都能真实编译和启动 —— build.json 的 compile / test / start / start-ok / start-timeout / start-port 必须是**可执行的工程事实**，不是模板占位
-      - 对每个子工程先探索事实再提方案：读 package.json 的 scripts / pom.xml / build.gradle / *.csproj / README / 已有 AGENTS.md 或 CLAUDE.md，推断各键的具体命令、启动端口、启动成功的日志特征（start-ok 正则候选，如 `Started .* in [0-9.]+ seconds`、`Local:.*http`）
-      - 以表格向人展示每个子工程的补齐方案：键、推断值、推断依据（来源文件）；用 ask_user_question 让人逐项确认 / 修改 / 跳过
-      - 确认后写盘：用 python3 -c 读改 JSON，只覆盖人确认过的键，其余键原样保留；写完校验 JSON 合法
+      - 对每个子工程运行 `python3 .harness/scripts/harness_init.py --write-build <子工程> --dry-run`
+      - 以表格展示：键、当前值、建议值、推断来源（install / compile / test / lint）；无建议的键标「需人工」
+      - 再按工程事实补齐 start / start-ok / start-port：读 package.json scripts、pom.xml、build.gradle、*.csproj、README、已有 AGENTS.md/CLAUDE.md，给出候选与依据
+      - 人逐项确认 / 修改 / 跳过；确认后运行 `python3 .harness/scripts/harness_init.py --write-build <子工程> --keys install,compile,test,lint` 写入建议键
+      - start / start-ok / start-port 由 PM 用 python3 -c 只写人确认过的键，其余原样保留；写完校验 JSON 合法
       - 工程事实也推不出的键保持空 = 未声明（后续验证如实报「未验证」），禁止拍脑袋编造
   - name: 编译验证
     actor: PM
     do:
-      - 逐子工程运行 `python3 .harness/scripts/harness.py run-field <子工程名> compile`（也可用 `--all compile` 一轮跑完）
+      - 若 build.json 声明了 install：先运行 `python3 .harness/scripts/harness.py run-field <子工程名> install`；失败则报人并询问「修命令重试一次 / 标记未验证跳过」，不得直接 compile
+      - 再逐子工程运行 `python3 .harness/scripts/harness.py run-field <子工程名> compile`（也可用 `--all compile` 一轮跑完）
       - 编译通过 → 记录 ✅；compile 未声明 → 记录「未验证」并说明原因
       - 编译失败 → 把报错要点报给人，用 ask_user_question 询问：修正 build.json 命令后重试一次 / 标记未验证跳过；question 以「HK:编译失败」开头；最多重试一轮，禁止无限循环
   - name: 启动验证
@@ -50,34 +61,41 @@ stages:
   - name: L2 编码规范
     actor: PM
     do:
-      - 对每个确认生成的子工程派发一个 subagent：自包含 prompt = 模板 .harness/templates/<模板目录>/CODE_STANDARDS.tmpl 全文 + 目标代码目录路径 + 输出路径 <子工程>/docs/CODE_STANDARDS.md
+      - 仅对 plan.root_files 中存在 docs/CODE_STANDARDS.md 的子工程（standard/full）执行；minimal 档跳过并在汇报中注明
+      - 对每个目标子工程派发一个 subagent：自包含 prompt = 模板 .harness/templates/<模板目录>/CODE_STANDARDS.tmpl 全文 + 目标代码目录路径 + 输出路径 <子工程>/docs/CODE_STANDARDS.md
       - subagent 读代码后按模板章节据实生成，写盘后返回；等待返回再发下一个（串行，1-2 个很快）
+      - 模板要求「只归纳可证实事实 + 与全局红线冲突标待整改」；不得把现有反模式写成推荐规范
       - 必须在 build.json 之后、root AGENTS.md 之前完成
   - name: L1 根 AGENTS.md
     actor: PM
     do:
-      - 对每个确认生成的子工程派发一个 subagent：模板 root-AGENTS.tmpl（存量工作区若只有 root-CLAUDE.tmpl 则兼容） 全文 + 目标代码目录 + 输出 <子工程>/AGENTS.md；仅当 AGENTS.md 和 CLAUDE.md 都不存在时生成，已有任一则跳过
-      - 「参考文档」段必须列 docs/CODE_STANDARDS.md —— 模板已写死该引用，不得按当前盘面自行判断"无参考文档"
+      - 对每个确认生成的子工程派发一个 subagent：模板 root-AGENTS.tmpl（存量工作区若只有 root-CLAUDE.tmpl 则兼容）全文 + 目标代码目录 + 输出 <子工程>/AGENTS.md；仅当 AGENTS.md 和 CLAUDE.md 都不存在时生成，已有任一则跳过
+      - 通用模板要求 ≤80 行、只写可验证事实；无法确认的章节写「未确认（需人工补充）」，禁止编造
+      - 「参考文档」段必须列 docs/CODE_STANDARDS.md（standard/full 档）—— 模板已写死该引用；minimal 档如无该文件，如实说明
   - name: 模块级 AGENTS.md
     actor: PM
     do:
+      - 仅当 tier=full 时执行；standard/minimal 跳过，并在汇报中说明「模块文档未生成（非 full 档）」
       - 按 plan 中缺失的模块清单派发 subagent（后端 module-AGENTS.tmpl（旧 module-CLAUDE.tmpl 兼容） / 前端 app-AGENTS.tmpl（旧 app-CLAUDE.tmpl 兼容）），输出 <模块>/AGENTS.md；模块已有 AGENTS.md 或 CLAUDE.md 任一则跳过，每批最多 5 个并行，避免上下文爆炸
       - 每个 prompt 自包含：模板全文 + 模块路径 + 输出路径
   - name: CodeGraph 索引
     actor: PM
     do:
-      - 运行 `python3 .harness/scripts/check_codegraph.py --sync --all`（codegraph CLI 缺失时脚本自动 npm install -g，该全局安装走 DSH 审批，先向人说明）
-      - 退出码 0=OK；非 0 时如实向人报告失败原因，禁止假装成功
-      - 人明确拒绝安装 codegraph 时跳过本阶段并在汇报中标注
+      - 读 .harness/kit.json 的 codegraph.enabled（缺省 true）；为 false → 跳过并记录「已禁用」
+      - 先运行 `python3 .harness/scripts/check_codegraph.py --sync --all --optional`（默认不自动安装；缺失时只 WARN）
+      - 若 WARN 显示 codegraph CLI 未安装，用 ask_user_question 询问：安装固定版本并建索引（执行 `npm install -g @colbymchenry/codegraph@^1.4.0`，需人确认） / 跳过索引；question 以「HK:CodeGraph」开头
+      - 人同意安装后运行 `python3 .harness/scripts/check_codegraph.py --sync --all --optional --allow-install`
+      - 失败/跳过不阻断初始化完成，但必须在总览中如实标注；禁止假装成功
   - name: 完整性校验
     actor: PM
     do:
       - 运行 `python3 .harness/scripts/codebase_guide_init.py`，汇总 WARN / FAIL 如实报人；可按其提示补生成骨架
+      - 该校验与探测共用同一枚举/分类：generic 子工程也会被检查，不得跳过
   - name: 环境诊断
     actor: PM
     do:
       - 对每个子工程运行 `python3 .harness/scripts/harness.py env-auto <子工程名> --check`，汇总运行环境体检结果报人
 after:
-  - 向人汇报初始化总览：每个子工程生成了什么、跳过了什么、build.json 补齐了哪些键、编译/启动验证结论（✅通过 / ⚠️未验证及原因）、CodeGraph 状态、遗留 WARN 清单
-  - 验证未通过的子工程不视为初始化失败：如实列出，并指引「修正 <子工程>/.harness/build.json 后手工复验：python3 .harness/scripts/harness.py run-field <子工程> compile|start」
+  - 向人汇报初始化总览：每个子工程生成了什么、跳过了什么（档位/模块/CodeGraph）、build.json 补齐了哪些键、编译/启动验证结论（✅通过 / ⚠️未验证及原因）、遗留 WARN 清单
+  - 验证未通过或未声明的子工程不视为初始化失败：如实列出，并指引「修正 <子工程>/.harness/build.json 后手工复验：python3 .harness/scripts/harness.py run-field <子工程> compile|start」
   - 根 AGENTS.md 只描述工作区资源与子工程地图，构建/启动命令的权威来源永远是各子工程 .harness/build.json —— 不要把命令抄回 AGENTS.md

@@ -50,13 +50,15 @@ dsh plugin --profile desktop add /绝对路径/HarnessKit
 Harness Kit 不只是"加流程"。创建完成后点「启动初始化编排」，它会探测已登记的子工程，把 AI 每次都要重新摸索的项目知识补齐：
 
 - 根目录 `AGENTS.md`；已有 `CLAUDE.md` 不覆盖，DSH 也会读取
-- 每个子工程的 `AGENTS.md`（已有 `CLAUDE.md` 则保留）和 `docs/CODE_STANDARDS.md`（编码规范）
-- `<子工程>/.harness/build.json`：编译、启动、测试命令
-- `codebase-guide/`：模块级文档，按需加载，不占上下文
-- 每个子工程的 `.codegraph/`：类、方法、调用链索引，AI 直接查，不必全量读代码
+- 每个子工程的 `AGENTS.md`（已有 `CLAUDE.md` 则保留）与 `<子工程>/.harness/build.json`
+- `docs/CODE_STANDARDS.md`（标准/完整档）与模块级 `AGENTS.md`（完整档）
+- `codebase-guide/`：工作区级架构骨架，按需补全
+- 每个子工程的 `.codegraph/`（可选）：类、方法、调用链索引，AI 直接查，不必全量读代码
 - `.harness/scripts`、`rules`、`templates`：看板、体检、规格校验与编码底线
 
-生成前先给你一份计划确认；已存在的文件跳过，`build.json` 只补缺失键、不覆盖已有值。本机没有 CodeGraph 工具时脚本会尝试安装，也可以跳过。
+初始化分三档：`minimal`（AGENTS + build）、`standard`（+ 编码规范）、`full`（+ 模块文档）。
+未内置的技术栈走通用模板，会明确标注并只生成精简内容。生成前先给计划确认；已存在的文件跳过，
+`build.json` 只补缺失键，不覆盖人工定制值。CodeGraph 默认不自动全局安装，缺失时会询问安装或跳过。
 
 ---
 
@@ -267,7 +269,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 单文件小改会；需要反复迭代、跨模块、隔一段时间再回来接手的活不会。它把返工和交接成本提前，而不是消灭。
 
 **一个人有必要用吗？**
-有。一个人最容易丢的是上下文和节奏：harness 把每轮的规格、踩坑和决策留在文件里，下次不用重新解释；CR/TE 角色相当于固定的第二遍审查；初始化补齐的 `AGENTS.md`（或已有 `CLAUDE.md`）、`build.json`、`CodeGraph` 让 AI 不必每次重读整个项目。
+有。一个人最容易丢的是上下文和节奏：harness 把每轮的规格、踩坑和决策留在文件里，下次不用重新解释；CR/TE 角色相当于固定的第二遍审查；初始化补齐的 `AGENTS.md`（或已有 `CLAUDE.md`）、`build.json`，以及可选的 CodeGraph 索引，让 AI 不必每次重读整个项目。
 
 **必须走完整流程吗？**
 不用。四档流程 + `/hk-fix` 直通，可以先只用轻量档；流程档位在立项时确定。

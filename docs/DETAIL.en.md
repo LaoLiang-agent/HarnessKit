@@ -14,10 +14,11 @@ process and shared assets.
 ## It also fills in the project context
 
 After the workspace exists, **Start initialization orchestration** probes the registered source
-repositories and generates or fills in the root `AGENTS.md`, per-repository `AGENTS.md` (or legacy `CLAUDE.md`) and
-`docs/CODE_STANDARDS.md`, `<repo>/.harness/build.json` (build, start and test commands),
-`codebase-guide/` module docs and a `.codegraph/` index. Existing files are skipped, and you confirm
-the plan before anything is written.
+repositories and generates or fills in the root `AGENTS.md`, per-repository `AGENTS.md` (or legacy
+`CLAUDE.md`) and `<repo>/.harness/build.json`. Standard/full mode adds `docs/CODE_STANDARDS.md`;
+full mode also generates module-level docs. Unknown stacks use a clearly marked generic template.
+A `.codegraph/` index is optional; if the CLI is missing you are asked to install or skip. Existing
+files are skipped, and you confirm the plan before anything is written.
 
 ## Three steps in the UI
 
