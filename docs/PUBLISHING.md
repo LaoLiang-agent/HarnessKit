@@ -47,9 +47,22 @@ npm run pack:check         # 打包 tarball 并校验文件清单/导入/locale/
 git status --short         # 不应有未提交改动
 ```
 
-打包清单必须包含：`index.js`、`client.js`、`cordis.patch.yml`、`kernel/*.js`、`packs/**`、
+打包清单必须包含：`index.js`、`client.js`、`cordis.patch.yml`、`kernel/**`、`packs/**`、
 `locale/*.json`、`icon.svg`、`docs/DETAIL.md`、`docs/DETAIL.en.md`；
 `README.md`、`README.zh-CN.md` 与 `LICENSE` 由 npm 自动带上（`pack:check` 会断言前两类文件存在）。
+
+### 3.3 飞书 SDK 预打包
+
+飞书 SDK 以预打包文件发布，运行时不安装 `@larksuiteoapi/node-sdk`，避免消费者被
+`protobufjs` 的 postinstall 构建审批卡住。
+
+- `@larksuiteoapi/node-sdk` 与 `esbuild` 只在 `devDependencies`
+- 升级 SDK 后执行 `npm run vendor:feishu`
+- 必须提交 `kernel/im/vendor/feishu-sdk.cjs` 与 `kernel/im/vendor/LARKSDK-LICENSE`
+- `npm run pack:check` 会断言：vendor 存在、adapter 不再 import 运行时 SDK、runtime
+  dependencies 里没有 `@larksuiteoapi/node-sdk`
+
+不要把 `@larksuiteoapi/node-sdk` 加回 `dependencies`。
 
 ### 3.3 干净环境验证（不要用 `link:` 代替）
 

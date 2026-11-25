@@ -77,6 +77,16 @@ try {
     if (key.includes('*')) continue
     if (!fs.existsSync(path.join(pkgRoot, target))) fail(`export ${key} -> ${target} is missing`)
   }
+  // 飞书 SDK 必须已预打包：运行时不装 @larksuiteoapi/node-sdk，避免 protobufjs 构建审批
+  if (pkg.dependencies?.['@larksuiteoapi/node-sdk']) fail('runtime dependency @larksuiteoapi/node-sdk must be dev-only')
+  for (const file of ['kernel/im/vendor/feishu-sdk.cjs', 'kernel/im/vendor/LARKSDK-LICENSE']) {
+    if (!fs.existsSync(path.join(pkgRoot, file))) fail(`missing vendored Feishu file ${file}`)
+  }
+  const adapter = fs.readFileSync(path.join(pkgRoot, 'kernel/im/adapters/feishu.js'), 'utf8')
+  if (adapter.includes("from '@larksuiteoapi/node-sdk'") || adapter.includes("import('@larksuiteoapi/node-sdk')")) {
+    fail('Feishu adapter still imports the runtime SDK')
+  }
+  ok('Feishu SDK is vendored and not a runtime dependency')
   ok('exports targets exist')
 
   const jsFiles = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>

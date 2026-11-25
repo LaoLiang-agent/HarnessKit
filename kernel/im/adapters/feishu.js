@@ -1,5 +1,5 @@
 // 飞书 Transport Adapter
-// 使用 @larksuiteoapi/node-sdk WSClient + EventDispatcher
+// 使用预打包的 @larksuiteoapi/node-sdk（kernel/im/vendor/feishu-sdk.cjs）
 // 支持：长连接、卡片发送/更新、按钮回调、文本消息（数字回复）
 
 import { registerTransport } from '../transport.js';
@@ -18,7 +18,7 @@ class FeishuTransport {
   }
 
   async connect() {
-    const { default: lark } = await import('@larksuiteoapi/node-sdk');
+    const { default: lark } = await import('../vendor/feishu-sdk.cjs');
     this.lark = lark;
     if (!this.config.appId || !this.config.appSecret) {
       throw new Error('飞书配置缺少 appId 或 appSecret');
