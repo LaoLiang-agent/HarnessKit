@@ -396,6 +396,9 @@ window.__ModuleLoader__.load({
 
     function Panel({ uiWorkspace }) {
       const [data, setData] = useState(null);
+      const [loadError, setLoadError] = useState(null);
+      const [branches, setBranches] = useState({}); // ws.id -> { repo: [branch] }
+      const stateInFlight = useRef(false);
       // 工作区选择记忆：打开插件时恢复上次选择的工作区（而非列表第一个）
       const [lastWsId, setLastWsId] = useState(() => {
         try { return localStorage.getItem('harness-kit.lastWorkspaceId'); } catch { return null; }
@@ -436,10 +439,27 @@ window.__ModuleLoader__.load({
       }, []);
 
       const fetchState = useCallback(() => {
-        fetch('/harness-kit/state', { cache: 'no-store' })
-          .then((r) => r.json())
-          .then((j) => { if (j.ok) setData(j); })
-          .catch(() => {});
+        // 只有一次 state 请求在途：Windows 上 git/文件系统慢时，3s 轮询会叠加
+        // 多个未完成请求，面板反而永远停在“加载中”。
+        if (stateInFlight.current) return;
+        stateInFlight.current = true;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15_000);
+        fetch('/harness-kit/state', { cache: 'no-store', signal: controller.signal })
+          .then(async (r) => {
+            let j = {};
+            try { j = await r.json(); } catch { /* 非 JSON 错误按 HTTP 状态处理 */ }
+            if (!r.ok || !j.ok) throw new Error(j.error || `HTTP ${r.status}`);
+            setData(j);
+            setLoadError(null);
+          })
+          .catch((e) => {
+            setLoadError(e?.name === 'AbortError' ? '请求超时（15s）' : String(e?.message || e));
+          })
+          .finally(() => {
+            clearTimeout(timer);
+            stateInFlight.current = false;
+          });
       }, []);
       useEffect(() => {
         fetchState();
@@ -680,12 +700,26 @@ window.__ModuleLoader__.load({
         }
       }, [ws]);
 
+      const loadBranches = useCallback(() => {
+        if (!ws) return;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12_000);
+        fetch(`/harness-kit/branches?workspace=${encodeURIComponent(ws.id)}`, { cache: 'no-store', signal: controller.signal })
+          .then((r) => r.json())
+          .then((j) => {
+            if (j.ok) setBranches((prev) => ({ ...prev, [ws.id]: j.branches ?? {} }));
+          })
+          .catch(() => { /* 分支清单非关键路径；加载失败不阻塞立项 */ })
+          .finally(() => clearTimeout(timer));
+      }, [ws]);
+
       const startTaskModal = useCallback(() => {
         uploadBatch.current = null;
         setUploading(null);
         setBrowse(null);
         setModal({ name: '', desc: '', refs: [], pathDraft: '' });
-      }, []);
+        loadBranches();
+      }, [loadBranches]);
 
       const addRefs = useCallback((items) => {
         setModal((prev) => {
@@ -892,7 +926,12 @@ window.__ModuleLoader__.load({
         h('button', { style: S.iconBtn, title: '刷新', onClick: fetchState }, '⟳'),
       );
 
-      if (!data) return h('div', { style: S.wrap, className: 'hk-root' }, header, h('div', { style: S.body }, h('div', { style: S.empty }, '加载中…')));
+      if (!data) {
+        return h('div', { style: S.wrap, className: 'hk-root' }, header, h('div', { style: S.body },
+          h('div', { style: S.empty },
+            loadError ? `加载失败：${loadError}` : '加载中…',
+            loadError && h('button', { style: { ...S.btn(false), marginTop: 10 }, onClick: fetchState }, '重试'))));
+      }
 
       // ---------- 工作区开通引导（无工作区自动进入；顶栏「＋ 工作区」随时可开） ----------
       const obActive = obMode ?? (workspaces.length === 0 ? 'choice' : null);
@@ -1287,16 +1326,16 @@ window.__ModuleLoader__.load({
                         }, '＋'));
                     })
                   : h('div', { style: { color: V.sub, padding: '4px 2px' } }, '（空目录）')))),
-            // 开发基线（可选）：各仓分支选择 → /hk-new --base；既是开发分支基点，也是分析基点与归档合入目标
-            Object.keys(ws?.gitBranches ?? {}).length > 0 && h('div', { style: S.field },
+            // 开发基线（可选）：各仓分支选择 → /hk-new --base；分支清单按需加载，不阻塞面板
+            Object.keys(branches[ws.id] ?? ws?.gitBranches ?? {}).length > 0 && h('div', { style: S.field },
               h('label', { style: S.label }, '开发基线（可选，留空 = 仓库默认基线）'),
-              Object.entries(ws.gitBranches).map(([repo, branches]) => h('div', { key: repo, style: { display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 } },
+              Object.entries(branches[ws.id] ?? ws.gitBranches ?? {}).map(([repo, repoBranches]) => h('div', { key: repo, style: { display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 } },
                 h('span', { style: { minWidth: 90, fontSize: 12, color: V.sub } }, repo),
                 h(Combobox, {
                   style: { flex: 1 },
                   value: (modal.base ?? {})[repo] ?? '',
                   placeholder: '默认（仓库基线）',
-                  options: branches ?? [],
+                  options: repoBranches ?? [],
                   onChange: (v) => setModal({ ...modal, base: { ...(modal.base ?? {}), [repo]: v } }),
                 }))),
               h('div', { style: { fontSize: 11, color: V.sub, marginTop: 2 } },

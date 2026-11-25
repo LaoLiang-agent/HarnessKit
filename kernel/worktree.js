@@ -1119,13 +1119,17 @@ const taskAnalysisDir = (ws, repo, task) => path.join(worktreeRoot(ws, repo), `_
 const taskAnalysisSpecPath = (ws, task) => path.join(harnessDir(ws), 'deliverables', task, 'analysis-base.json');
 
 /** 列某仓可选分支（面板新建任务的分析基点下拉）：本地 + origin 远端（去重、去 HEAD、上限 100）。 */
-export async function listGitBranches(ws, source) {
+export async function listGitBranches(ws, source, { timeoutMs = 5000 } = {}) {
   const repoDir = path.join(ws, source.path);
-  if (!fs.existsSync(repoDir) || !(await isGitRepo(repoDir))) return [];
+  if (!fs.existsSync(repoDir)) return [];
+  // Don't run a separate isGitRepo probe: these two reads already fail fast on
+  // a non-repo, and on Windows each git spawn is the expensive part.
+  const [local, remote] = await Promise.all([
+    runGit(['branch', '--format=%(refname:short)'], { cwd: repoDir, timeoutMs }),
+    runGit(['branch', '-r', '--format=%(refname:short)'], { cwd: repoDir, timeoutMs }),
+  ]);
   const out = new Set();
-  const local = await runGit(['branch', '--format=%(refname:short)'], { cwd: repoDir });
   if (local.code === 0) for (const b of local.stdout.split('\n')) if (b.trim()) out.add(b.trim());
-  const remote = await runGit(['branch', '-r', '--format=%(refname:short)'], { cwd: repoDir });
   if (remote.code === 0) {
     for (const b of remote.stdout.split('\n')) {
       const name = b.trim();
@@ -1138,11 +1142,10 @@ export async function listGitBranches(ws, source) {
 
 /** 列全部 source 仓的分支清单：{ <repo>: [branch…] }（面板新建任务模态框用）。 */
 export async function listAllGitBranches(ws, kit) {
-  const out = {};
-  for (const source of kit?.sources ?? []) {
-    try { out[source.name] = await listGitBranches(ws, source); } catch { out[source.name] = []; }
-  }
-  return out;
+  const entries = await Promise.all((kit?.sources ?? []).map(async (source) => {
+    try { return [source.name, await listGitBranches(ws, source)]; } catch { return [source.name, []]; }
+  }));
+  return Object.fromEntries(entries);
 }
 
 /** 解析 --base 旗标值："backend:release/1.2,frontend:dev" → {backend:'release/1.2',...}；坏段忽略。 */

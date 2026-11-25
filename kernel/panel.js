@@ -886,15 +886,38 @@ export function registerPanelApi(ctx) {
           if (!state) continue;
           const archivedSet = new Set(registry.archivedSessionIds ?? []);
           const sessions = w.sessionIds.map((id) => ({ id, live: !!agents?.get(id), archived: archivedSet.has(id) }));
-          // 新建任务模态框的分析基点下拉：各仓可选分支清单
-          let gitBranches = {};
-          try { gitBranches = await listAllGitBranches(w.path, readKit(w.path) ?? {}); } catch { gitBranches = {}; }
+          // 分支清单按需加载（/harness-kit/branches），不再阻塞 state：Windows 上
+          // 每次 3s 轮询都为每个仓 spawn git 会让面板一直停在“加载中”。
           // init：初始化任务进行状态（页面关掉后重开也能看到，防止无感知重复初始化）
-          workspaces.push({ id: w.id, title: w.title, ...state, sessions, gitBranches, init: initProgress.get(w.path) ?? null });
+          workspaces.push({ id: w.id, title: w.title, ...state, sessions, init: initProgress.get(w.path) ?? null });
         }
         sendJson(res, 200, { ok: true, workspaces });
       } catch (cause) {
         logger?.warn?.(`harness-kit panel state failed: ${cause.message}`);
+        sendJson(res, 500, { ok: false, error: cause.message });
+      }
+    },
+  });
+
+  // 新建任务模态框的分支清单：按需加载 + 60s 缓存，避免拖慢 3s 一次的 state 轮询。
+  const branchCache = new Map();
+  mount({
+    kind: 'exact',
+    path: '/harness-kit/branches',
+    async handler(req, res) {
+      if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: 'method-not-allowed' });
+      try {
+        const q = new URL(req.url, 'http://x').searchParams;
+        const ws = findWs(registry, q.get('workspace'));
+        if (!ws) return sendJson(res, 404, { ok: false, error: '未知工作区' });
+        const kit = readKit(ws.path);
+        if (!kit) return sendJson(res, 404, { ok: false, error: '尚未初始化' });
+        const hit = branchCache.get(ws.path);
+        if (hit && Date.now() - hit.at < 60_000) return sendJson(res, 200, { ok: true, branches: hit.branches, cached: true });
+        const branches = await listAllGitBranches(ws.path, kit);
+        branchCache.set(ws.path, { at: Date.now(), branches });
+        sendJson(res, 200, { ok: true, branches, cached: false });
+      } catch (cause) {
         sendJson(res, 500, { ok: false, error: cause.message });
       }
     },
