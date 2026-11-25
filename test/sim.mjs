@@ -1095,13 +1095,44 @@ section('slot 本地配置复制');
   let upstream = null;
   try { upstream = git('rev-parse --abbrev-ref "feat/harness-task-base@{upstream}"', repo).trim(); } catch { /* no upstream */ }
   ok('任务分支不跟踪所选基线（防误 push）', !upstream);
-  // 主树在外来分支时仍拒绝，不静默切别人的分支（先清掉主树 ledger 占用，模拟无台账占用的外来分支）
+  // 未指定 --base 时，主树在外来分支仍拒绝，不静默切别人的分支（先清掉主树 ledger 占用）
   await clearTaskWorkspaces(ws, kit, 'task-base');
   git('checkout dev', repo);
   git('checkout -b random', repo);
   const r2 = await ensureTaskWorkspaces(ws, kit, 'task-foreign');
-  ok('主树在外来分支 → 仍拒绝并给 --slot', r2.refused.length === 1 && r2.refused[0].reason.includes('非本工作区台账任务') && r2.refused[0].reason.includes('--slot'));
+  ok('未指定 --base + 外来分支 → 仍拒绝并给 --slot', r2.refused.length === 1 && r2.refused[0].reason.includes('非本工作区台账任务') && r2.refused[0].reason.includes('--slot'));
   git('checkout dev', repo);
+}
+{
+  // 显式 --base + 干净主树停在外来普通分支：自动切到任务基线、fetch 最新、建任务分支
+  const { ensureTaskWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const tmp = mkws();
+  cleanups.push(tmp);
+  const bare = path.join(tmp, 'remote.git');
+  const seed = path.join(tmp, 'seed');
+  fs.mkdirSync(seed, { recursive: true });
+  fs.writeFileSync(path.join(seed, 'base.txt'), 'base\n');
+  git('init -q -b feat/x && git add -A && git commit -qm seed', seed);
+  git(`clone -q --bare ${seed} ${bare}`, tmp);
+
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  git(`clone -q ${bare} ${repo}`, tmp);
+  git('config user.email t@t && git config user.name t', repo);
+  git('checkout -q -b test', repo); // 干净的外来普通分支
+
+  const other = path.join(tmp, 'other');
+  git(`clone -q ${bare} ${other}`, tmp);
+  fs.writeFileSync(path.join(other, 'remote.txt'), 'latest\n');
+  git('add -A && git commit -qm remote-advance && git push -q origin feat/x', other);
+
+  const kit = { sources: [{ name: 'backend', path: 'services/backend', branch: 'dev' }] };
+  fake(ws, '.harness/deliverables/task-latest/analysis-base.json', JSON.stringify({ backend: 'feat/x' }));
+  const r = await ensureTaskWorkspaces(ws, kit, 'task-latest');
+  ok('显式 --base + 干净外来分支 → 自动切任务分支', r.refused.length === 0 && r.assigned[0]?.placement === 'main' && git('branch --show-current', repo).trim() === 'feat/harness-task-latest');
+  ok('自动切换前 fetch 最新基点（任务分支含远端新提交）', fs.existsSync(path.join(repo, 'remote.txt')) && r.notes.some((n) => n.includes('已使用远端最新基点 origin/feat/x')));
+  ok('任务分支记录创建时指定基线（归档合入目标）', r.assigned[0]?.base === 'feat/x' && JSON.parse(fs.readFileSync(path.join(ws, '.harness/local/worktrees.json'), 'utf8')).tasks['task-latest'].repos.backend.base === 'feat/x');
 }
 {
   // M2 面板透出：workspaceState 行内工作区分配 + slot 池概览 + stale 注意力项

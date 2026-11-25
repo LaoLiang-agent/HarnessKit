@@ -146,6 +146,35 @@ async function checkoutTaskBranch(repoDir, branch, base) {
   return {};
 }
 
+/**
+ * 为任务分支准备基点：选了任务基线时先 fetch，能用远端最新就用 origin/<base>，
+ * 但本地基线领先/分叉时保留本地提交，不强制同步。
+ * 返回 { ref, note? } 或 { error }；只读远端 + 建任务分支，不改写本地基线。
+ */
+async function prepareTaskBase(repoDir, base) {
+  if (!base || base === 'HEAD') return { ref: base || 'HEAD' };
+  const local = base.startsWith('origin/') ? base.slice('origin/'.length) : base;
+  const hasLocal = await localBranchExists(repoDir, local);
+  const hasOrigin = (await runGit(['remote', 'get-url', 'origin'], { cwd: repoDir })).code === 0;
+  if (!hasOrigin) return hasLocal ? { ref: local } : { ref: base };
+  const fetched = await runGit(['fetch', 'origin', local], { cwd: repoDir, timeoutMs: 30_000 });
+  const remote = `origin/${local}`;
+  if (fetched.code !== 0) {
+    return hasLocal
+      ? { ref: local, note: `拉取 ${remote} 失败，按本地基点 ${local} 创建任务分支` }
+      : { ref: base, note: `拉取 ${remote} 失败，按现有基点 ${base} 创建任务分支` };
+  }
+  if (!(await refExists(repoDir, remote))) return hasLocal ? { ref: local } : { ref: base };
+  if (!hasLocal) return { ref: remote, note: `已使用远端最新基点 ${remote}` };
+  const localRev = (await runGit(['rev-parse', local], { cwd: repoDir })).stdout.trim();
+  const remoteRev = (await runGit(['rev-parse', remote], { cwd: repoDir })).stdout.trim();
+  if (localRev === remoteRev) return { ref: local };
+  if (await isAncestor(repoDir, local, remote)) {
+    return { ref: remote, note: `已使用远端最新基点 ${remote}` };
+  }
+  return { ref: local, note: `本地 ${local} 领先/分叉于 ${remote}，按本地基点创建任务分支（未强制同步）` };
+}
+
 async function isDirty(dir) {
   const r = await runGit(['status', '--porcelain'], { cwd: dir });
   return r.code !== 0 || r.stdout.trim() !== '';
@@ -754,16 +783,46 @@ export async function ensureTaskWorkspaces(ws, kit, task, { branchPrefix = 'feat
     // 就允许在分配时切到任务分支（否则主树停在 dev 会被当成外来分支，apply 卡在裁决点）。
     const mainOnAcceptedBranch = !forceSlot && !main.dirty
       && (main.branch === baseline || main.branch === base || main.branch === branch);
+    // 任务显式指定了开发基线（--base），且主树干净、无其他台账任务占用：
+    // 即使当前停在 test/其他普通分支，也允许自动切到任务基线并创建任务分支。
+    // 只排除 harness 任务分支（那是别的任务的主树占用，继续走自动 slot/裁决）。
+    const canAdoptSelectedBase = !forceSlot && !owner && selectedBase && !main.dirty
+      && !!main.branch && main.branch !== branch
+      && !/^(?:feat|fix)\/harness-/.test(main.branch);
+    if (canAdoptSelectedBase && !mainOnAcceptedBranch) {
+      const prep = await prepareTaskBase(repoDir, base);
+      if (prep.error) {
+        result.refused.push({ source: source.name, reason: prep.error });
+        continue;
+      }
+      if (prep.note) result.notes.push(`${source.name}：${prep.note}`);
+      const co = await checkoutTaskBranch(repoDir, branch, prep.ref);
+      if (co.error) {
+        result.refused.push({ source: source.name, reason: co.error });
+        continue;
+      }
+      result.notes.push(`${source.name}：主工作树已从 \`${main.branch}\` 切到任务分支 \`${branch}\`（基点 \`${prep.ref}\`）`);
+      tEntry.repos[source.name] = { placement: 'main', branch, base };
+      ledger.slots[source.name] ??= {};
+      result.assigned.push({ source: source.name, placement: 'main', path: repoDir, branch, base, reused: false, ready: true, switched: true });
+      continue;
+    }
     if ((!main.occupied || mainOnAcceptedBranch) && !owner) {
       let switched = false;
       if (selectedBase && main.branch !== branch) {
-        const co = await checkoutTaskBranch(repoDir, branch, base);
+        const prep = await prepareTaskBase(repoDir, base);
+        if (prep.error) {
+          result.refused.push({ source: source.name, reason: prep.error });
+          continue;
+        }
+        if (prep.note) result.notes.push(`${source.name}：${prep.note}`);
+        const co = await checkoutTaskBranch(repoDir, branch, prep.ref);
         if (co.error) {
           result.refused.push({ source: source.name, reason: co.error });
           continue;
         }
         switched = true;
-        result.notes.push(`${source.name}：主工作树已从 \`${main.branch}\` 切到任务分支 \`${branch}\`（基点 \`${base}\`）`);
+        result.notes.push(`${source.name}：主工作树已从 \`${main.branch}\` 切到任务分支 \`${branch}\`（基点 \`${prep.ref}\`）`);
       }
       tEntry.repos[source.name] = { placement: 'main', branch, base };
       ledger.slots[source.name] ??= {};
