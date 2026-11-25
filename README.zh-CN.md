@@ -157,6 +157,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 
 人不在电脑前时，审批可以转到飞书私聊：
 
+0. **个人版账号先创建企业租户**（已有企业租户可跳过）：打开 [飞书管理后台](https://admin.feishu.cn/) → 用手机号登录 → 创建企业/团队，填写企业名称和人员规模。只有自己也能免费创建，不需要营业执照或企业认证。创建后切换到该企业；旧应用不会迁移，必须在新企业下新建「企业自建应用」
 1. 在设置页「IM 通知」把飞书渠道打开，按引导创建企业自建应用（机器人能力、`im:message` / `im:message:readonly` / `contact:contact.base:readonly`，长连接订阅 `im.message.receive_v1` 与 `card.action.trigger`）。必须使用**企业/团队租户**：飞书个人版租户调用 `tenant_access_token` 会被平台策略拒绝（21001），无法获取 Open ID
 2. 填 App ID / App Secret，点「获取 Open ID」自动带出你的用户 ID
 3. 先「发送测试消息」，成功后才能勾选启用

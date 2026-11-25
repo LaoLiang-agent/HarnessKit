@@ -2930,6 +2930,7 @@ section('client：工作区提醒');
   ok('本机配置 POST 带 workspace query（兼容旧 Host）', clientSrc.includes("fetch(`/harness-kit/local?workspace=${encodeURIComponent(ws.id)}`"));
   ok('新建任务支持多参考材料/目录/本机上传', clientSrc.includes('参考材料（可选，可多选文件 / 图片 / 整个原型目录）') && clientSrc.includes('/harness-kit/stage') && clientSrc.includes('上传文件…'));
   ok('多文件路径带引号传给 /hk-new', clientSrc.includes('quoteArg(r.path)') && clientSrc.includes("` --file ${quoteArg(r.path)}`"));
+  ok('飞书配置步骤含个人版先建企业租户', clientSrc.includes('个人版账号：先创建企业租户') && clientSrc.includes('https://admin.feishu.cn/') && clientSrc.includes('旧应用不会迁移'));
 }
 
 // ---------------------------------------------------------------- report

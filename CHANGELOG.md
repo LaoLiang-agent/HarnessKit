@@ -16,7 +16,8 @@ All notable changes to Harness Kit are documented here. The format follows
 
 - 飞书「获取 Open ID」遇到 `21001 Access denied due to platform policy` 时，错误信息会
   直接说明个人版租户不支持企业自建应用、需改用企业/团队租户，并附错误码；App ID/Secret
-  或应用类型错误（10003/10013/10014）也会给出对应检查项。
+  或应用类型错误（10003/10013/10014）也会给出对应检查项。飞书配置步骤新增「个人版先用
+  `admin.feishu.cn` 创建企业租户、切换后新建应用」的前置步骤。
 - `/hk-apply` / `/hk-fix` 遇到主工作树分支占用时不再返回 DSH 命令注册表不支持的
   `decision` 结果（会话里只显示 `command "hk-apply" returned unknown result kind "decision"`）。
   改为标准 `error` 结果并在文本中列出可执行选项；面板仍从 `decisions.json` 还原可点按钮。

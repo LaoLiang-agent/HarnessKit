@@ -183,10 +183,13 @@ go only to the provider you configure.
 - Approval 1: the plan is ready; a human decides whether to start implementation
 - Quality gate: for the `fix` shortcut a human chooses "light" or `--full`
 - Approval 2: implementation and testing are done; a human decides whether to archive
-- Remote approvals (Feishu, 0.3.0): configure the IM tab, create a self-built Feishu app **in an
-  enterprise/team tenant** with bot capability and long-connection events, fill App ID/Secret,
-  fetch your Open ID, send a test message, then enable. A personal Feishu tenant gets
-  `21001 Access denied due to platform policy` when requesting `tenant_access_token`. HK approvals appear in both DSH and Feishu; the first answer wins. Finish
+- Remote approvals (Feishu, 0.3.0): configure the IM tab. **Personal accounts must first create an
+  enterprise/team tenant** at [Feishu Admin](https://admin.feishu.cn/) (free, no business license or
+  enterprise verification; existing tenants can skip). Switch to that tenant and create a **new**
+  enterprise self-built app there with bot capability and long-connection events; an app created
+  under a personal tenant does not migrate. Fill App ID/Secret, fetch your Open ID, send a test
+  message, then enable. A personal tenant gets `21001 Access denied due to platform policy` when
+  requesting `tenant_access_token`. HK approvals appear in both DSH and Feishu; the first answer wins. Finish
   one multi-question approval on one surface; "Feishu answers some, DSH finishes the rest" is
   merged, but the reverse is not supported because DSH partial answers stay client-side.
 - Guards: source writes are blocked until the quality gate is recorded; destructive git commands
