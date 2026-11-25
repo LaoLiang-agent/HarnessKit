@@ -4,6 +4,14 @@ All notable changes to Harness Kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-11-25
+
+### Fixed
+
+- IM 启用后转发工作区内所有 `ask_user_question`，不再要求问题 id 或文本带 `HK:` / `hk-`
+  前缀。旧任务里常见的 `finalize`、`q1-*` 审批现在也会发飞书卡片。
+- HK 标记仅用于提取任务名和 `imDetail` 处理；普通 DSH 问题的 `detail` 保持原格式。
+
 ## [0.3.0] - 2026-11-25
 
 ### Added
@@ -328,6 +336,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.3.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.1
 [0.3.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.0
 [0.2.5]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.5
 [0.2.4]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.2.4
