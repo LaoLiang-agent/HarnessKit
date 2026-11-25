@@ -77,7 +77,7 @@
 1. 读 `.harness/kit.json` 的 `sources`；
 2. 按 `source.path` 解析（相对工作区，拒绝 `..` 越界）；
 3. 目录不存在 → `warnings`（`missing_source`），不加入 projects；
-4. 再扫 `services/*` 直接子目录；
+4. 再扫 `services/*` 直接子目录（含非 git 本地/解压源码；显式 `sources` 声明的路径先跳过，交给 addSource 的 strictPath 校验）；
 5. 以 `realpath + normcase` 去重，kit 优先；
 6. 重名不丢弃，计划用 `path` 做唯一定位键。
 
@@ -275,6 +275,7 @@ python3 .harness/scripts/harness_init.py --write-build <子工程|路径> \
 - 建议为空 → 跳过；
 - 当前值为空 → 写入；
 - 当前值等于模板默认值 → 视为未定制占位，可替换（如 `mvn compile` → `./mvnw compile`）；
+- Node 模板的 compile/start 故意留空：没有 scripts 的仓库不会被填上不存在的 `npm run build`；
 - 人工改过的非默认值 → 保持；
 - 原子写入，幂等；
 - `--dry-run` 输出“当前 / 建议 / 来源 / 动作”。
@@ -328,6 +329,7 @@ CodeGraph 是**可选增强**，不是质量门：
 `codebase_guide_init.py` 改为 descriptor 驱动：
 
 - 项目枚举与 `harness_init` 相同；
+- 优先读取当前 `harness-init-plan.json` 的 tier，保留 `--tier full` 这类临时覆盖；计划不存在才回退默认档位；
 - 根文档章节由 `lib.doc_sections(service_type, role, template_kind)` 决定；
 - generic/override 使用通用章节表，不拿专用模板标准要求；
 - `minimal` 不检查 `CODE_STANDARDS.md`；`standard/full` 检查存在性；
@@ -498,6 +500,7 @@ code/custom/         自定义 path（kit.sources）
 - [x] overview 子工程地图只改标记块，人工正文保留
 - [x] 已有 AGENTS 缺口可见，默认跳过、只追加可选
 - [x] Gradle/Node/Go/Python/Rust 专用模板生效
+- [x] 13 个真实工作区（含 GitHub 仓库）验收通过，报告在 `/Users/leo/Server/workspace/HarnessKitTest/REPORT.md`
 - [x] 校验与计划同源
 - [x] 多语言 fixture 通过
 - [x] 未改版本号、未打 tag、未 npm publish
