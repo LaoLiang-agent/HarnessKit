@@ -165,7 +165,10 @@ def _node_dep_names(p: Path) -> set:
 
 
 def _has_node_backend(p: Path) -> bool:
-    return bool(_node_dep_names(p) & {"@nestjs/core", "express", "fastify", "koa", "hono"})
+    """只认生产依赖：express 常作为前端 mock/server 出现在 devDependencies。"""
+    pkg = _node_package(p)
+    deps = pkg.get("dependencies") if isinstance(pkg.get("dependencies"), dict) else {}
+    return bool(set(deps) & {"@nestjs/core", "express", "fastify", "koa", "hono"})
 
 
 def _apps_dep_names(p: Path) -> set:
@@ -856,7 +859,10 @@ def detect_project(service_path, name: str = "", source=None) -> dict:
     source = source or {}
     warnings = []
     stype = str(source.get("type") or detect_service_type(p))
-    role = str(source.get("role") or detect_service_role(p))
+    # 自动扫描时 runInit 写入的 role 只是按目录名猜的，不能覆盖结构探测；
+    # 只有 addSource 显式传入（roleSource=explicit）才作为覆盖。
+    role = str(source.get("role") or "") if source.get("roleSource") == "explicit" else ""
+    role = role or detect_service_role(p)
     tdir, tkind, twarn = resolve_template(str(source.get("template") or ""), stype)
     warnings.extend(twarn)
     tier = str(source.get("tier") or ("minimal" if tkind == "generic" else "standard"))

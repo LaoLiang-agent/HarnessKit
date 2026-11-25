@@ -6,7 +6,7 @@ import { runGit } from './exec.js';
 import { readKit, writeKit, defaultKit, harnessDir, packDir, kitPath, migrateLegacyLocalState } from './paths.js';
 
 export function guessRole(name) {
-  if (/front|web|ui/i.test(name)) return 'frontend';
+  if (/front|web|ui|next|react|vue|angular|svelte/i.test(name)) return 'frontend';
   if (/app|android|ios|mobile/i.test(name)) return 'app';
   return 'backend';
 }
@@ -277,9 +277,10 @@ export async function addSource(ws, { url, name, path: relPath, role, branch } =
     // 补 clone 场景：刷新登记（url/role/branch 以本次为准，path/name 沿用资产登记）
     existing.url = url;
     existing.role = role;
+    existing.roleSource = explicitRole ? 'explicit' : 'guess';
     existing.branch = resolvedBranch;
   } else {
-    kit.sources.push({ name, url, path: relPath, role, branch: resolvedBranch });
+    kit.sources.push({ name, url, path: relPath, role, roleSource: explicitRole ? 'explicit' : 'guess', branch: resolvedBranch });
   }
   writeKit(ws, kit);
   const agentsSync = syncRootAgents(ws, kit);
@@ -606,7 +607,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       const abs = path.join(ws, rel);
       if (!fs.existsSync(path.join(abs, '.git'))) continue;
       const b = await runGit(['branch', '--show-current'], { cwd: abs });
-      kit.sources.push({ name: e.name, path: rel, role: guessRole(e.name), branch: b.code === 0 && b.stdout.trim() ? b.stdout.trim() : 'master' });
+      kit.sources.push({ name: e.name, path: rel, role: guessRole(e.name), roleSource: 'guess', branch: b.code === 0 && b.stdout.trim() ? b.stdout.trim() : 'master' });
       scanned.push(rel);
     }
   }
