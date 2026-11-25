@@ -64,7 +64,7 @@ git status --short         # 不应有未提交改动
 
 不要把 `@larksuiteoapi/node-sdk` 加回 `dependencies`。
 
-### 3.3 干净环境验证（不要用 `link:` 代替）
+### 3.4 干净环境验证（不要用 `link:` 代替）
 
 软链安装不会过滤 `files`，所以必须用 tarball 验证一次。`npm run pack:check` 已经自动检查
 包结构、`dsh.bundle`、client id、locale 详情、导出路径与相对导入；剩下的是 DSH 真实装载：
@@ -76,7 +76,7 @@ npm pack
 二选一验证：
 
 - **图形界面**：Plugins → Add plugin，输入 tarball 的绝对路径，安装后确认插件行、
-  命令 `/hk-doctor`、侧栏 Harness Kit 面板都正常。验证完可以卸载，再按 §7 恢复 `link:` 开发。
+  命令 `/hk-doctor`、侧栏 Harness Kit 面板都正常。验证完可以卸载，再按 §8 恢复 `link:` 开发。
 - **CLI**（需要 `dsh` 在 PATH，且 Desktop 已完全退出）：
   `dsh plugin --profile hktest add "$PWD/dsh-harness-kit-<version>.tgz"`，
   再 `dsh --profile hktest --dump-config | grep -A3 harness-kit`。
@@ -84,29 +84,32 @@ npm pack
 无论哪种方式，都要做一次**完全重启**后的冷启动验证——路由挂载用 `ctx.inject`，冷启动与热重载
 是两条不同路径。
 
-### 3.4 发布 npm
+### 3.5 打 tag、CI 发布与 Release
 
-```sh
-npm publish --access public
-```
+日常发布**只由 `vX.Y.Z` tag 触发**，不要在本地执行 `npm publish`：仓库的命令护栏会拦截，
+而且本地 2FA/OTP 流程不可审计。发布流程固定为：
 
-- 首次发布建议加 `--provenance`（需要公开仓库与 GitHub Actions 的 OIDC；只在本机发布时不要加）。
-- 若 npm 账号开了发布 2FA，`npm publish` 会要求 OTP，并可能打开浏览器认证页。这一步必须由维护者
-  在交互终端完成；把 OTP 交给别人或写进脚本都不安全。
-- 非交互环境（CI、agent shell）发布失败会报 `EOTP`，这表示需要人工验证，不是配置错误。
-- 发布后用 `npm view dsh-harness-kit version` 与 `npm view dsh-harness-kit dist-tags` 确认。
-- 本仓库的 `release.yml` 在 tag 触发时会先查该版本是否已发布，已发布就跳过；所以手动发布过的
-  版本再推 tag 也不会重复上传。
+1. 确认 `package.json.version`、`CHANGELOG.md` 和 README 安装版本一致。
+2. `npm test` + `npm run pack:check`，`git status` 干净。
+3. 提交 `chore: release X.Y.Z`，并推送 `main`。
+4. 打 annotated tag 并**只推 tag**：
 
-### 3.5 打 tag 与 Release
+   ```sh
+   git tag -a vX.Y.Z -m "Harness Kit X.Y.Z"
+   git push origin main
+   git push origin vX.Y.Z
+   ```
 
-```sh
-git tag -a v0.1.0 -m "dsh-harness-kit 0.1.0"
-git push origin main --tags
-```
+5. GitHub Actions 的 `release.yml` 会校验 tag 与 `package.json` 一致，跑回归测试；若该版本
+   已在 npm 上则跳过发布，否则执行 `npm publish --provenance --access public`。
+6. 用 `npm view dsh-harness-kit@X.Y.Z version` 和 `dist-tags` 确认发布结果。
 
-GitHub Release 中附上 `npm pack` 生成的 tarball（`dsh-harness-kit-0.1.0.tgz`），供无法访问
-npm 的用户安装；文件命名不要带版本号也可以，但 Release 资产名带版本时，市场条目要钉住 tag。
+注意：
+
+- 不要为了重试把已推送的 tag 强行移动；npm 版本不可复用。CI 失败时修复后发新的 patch 版本。
+- 可在 GitHub Release 里附 `npm pack` 的 tarball，方便无法访问 npm 的用户；这一步是可选的，
+  `release.yml` 只发布 npm，不自动创建 GitHub Release。
+- 本地 npm publish 被仓库护栏禁止；CI 失败时不要手工补发，修复后发新的 patch 版本。
 
 ### 3.6 Trusted Publishing：彻底免 token
 
@@ -115,7 +118,7 @@ npm 的 Trusted Publishing 用 GitHub Actions 的 OIDC 短期凭据换取一次�
 
 前置条件：
 
-- 包已经存在于 npm（本包 0.1.0 已发布，满足）
+- 包已经存在于 npm（本包已发布，满足）
 - npm CLI ≥ 11.5.1、Node ≥ 22.14（workflow 用 Node 24）
 - 公开仓库（provenance 需要），`package.json` 的 `repository` 指向本仓库
 - 使用 GitHub 托管的 `ubuntu-latest`，不支持 self-hosted runner
@@ -139,14 +142,15 @@ npm 侧配置：
 - 发布步骤直接 `npm publish --provenance --access public` 即可；公开仓库的 provenance 会自动生成
 - 不再需要 `NPM_TOKEN` secret；确认一次发布成功后可以删除它
 
-验证方式：把 `package.json` 升到新版本（如 `0.1.1`），更新 CHANGELOG，提交后打 tag：
+验证方式：把 `package.json` 升到新版本（如 `0.3.3`），更新 CHANGELOG，提交后推送 main，再单独推 tag：
 
 ```sh
-git tag -a v0.1.1 -m "dsh-harness-kit 0.1.1"
-git push origin main --tags
+git tag -a v0.3.3 -m "Harness Kit 0.3.3"
+git push origin main
+git push origin v0.3.3
 ```
 
-在 Actions 里确认 Release workflow 的 Publish 步骤成功，再 `npm view dsh-harness-kit@0.1.1`。
+在 Actions 里确认 Release workflow 的 Publish 步骤成功，再 `npm view dsh-harness-kit@0.3.3`。
 
 常见报错：
 
@@ -158,8 +162,9 @@ git push origin main --tags
 | `403 not authorized` | Trusted Publisher 的 owner/repo/workflow/environment 与实际不符 |
 | npm 警告 "tokens that bypass 2FA are being restricted" | 正常提示，OIDC 不经过该路径 |
 
-新建另一个包时，Trusted Publishing 只能在包首次发布之后配置：首个版本先用 token 或人工 OTP 发布，
-再切到 OIDC。
+新建另一个包时，Trusted Publishing 只能在包首次发布之后配置：首个版本由维护者按 npm 要求
+完成一次性 bootstrap（可能需 token/OTP），随后立即配置 Trusted Publishing；本仓库日常发布
+仍只走 tag + CI。
 
 ### 3.7 用户侧升级
 
@@ -167,7 +172,59 @@ git push origin main --tags
 保存（`saveExact`），不会自动升级。发布后不需要做别的动作；如果版本是破坏性的，在 Release Notes
 和 CHANGELOG 里写清迁移步骤。
 
-## 4. 市场收录（awesome-dsh-plugin）
+## 4. GitHub 协作与仓库设置
+
+公开仓库可以加协作者，但发布权限要收口。建议按下面设置。
+
+### 4.1 添加协作者
+
+仓库 **Settings → Collaborators and teams → Add people**：
+
+| 角色 | 适合 | 能做什么 |
+|---|---|---|
+| Write | 日常开发 | 推分支、开 PR；不能改仓库设置 |
+| Maintain | 代码维护者 | 合并 PR、管理 issue/Actions；不能改危险设置 |
+| Admin | 仅发布维护者 | 改仓库设置、Secrets、Rulesets |
+
+不要让协作者共用同一个 GitHub 账号；发版权限靠 tag ruleset 控制，不靠口头约定。
+
+### 4.2 保护 main
+
+**Settings → Rules → Rulesets → New branch ruleset**，目标 `main`：
+
+- Require a pull request before merging（建议至少 1 个 approval）
+- Require status checks：选择 CI 的 `test` job
+- Block force pushes
+- Restrict deletions
+
+注意：如果强制 PR，`scripts/release.sh` / 本地直接 `git push origin main` 会被拒绝。要么给
+维护者配置 bypass，要么把 release commit 也走 PR 合并后再打 tag。
+
+### 4.3 保护 `v*` tag（真正控制 npm 发布权）
+
+**Settings → Rules → Rulesets → New tag ruleset**，pattern 填 `v*`：
+
+- Restrict creations / updates / deletions 到发布维护者
+- 不要让所有 Write 协作者都能创建 tag
+
+因为推送 tag 就会触发 npm 发布，tag ruleset 比 main 分支保护更关键。
+
+### 4.4 Actions 与 npm
+
+- **Settings → Actions → General**：允许 GitHub Actions；默认 workflow 权限保持 read，
+  `release.yml` 自己声明 `id-token: write`。
+- 不需要 `NPM_TOKEN`；不要为了“省事”重新添加 token 或 `registry-url`，否则会挡住 OIDC。
+- npm 侧 Trusted Publishing 只配置一次（见 §3.6），协作者无需 npm 账号。
+- 可选：创建 GitHub Environment `release` 并设置 required reviewers；同时在 workflow 加
+  `environment: release`，并在 npm Trusted Publishing 填同一个 environment 名称。
+
+### 4.5 安全设置
+
+- **Settings → Code security and analysis**：开启 secret scanning 与 push protection。
+- 飞书 App Secret、`im-config.json` 只放本机 `.harness/local/`，不要提交、不要贴到 issue。
+- 如果 Secret 曾经出现在提交或对话里，立即在开放平台重置；历史提交不等于已安全。
+
+## 5. 市场收录（awesome-dsh-plugin）
 
 市场条目在本仓库的 `market/LaoLiang-agent__HarnessKit.yml`，内容与
 [awesome-dsh-plugin contributing.md](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md)
@@ -191,7 +248,7 @@ git push origin main --tags
   截图使用示例工作区（`acme-platform`）渲染，不含真实项目数据；界面改动后应重新生成并覆盖同名文件。
 - 市场不会因为没发 npm 而拒绝收录，但发 npm 后能显示下载量、跳过 `allowBuilds`。
 
-## 5. 兼容性与升级策略
+## 6. 兼容性与升级策略
 
 - `engines.dsh` 是唯一兼容闸门：DSH 在安装/更新/启动时用它做 semver 判定（预发布版本参与范围）。
 - 每次 DSH 新版本（尤其小版本到 0.3）先跑一遍：安装 → 冷启动 → `/hk-doctor` → 一个最小
@@ -202,13 +259,13 @@ git push origin main --tags
 - 废弃版本用 `npm deprecate dsh-harness-kit@<version> "<原因>"`，不要 unpublish；DSH 的更新列表
   会展示 deprecation 并拒绝安装该版本。
 
-## 6. 回滚
+## 7. 回滚
 
 - npm 版本不可复用：出问题发布新的 patch 版本，并 `npm deprecate` 有问题版本。
 - 用户回滚：`dsh plugin --profile <profile> add dsh-harness-kit@<旧版本>`（等价于卸载重装）。
 - 插件被禁用/卸载不会删除工作区 `.harness/`，用户资产安全；在 Issue 回复里明确这一点。
 
-## 7. 本机开发安装（维护者日常）
+## 8. 本机开发安装（维护者日常）
 
 ```sh
 dsh plugin --profile desktop add /Users/leo/Server/workspace/HarnessKit
@@ -217,7 +274,7 @@ dsh plugin --profile desktop add /Users/leo/Server/workspace/HarnessKit
 `link:` 安装直接指向仓库，改 `kernel/` 后 toggle 插件开关即可重载；改 `client.js` 需刷新页面。
 注意：`link:` 不会过滤 `files`，所以发版前必须再用 tarball 验证一次。
 
-## 8. 支持与排查
+## 9. 支持与排查
 
 - Issue 模板要求：DSH 版本、插件版本、OS、`/hk-doctor` 输出、复现步骤。
 - 日志关键字：`harness-kit:`；面板端点：`/harness-kit/state`、`/harness-kit/config`、

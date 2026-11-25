@@ -12,6 +12,11 @@ All notable changes to Harness Kit are documented here. The format follows
   直接建工作区的顺序；删除后文重复的安装章节，保留更新的版本检查与运行要求。
 - README 补充面板「拉取 / 提交并同步」、`--base` 任务分支基点与 clean 主树自动切换、
   `/hk` 统一入口和 fix 直通说明；命令注册 hint 同步增加 `--base`。
+- 立项说明同步当前界面：需求/快速修复、多参考材料、本机上传与按仓开发基线；DETAIL 同步；
+  旧版立项截图替换为当前字段示意图，并从市场 `screenshots.json` 移除该示意图，市场只保留
+  真实界面截图。
+- `docs/PUBLISHING.md` 修正重复章节号，把本地 publish 段落改为 tag + CI 发布，并新增
+  GitHub 协作者、main/tag ruleset、Actions 与 secret scanning 设置清单。
 - 任务显式指定开发基线（`--base`）且主工作树干净时，即使当前停在 `test` 等非基线
   分支，`/hk-apply` 也会自动切到任务基线并创建任务分支；创建前先 fetch 该基线，
   本地基线只落后时直接用 `origin/<base>` 的最新提交，本地领先/分叉时保留本地基点。

@@ -91,14 +91,15 @@ orchestration** probes the repositories and generates the docs and indexes descr
 
 ### 2. Click ＋ to create a task
 
-- choose **Requirement** or **Fix**
+- choose **Requirement** or **Quick fix**
 - write one sentence; the task name can stay empty and is generated from the description
-- optionally attach multiple reference materials: files, images, or whole prototype folders (including uploads from this machine). They are copied into the task `inputs/` with an index, and the PM reads the index and inspects each image
+- optionally attach multiple reference materials: workspace files, images, whole prototype folders, or uploads/drag-and-drop from this machine. They are copied into the task `inputs/` with an index, and the PM reads the index and inspects each image
+- optionally choose a **development base** per repository; Harness Kit creates `feat/harness-<task>` from it and uses the same branch as the analysis base and archive merge target
 
 Creating the task opens a dedicated session: requirement mode starts from the proposal, fix mode
 starts from the defect document and the quality gate.
 
-![New task: requirement or fix shortcut, one sentence to start](docs/assets/ui-new-task.png)
+![New task: requirement/fix, multiple reference materials and per-repository development base (illustration of current fields)](docs/assets/ui-new-task.png)
 
 ### 3. Work from the panel
 
@@ -114,7 +115,8 @@ starts from the defect document and the quality gate.
 
 ![War room: needs-you list, planning/implementing/to-archive lanes and history board](docs/assets/ui-war-room.png)
 
-> Screenshots use a sample workspace (`acme-platform`), not real project data.
+> The task-dialog image is an illustration of the current fields; the other screenshots use a sample
+> workspace (`acme-platform`), not real project data.
 
 > **Approvals are written by a human; the panel only reminds.** Approval 1 is recorded in
 > `proposal.md`, the quality-gate decision in `bugfix.md`. That is deliberate: it keeps approvals

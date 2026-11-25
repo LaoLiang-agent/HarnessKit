@@ -27,7 +27,9 @@ the plan before anything is written.
    Initialization runs in the background and survives a refresh; then start the initialization
    orchestration to generate docs and indexes.
 2. **Create a task**: ＋ → Requirement or Quick fix → one sentence (the task name can stay empty).
-   A dedicated session opens automatically.
+   Add multiple workspace files/images/prototype folders or upload from this machine; they are copied
+   into `inputs/`. Optionally choose a per-repository development base (also the analysis base and
+   archive merge target). A dedicated session opens automatically.
 3. **Work from the panel**: cards move between Planning / Implementing / To archive. **Needs you**
    lists approvals, archives and sync problems; **Continue session** jumps to the task session.
    Archived work moves to the history board; 🕘 opens Team; ⚙ opens Workspace (source branches,
