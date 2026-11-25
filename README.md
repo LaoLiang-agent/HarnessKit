@@ -326,7 +326,8 @@ collects no telemetry; model requests go only to the provider you configure.
 **A teammate's DSH shows decision prompts but Feishu gets no notification?**
 IM configuration is local to each machine and workspace (`.harness/local/im-config.json`) and is
 never committed/synced. The teammate must configure Feishu, send a successful test message and
-enable it in that workspace. There is no 10-question cap; Feishu receives one question at a time and
+enable it in that workspace. A successful test only proves the app credentials and target Open ID;
+it does not enable approval push. There is no 10-question cap; Feishu receives one question at a time and
 the next card is sent after the current one is answered. If it is configured but silent, check
 `.harness/local/im-audit.jsonl`: no `started` record means the bridge did not send (look for
 `notify-failed` / `connect-failed` with an `error`); a `started` record means check that the target

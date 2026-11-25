@@ -1497,7 +1497,10 @@ window.__ModuleLoader__.load({
           });
         }).then(readJsonResponse).then((j) => {
           if (j.ok) setFeishuTested(true);
-          toast(j.ok ? `测试消息已发送（${j.messageId ?? 'ok'}）` : (j.error || '发送失败'), j.ok);
+          const enabled = imConfig?.channels?.feishu?.enabled === true;
+          toast(j.ok
+            ? `测试消息已发送（${j.messageId ?? 'ok'}）${enabled ? '' : '；请勾选「启用飞书审批通知」并保存'}`
+            : (j.error || '发送失败'), j.ok);
         }).catch((e) => toast(e.message, false)).finally(() => setImBusy(false));
       };
 
@@ -1778,6 +1781,8 @@ window.__ModuleLoader__.load({
                   h('button', { style: S.btn(imBusy || !imConfig.channels?.feishu?.appId || !imConfig.channels?.feishu?.appSecret), disabled: imBusy || !imConfig.channels?.feishu?.appId || !imConfig.channels?.feishu?.appSecret, onClick: fetchFeishuOpenId }, '一键获取')),
                 h('div', { style: { fontSize: 11, color: V.sub, marginBottom: 6 } },
                   '只允许你本人处理审批，不需要配置白名单。目标 Open ID 就是你的飞书用户 ID。'),
+                h('div', { style: { fontSize: 11, color: V.warn, marginBottom: 6 } },
+                  '测试消息只验证 App 凭据和目标 Open ID；审批推送还需要勾选「启用飞书审批通知」并保存。'),
                 h('div', { style: { display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' } },
                   h('button', { style: S.btn(imBusy, true), disabled: imBusy, onClick: saveImConfig }, '保存飞书配置'),
                   h('button', { style: S.btn(imBusy || !imConfig.channels?.feishu?.targetOpenId), disabled: imBusy || !imConfig.channels?.feishu?.targetOpenId, onClick: () => testImChannel('feishu') }, '发送测试消息'))),

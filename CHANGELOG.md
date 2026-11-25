@@ -20,6 +20,8 @@ All notable changes to Harness Kit are documented here. The format follows
 - 飞书通知失败不再静默：未绑定目标 Open ID、连接失败、首张卡片发送失败会写入
   `.harness/local/im-audit.jsonl`（`notify-failed` / `connect-failed`），审批记录会显示
   错误摘要；配置步骤补充「IM 配置按机器/工作区本地保存，不随资产仓库同步」。
+- 飞书测试消息成功后会提示「还需勾选启用并保存」，设置页明确说明测试只验证凭据和目标
+  Open ID，不代表审批推送已启用。
 - 飞书「获取 Open ID」遇到 `21001 Access denied due to platform policy` 时，错误信息会
   直接说明个人版租户不支持企业自建应用、需改用企业/团队租户，并附错误码；App ID/Secret
   或应用类型错误（10003/10013/10014）也会给出对应检查项。飞书配置步骤新增「个人版先用
