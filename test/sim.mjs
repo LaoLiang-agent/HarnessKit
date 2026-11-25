@@ -2155,6 +2155,17 @@ section('自动续接引擎：定稿→propose、审批1→apply 扫描与一次
   ok('hk-propose 内更新任务绑定', readBindings(ws)['adv-b']?.sessionId === 'sess-prop');
 }
 
+// ---------------------------------------------------------------- 飞书 token 错误解释
+section('飞书 tenant_access_token 错误解释');
+{
+  const { explainFeishuTokenError } = await import(path.join(bundleRoot, 'kernel/panel.js'));
+  const policy = explainFeishuTokenError({ code: 21001, msg: 'Access denied due to platform policy.' });
+  ok('21001 → 解释为企业租户/平台策略', policy.code === 21001 && policy.hint.includes('个人版') && policy.hint.includes('企业'));
+  const secret = explainFeishuTokenError({ code: 10014, msg: 'app secret invalid' });
+  ok('10014 → 解释为 App ID/Secret 或应用类型', secret.hint.includes('App ID') && secret.hint.includes('商店应用'));
+  ok('未知错误不强行给错指引', explainFeishuTokenError({ code: 99999, msg: 'unknown' }).hint === '');
+}
+
 // ------------------------------------------------------------- 本机配置路由
 section('本机配置面板：GET 扫描 + POST 确认');
 {

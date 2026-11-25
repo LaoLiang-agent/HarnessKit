@@ -1712,7 +1712,7 @@ window.__ModuleLoader__.load({
                   h('span', { style: { fontSize: 11, color: V.sub } }, '（推荐）'),
                   imConfig.channels?.feishu?.enabled && h('span', { style: { fontSize: 11, color: V.ok } }, '● 已启用')),
                 h('div', { style: { fontSize: 12, color: V.sub, marginBottom: 8 } },
-                  '需要一个飞书自建应用（免费）。配置一次即可长期使用；长连接模式不需要公网 IP。'),
+                  '需要一个企业/团队租户下的飞书企业自建应用（免费）。个人版飞书租户会被平台策略拒绝（21001），无法获取 tenant_access_token。配置一次即可长期使用；长连接模式不需要公网 IP。'),
                 h('button', {
                   style: { ...S.btn(false), fontSize: 12, marginBottom: 10 },
                   onClick: () => setFeishuGuideOpen(!feishuGuideOpen),
@@ -1738,7 +1738,7 @@ window.__ModuleLoader__.load({
                   h('div', null, '8. 点「一键获取 Open ID」；如果提示没有用户，先在飞书里搜索这个机器人并发一条私聊消息，再点一次。'),
                   h('div', null, '9. 点「保存飞书配置」→「发送测试消息」。飞书收到测试卡片即配置成功。'),
                   h('div', { style: { marginTop: 6, color: V.sub } },
-                    '常见问题：① 收不到消息 → 检查事件订阅是否为长连接、应用是否已发布；② 权限报错 → 开通权限后重新发布版本；③ 一键获取失败 → 确认 contact:contact.base:readonly 已开通且可用范围包含你。'),
+                    '常见问题：① 收不到消息 → 检查事件订阅是否为长连接、应用是否已发布；② 权限报错 → 开通权限后重新发布版本；③ 一键获取失败 → 确认 contact:contact.base:readonly 已开通且可用范围包含你；④ 报 21001 / platform policy → 个人版租户不支持，请换企业/团队租户；企业租户请管理员检查应用发布状态与安全策略。'),
                   h('div', { style: { marginTop: 4, color: V.sub } },
                     '说明：飞书后台按钮位置可能随版本变化，以上步骤对应 2026-11 版；以官方页面为准。')),
                 h('label', { style: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 8, cursor: 'pointer' } },

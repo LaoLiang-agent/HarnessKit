@@ -157,7 +157,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 
 人不在电脑前时，审批可以转到飞书私聊：
 
-1. 在设置页「IM 通知」把飞书渠道打开，按引导创建企业自建应用（机器人能力、`im:message` / `im:message:readonly` / `contact:contact.base:readonly`，长连接订阅 `im.message.receive_v1` 与 `card.action.trigger`）
+1. 在设置页「IM 通知」把飞书渠道打开，按引导创建企业自建应用（机器人能力、`im:message` / `im:message:readonly` / `contact:contact.base:readonly`，长连接订阅 `im.message.receive_v1` 与 `card.action.trigger`）。必须使用**企业/团队租户**：飞书个人版租户调用 `tenant_access_token` 会被平台策略拒绝（21001），无法获取 Open ID
 2. 填 App ID / App Secret，点「获取 Open ID」自动带出你的用户 ID
 3. 先「发送测试消息」，成功后才能勾选启用
 4. 之后 HK 审批/澄清会同时出现在 DSH 弹窗和飞书卡片，任意一端先答先得；同一审批请在一端答完，多题审批支持“飞书先答部分 + DSH 答完剩余”的合并
@@ -275,6 +275,9 @@ dsh plugin --profile desktop add /绝对路径/HarnessKit
 
 **数据去哪？**
 项目资产在本地 `.harness/` 和你的 git（共享时就是团队仓库）；插件不收集、不上传遥测；模型请求只发往你配置的 provider。
+
+**飞书获取 Open ID 报 `21001 Access denied due to platform policy`？**
+这是飞书平台策略拒绝，不是 App ID/Secret 或插件权限问题。个人版飞书租户不支持企业自建应用获取 `tenant_access_token`；请换用企业/团队租户，在该租户的开放平台创建「企业自建应用」。若已是企业租户，请管理员检查应用发布状态、可用范围和安全策略，或联系飞书客服。
 
 **更新时提示 `ERR_PNPM_IGNORED_BUILDS: protobufjs` 怎么办？**
 这是 0.3.1 及更早版本的问题：飞书 SDK 依赖 `protobufjs`，pnpm 11 默认要求审批依赖构建脚本。

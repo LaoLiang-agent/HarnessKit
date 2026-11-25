@@ -540,6 +540,28 @@ export async function listModelCatalog(llm) {
   } catch { return []; }
 }
 
+/**
+ * 飞书 tenant_access_token 失败的可操作解释。
+ * 21001 是飞书策略层拒绝（常见于个人版租户），不是 App ID/Secret 或权限 scope 错误。
+ */
+export function explainFeishuTokenError(res = {}) {
+  const code = Number(res.code);
+  const msg = String(res.msg ?? res.error ?? '');
+  if (code === 21001 || /platform\s*policy|access denied due to policy/i.test(msg)) {
+    return {
+      code,
+      hint: '飞书以「平台策略」拒绝了 tenant_access_token。个人版飞书租户不支持企业自建应用获取该凭证；请改用企业/团队租户，在该租户的开放平台创建「企业自建应用」。若已是企业租户，请让管理员检查应用发布状态、可用范围与安全策略，或联系飞书客服。',
+    };
+  }
+  if (code === 10014 || code === 10003 || code === 10013) {
+    return {
+      code,
+      hint: '请检查 App ID / App Secret 是否来自「企业自建应用」，确认没有空格/换行；商店应用不能调用 tenant_access_token/internal。',
+    };
+  }
+  return { code, hint: '' };
+}
+
 /** 模型下拉建议：kit.json models 已映射的逻辑名 + catalog 里的全部模型 id（provider 过滤）。 */
 export function modelSuggest(models, provider) {
   return (models ?? []).filter((mo) => !provider || mo.provider === provider).flatMap((mo) => mo.models ?? []).map((m) => m.id);
@@ -1565,8 +1587,14 @@ export function registerPanelApi(ctx) {
           signal: timeout,
         });
         const token = await tokenRes.json();
-        if (token.code !== 0) {
-          return sendJson(res, 400, { ok: false, error: `获取 tenant_access_token 失败：${token.msg ?? token.code}` });
+        if (token.code !== 0 || !token.tenant_access_token) {
+          const explained = explainFeishuTokenError(token);
+          const detail = token.msg ?? token.error ?? `code ${token.code ?? tokenRes.status}`;
+          return sendJson(res, 400, {
+            ok: false,
+            code: Number.isFinite(explained.code) ? explained.code : undefined,
+            error: `获取 tenant_access_token 失败（code ${token.code ?? tokenRes.status}）：${detail}${explained.hint ? `\n${explained.hint}` : ''}`,
+          });
         }
         const usersRes = await fetch('https://open.feishu.cn/open-apis/contact/v3/users?page_size=20&user_id_type=open_id', {
           headers: { authorization: `Bearer ${token.tenant_access_token}` },

@@ -183,9 +183,10 @@ go only to the provider you configure.
 - Approval 1: the plan is ready; a human decides whether to start implementation
 - Quality gate: for the `fix` shortcut a human chooses "light" or `--full`
 - Approval 2: implementation and testing are done; a human decides whether to archive
-- Remote approvals (Feishu, 0.3.0): configure the IM tab, create a self-built Feishu app with bot
-  capability and long-connection events, fill App ID/Secret, fetch your Open ID, send a test
-  message, then enable. HK approvals appear in both DSH and Feishu; the first answer wins. Finish
+- Remote approvals (Feishu, 0.3.0): configure the IM tab, create a self-built Feishu app **in an
+  enterprise/team tenant** with bot capability and long-connection events, fill App ID/Secret,
+  fetch your Open ID, send a test message, then enable. A personal Feishu tenant gets
+  `21001 Access denied due to platform policy` when requesting `tenant_access_token`. HK approvals appear in both DSH and Feishu; the first answer wins. Finish
   one multi-question approval on one surface; "Feishu answers some, DSH finishes the rest" is
   merged, but the reverse is not supported because DSH partial answers stay client-side.
 - Guards: source writes are blocked until the quality gate is recorded; destructive git commands
@@ -318,6 +319,12 @@ machines, backup and later sharing.
 **Where does data go?**
 Project assets stay in your local `.harness/` and your git (your team's when shared). The plugin
 collects no telemetry; model requests go only to the provider you configure.
+
+**Feishu Open ID lookup fails with `21001 Access denied due to platform policy`?**
+This is a Feishu platform-policy rejection, not a wrong App ID/Secret or a plugin permission.
+A personal Feishu tenant cannot obtain `tenant_access_token` for an enterprise self-built app.
+Use an enterprise/team tenant and create the app there. In an enterprise tenant, ask the admin to
+check the app's release state, availability scope and security policy, or contact Feishu support.
 
 **Update fails with `ERR_PNPM_IGNORED_BUILDS: protobufjs`?**
 This affects 0.3.1 and earlier: the Feishu SDK depends on `protobufjs`, and pnpm 11 requires
