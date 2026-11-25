@@ -1,16 +1,19 @@
-// IM 审批桥接：监听 user-questions/request，识别 HK 标记，发卡片到 IM
+// IM 审批桥接：user-questions/request 与 approval/request，发卡片到 IM
 // 核心逻辑：Promise.race(Web 回答, IM 回答)，先到先得
 
 import { readImConfig, appendImAudit, hasEnabledChannel } from './config.js';
 import { getTransport, listChannels } from './transport.js';
-import { buildApprovalCard, buildResultCard, buildCustomTextCard, parseActionValue, displayOptionLabel } from './cards.js';
+import { buildApprovalCard, buildPermissionCard, buildResultCard, buildCustomTextCard, parseActionValue, displayOptionLabel } from './cards.js';
 
 /** 审批记录 */
 class PendingApproval {
-  constructor({ approvalId, sessionId, task, questions, expiresAt, targetOpenId, channel }) {
+  constructor({ approvalId, sessionId, task, questions, expiresAt, targetOpenId, channel, kind = 'question', title = null, toolName = null }) {
     this.approvalId = approvalId;
     this.sessionId = sessionId;
     this.task = task;
+    this.kind = kind;
+    this.title = title;
+    this.toolName = toolName;
     this.questions = questions;
     this.answers = new Array(questions.length).fill(undefined);
     this.currentIndex = 0;
@@ -22,6 +25,8 @@ class PendingApproval {
     this.createdAt = Date.now();
     this.awaitingCustom = null; // 选择了需要补充说明的选项时，等待用户回复文字
     this.customFormMessageId = null; // 补充说明表单卡片的消息 ID
+    this.onComplete = null; // 权限审批完成后通知等待方
+    this.onCancel = null; // 审批被取消（如 Web 先答）时通知等待方
   }
 
   get answeredCount() {
@@ -244,6 +249,8 @@ export class ApprovalBridge {
 
     if (pending.isComplete) {
       this.logger.info?.(`[im] 审批完成: ${pending.approvalId}`);
+      // 先通知等待方再删 pending；权限审批的调用方据此返回 allowed-once / rejected
+      try { pending.onComplete?.(); } catch { /* 回调失败不阻断审批完成 */ }
       this.pendingApprovals.delete(pending.approvalId);
       await this._sendCard(pending.targetOpenId, buildResultCard({
         title: '审批完成',
@@ -306,6 +313,15 @@ export class ApprovalBridge {
         return;
       }
     }
+    // 权限审批只接受卡片按钮/数字/选项文字，不把任意文本当作授权
+    if (pending.kind === 'permission') {
+      await this._updateCard(pending, buildResultCard({
+        title: '请选择',
+        resultText: '请点击卡片按钮，或回复 `1`（允许一次）/ `2`（拒绝）。',
+        template: 'orange',
+      }));
+      return;
+    }
     // 3) 自由文本 → 澄清类问题的自定义答案
     await this._recordAndAdvance(pending, qIndex, { id: question.id, selected: [], custom: trimmed }, senderOpenId);
   }
@@ -352,6 +368,17 @@ export class ApprovalBridge {
   async _sendQuestionCard(pending, qIndex) {
     const q = pending.questions[qIndex];
     const options = q.options ?? [];
+    // 权限审批：按钮直接给「允许一次 / 拒绝」，不要求回复数字
+    if (pending.kind === 'permission') {
+      const card = buildPermissionCard({
+        approvalId: pending.approvalId,
+        title: pending.title ?? 'DSH 权限审批',
+        detail: q.detail ?? q.question,
+        toolName: pending.toolName,
+        expiresAt: pending.expiresAt,
+      });
+      return this._sendCard(pending.targetOpenId, card, pending.channel);
+    }
     // 无选项的澄清题：用卡片内表单收集文字，不依赖文本消息事件
     if (options.length === 0) {
       pending.awaitingCustom = { qIndex, label: null };
@@ -384,14 +411,18 @@ export class ApprovalBridge {
   }
 
   /** 创建新审批（由 waterfall 监听器调用） */
-  async createApproval({ sessionId, task, questions, targetOpenId, channel }) {
+  async createApproval({ sessionId, task, questions, targetOpenId, channel, kind = 'question', title = null, toolName = null, expiryMinutes = null }) {
     const approvalId = `hk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const minutes = Number(expiryMinutes ?? this.config.approvalExpiryMinutes ?? 120);
     const pending = new PendingApproval({
       approvalId,
       sessionId,
       task,
       questions,
-      expiresAt: Date.now() + this.config.approvalExpiryMinutes * 60 * 1000,
+      kind,
+      title,
+      toolName,
+      expiresAt: Date.now() + Math.max(1, minutes) * 60 * 1000,
       targetOpenId,
       channel,
     });
@@ -410,6 +441,67 @@ export class ApprovalBridge {
     return pending;
   }
 
+  /**
+   * 等待权限审批结果（allowed-once / rejected / cancelled / unavailable）。
+   * 由 approval/request 监听器调用；Web 先答时 cancelApproval 会以 cancelled 结束。
+   */
+  waitForDecision(pending, { signal } = {}) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer = null;
+
+      const cleanup = () => {
+        if (timer) { clearTimeout(timer); timer = null; }
+        signal?.removeEventListener('abort', onAbort);
+        pending.onComplete = null;
+        pending.onCancel = null;
+      };
+      const finish = (outcome) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(outcome);
+      };
+      const onAbort = () => {
+        if (!this.pendingApprovals.has(pending.approvalId)) {
+          finish('cancelled');
+          return;
+        }
+        this.pendingApprovals.delete(pending.approvalId);
+        void this._updateCard(pending, buildResultCard({
+          title: '已取消',
+          resultText: '这次权限审批已在 DSH 取消。',
+          template: 'grey',
+        })).catch(() => {});
+        appendImAudit(this.ws, { type: 'cancelled', approvalId: pending.approvalId, result: 'cancelled' });
+        finish('cancelled');
+      };
+
+      pending.onComplete = () => {
+        const selected = pending.answers[0]?.selected?.[0];
+        finish(selected === '允许一次' ? 'allowed-once' : 'rejected');
+      };
+      pending.onCancel = () => finish('cancelled');
+
+      timer = setTimeout(() => {
+        if (!this.pendingApprovals.has(pending.approvalId)) return;
+        this.pendingApprovals.delete(pending.approvalId);
+        void this._updateCard(pending, buildResultCard({
+          title: '已过期',
+          resultText: '这条权限审批已过期，请到 DSH 重新发起。',
+          template: 'orange',
+        })).catch(() => {});
+        appendImAudit(this.ws, { type: 'expired', approvalId: pending.approvalId, result: 'expired' });
+        finish('unavailable');
+      }, Math.max(0, pending.expiresAt - Date.now()));
+
+      if (signal) {
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
+  }
+
   /** 获取审批状态 */
   getApproval(approvalId) {
     return this.pendingApprovals.get(approvalId);
@@ -420,6 +512,7 @@ export class ApprovalBridge {
     const pending = this.pendingApprovals.get(approvalId);
     if (!pending) return;
     this.pendingApprovals.delete(approvalId);
+    try { pending.onCancel?.(); } catch { /* ignore */ }
     await this._updateCard(pending, buildResultCard({ title: '已处理', resultText: reason }));
     appendImAudit(this.ws, { type: 'cancelled', approvalId, result: reason });
   }

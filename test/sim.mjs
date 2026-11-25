@@ -2176,6 +2176,112 @@ section('飞书 tenant_access_token 错误解释');
   ok('首张卡片发送失败 → 抛错且不残留 pending', threw && b.pendingApprovals.size === 0);
 }
 
+// ---------------------------------------------------------------- 飞书权限审批桥接
+section('飞书权限审批（approval/request）');
+{
+  const { installImBridge } = await import(path.join(bundleRoot, 'kernel/im-bridge.js'));
+  const { registerTransport, getTransport } = await import(path.join(bundleRoot, 'kernel/im/transport.js'));
+  const { defaultImConfig, writeImConfig } = await import(path.join(bundleRoot, 'kernel/im/config.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+
+  const cfg = defaultImConfig();
+  cfg.channels.feishu = {
+    ...cfg.channels.feishu,
+    enabled: true,
+    appId: 'cli_test',
+    appSecret: 'secret_test',
+    targetOpenId: 'ou_test',
+  };
+  cfg.permissionExpiryMinutes = 5;
+  writeImConfig(ws, cfg);
+
+  const sent = [];
+  let actionHandler;
+  const fakeTransport = {
+    channel: 'feishu',
+    ready: true,
+    async connect() {},
+    disconnect() {},
+    async sendCard(_target, card) {
+      sent.push(JSON.parse(card));
+      return `msg-${sent.length}`;
+    },
+    async updateCard() {},
+    onCardAction(fn) { actionHandler = fn; },
+    onMessage() {},
+    getStatus() { return { ready: true }; },
+  };
+  const previousTransport = getTransport('feishu');
+  registerTransport('feishu', () => fakeTransport);
+
+  const listeners = new Map();
+  const ctx = {
+    get(name) {
+      if (name === 'logger') return { info() {}, warn() {}, error() {} };
+      return undefined;
+    },
+    on(event, fn) {
+      listeners.set(event, fn);
+      return () => listeners.delete(event);
+    },
+  };
+  const disposers = installImBridge(ctx);
+  ok('已安装 approval/request 监听', typeof listeners.get('approval/request') === 'function');
+
+  const buttonsOf = (card) => {
+    const out = [];
+    const walk = (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (node.tag === 'button' && node.value?.action) out.push(node);
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) value.forEach(walk);
+        else walk(value);
+      }
+    };
+    walk(card);
+    return out;
+  };
+  const makeRequest = (title) => ({
+    agent: { id: 'sess-perm', session: { id: 'sess-perm', title, header: { cwd: ws } } },
+    toolName: 'bash',
+    reason: '需要写 .harness',
+    displayReason: { zh: '允许本次操作使用 danger-full-access 权限' },
+  });
+  const waitCard = async (from) => {
+    for (let i = 0; i < 100 && sent.length <= from; i += 1) await new Promise((r) => setTimeout(r, 10));
+    return sent[from];
+  };
+
+  let before = sent.length;
+  const allowPromise = listeners.get('approval/request')(makeRequest('权限-允许'), async () => 'unavailable');
+  const allowCard = await waitCard(before);
+  const allowButtons = buttonsOf(allowCard);
+  ok('权限审批发送飞书卡片并带工具/原因', allowCard && allowButtons.length === 2 && JSON.stringify(allowCard).includes('danger-full-access') && JSON.stringify(allowCard).includes('bash'));
+  ok('权限卡片按钮为「允许一次 / 拒绝」', allowButtons[0].text.content === '允许一次' && allowButtons[1].text.content === '拒绝');
+  actionHandler({ operator: { open_id: 'ou_test' }, action: { value: { action: allowButtons[0].value.action } } });
+  ok('飞书「允许一次」→ allowed-once', (await allowPromise) === 'allowed-once');
+
+  before = sent.length;
+  const rejectPromise = listeners.get('approval/request')(makeRequest('权限-拒绝'), async () => 'unavailable');
+  const rejectCard = await waitCard(before);
+  const rejectButtons = buttonsOf(rejectCard);
+  actionHandler({ operator: { open_id: 'ou_test' }, action: { value: { action: rejectButtons[1].value.action } } });
+  ok('飞书「拒绝」→ rejected', (await rejectPromise) === 'rejected');
+
+  before = sent.length;
+  const webPromise = listeners.get('approval/request')(makeRequest('权限-Web先答'), async () => {
+    await new Promise((r) => setTimeout(r, 50));
+    return 'rejected';
+  });
+  await waitCard(before);
+  const webOutcome = await webPromise;
+  ok('Web 先答 → 返回 Web 结果并撤飞书卡片', webOutcome === 'rejected' && JSON.stringify(sent.slice(before)).includes('已在 DSH 处理'));
+
+  for (const dispose of disposers) if (typeof dispose === 'function') dispose();
+  registerTransport('feishu', previousTransport ?? (() => fakeTransport));
+}
+
 // ------------------------------------------------------------- 本机配置路由
 section('本机配置面板：GET 扫描 + POST 确认');
 {

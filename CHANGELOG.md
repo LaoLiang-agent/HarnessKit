@@ -6,6 +6,13 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- 飞书远程审批覆盖 DSH 工具权限弹窗（`approval/request`，例如 `danger-full-access` 或需要
+  审批的 bash 操作）：权限原因和工具名会推送到飞书，可直接点「允许一次 / 拒绝」；与 DSH
+  弹窗先答先得，飞书先答时 Web 卡片自动收起，「允许一次」只对本次操作生效。权限卡片默认
+  10 分钟过期，可在 IM 设置里调整；超时按 fail-closed 返回 `unavailable`。
+
 ### Changed
 
 - README / README.zh-CN 开头新增「在 DSH 中安装」：应用内 Add plugin、命令行、源码安装与

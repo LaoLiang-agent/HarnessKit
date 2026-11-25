@@ -41,6 +41,8 @@ export function defaultImConfig() {
     },
     // 审批过期时间（分钟）
     approvalExpiryMinutes: 120,
+    // DSH 工具权限弹窗的过期时间（分钟）：权限审批是阻塞操作，不宜久挂
+    permissionExpiryMinutes: 10,
     // 审批日志保留天数（默认 15 天，自动清理）
     auditRetentionDays: DEFAULT_AUDIT_RETENTION_DAYS,
     // 最大并发审批数

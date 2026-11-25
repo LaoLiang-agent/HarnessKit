@@ -194,7 +194,8 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 1. 在设置页「IM 通知」把飞书渠道打开，按引导创建企业自建应用（机器人能力、`im:message` / `im:message:readonly` / `contact:contact.base:readonly`，长连接订阅 `im.message.receive_v1` 与 `card.action.trigger`）。必须使用**企业/团队租户**：飞书个人版租户调用 `tenant_access_token` 会被平台策略拒绝（21001），无法获取 Open ID
 2. 填 App ID / App Secret，点「获取 Open ID」自动带出你的用户 ID
 3. 先「发送测试消息」，成功后才能勾选启用（勾选/取消会立即保存；App ID/Secret/Open ID 修改后仍需点保存）
-4. 之后 HK 审批/澄清会同时出现在 DSH 弹窗和飞书卡片，任意一端先答先得；同一审批请在一端答完，多题审批支持“飞书先答部分 + DSH 答完剩余”的合并
+4. 之后 HK 审批/澄清、以及 DSH 的工具权限弹窗（如 `danger-full-access`、需要审批的 bash 操作）都会同时出现在 DSH 和飞书卡片，任意一端先答先得；同一审批请在一端答完，多题审批支持“飞书先答部分 + DSH 答完剩余”的合并
+5. 权限审批卡片的「允许一次」只对本次操作生效，不会保存长期授权；卡片默认 10 分钟过期，可在 IM 设置里调整。飞书先答时 DSH 里的同一张权限卡片会自动收起
 
 配置只存本机 `.harness/local/im-config.json`（`0600`），不提交、不同步。企微/钉钉目前是占位。
 
@@ -279,6 +280,9 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 
 **同事的 DSH 有决策弹窗，但飞书没收到？**
 IM 配置只存本机 `.harness/local/im-config.json`，按工作区隔离，不随资产仓库同步。同事的机器/工作区需要单独填写飞书配置、完成测试发送，并勾选「启用飞书审批通知」后保存；**测试消息正常只证明 App 凭据和目标 Open ID 可用，不代表审批推送已启用**。问题数量本身没有 10 条上限；飞书侧一次只发当前一题，答完再发下一题。若同事已配置但仍没收到，查看 `.harness/local/im-audit.jsonl`：没有 `started` 记录说明桥接没有发出（看 `notify-failed` / `connect-failed` 的 `error`）；有 `started` 则检查目标 Open ID 是否本人、飞书应用是否开通 `im:message` 并能正常发消息。修改 IM 配置后无需重启 DSH，下一次提问会自动重建连接。
+
+**DSH 的权限弹窗（如 `danger-full-access`）飞书没收到？**
+权限弹窗现在也走 `approval/request` 桥接，但只在**已启用飞书审批通知**的工作区推送，且与 DSH 弹窗先答先得。若 DSH 弹窗出现而飞书没有，先确认启用开关已勾选、目标 Open ID 是本人；再看 `.harness/local/im-audit.jsonl` 是否有 `started`。权限卡片默认 10 分钟过期（设置页「权限审批过期」可调），过期后工具调用会失败关闭；重新发起操作即可再推一次。
 
 **飞书获取 Open ID 报 `21001 Access denied due to platform policy`？**
 这是飞书平台策略拒绝，不是 App ID/Secret 或插件权限问题。「企业自建应用」是应用类型，不等于企业租户；个人租户里也能创建该类型应用，但 `tenant_access_token` 仍会被拒。请换用企业/团队租户，在该租户的开放平台**新建**应用（旧应用不会随租户切换迁移）。若已是企业租户，请管理员检查应用发布状态、可用范围和安全策略，或联系飞书客服。

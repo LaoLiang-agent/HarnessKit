@@ -1,5 +1,5 @@
-// IM 桥接安装：监听 user-questions/request waterfall，识别 HK 标记，发卡片到 IM
-// 这是 kernel/im/ 模块与 DSH userQuestions 服务的接线层
+// IM 桥接安装：监听 user-questions/request 与 approval/request waterfall，发卡片到 IM
+// 这是 kernel/im/ 模块与 DSH userQuestions / approval 服务的接线层
 
 import { ApprovalBridge } from './im/bridge.js';
 import { readImConfig, hasEnabledChannel, appendImAudit } from './im/config.js';
@@ -31,6 +31,16 @@ function extractTaskName(question) {
   return match ? match[1].trim() : null;
 }
 
+/** 取 DSH 权限审批的展示原因（优先本地化文案，其次原始 reason） */
+function approvalReason(request) {
+  const display = request?.displayReason;
+  const localized = display && (display.zh ?? display['zh-CN'] ?? display.en ?? Object.values(display)[0]);
+  const parts = [localized, request?.reason]
+    .map((v) => (typeof v === 'string' ? v.trim() : ''))
+    .filter(Boolean);
+  return [...new Set(parts)].join('\n\n') || '（DSH 未提供原因）';
+}
+
 /** 安装 IM 桥接 */
 export function installImBridge(ctx) {
   const logger = ctx.get('logger');
@@ -39,6 +49,64 @@ export function installImBridge(ctx) {
   const bridges = new Map(); // ws -> ApprovalBridge
   const bridgeConfigKeys = new Map(); // ws -> 当前 bridge 对应的 im-config 快照
   const handledRequests = new WeakMap(); // request -> Promise，避免 global/agent 双监听重复处理
+  const handledApprovals = new WeakMap(); // approval request -> Promise，避免重复处理
+
+  /**
+   * 获取或创建该工作区的 bridge，并返回当前启用的渠道。
+   * 配置是热更新的：每次事件都重新读 im-config.json；目标 Open ID/凭据/启停变化后
+   * 不能继续用旧 bridge（旧实现只在首次创建时读配置，改了 Open ID 或先配置后启用时
+   * 会一直发到旧目标/一直不发，表现为「DSH 有弹窗、飞书没通知」）。
+   */
+  const ensureBridge = async (ws) => {
+    const config = readImConfig(ws);
+    const configKey = JSON.stringify(config);
+    let bridge = bridges.get(ws);
+
+    if (!hasEnabledChannel(config)) {
+      if (bridge && bridge.pendingApprovals.size === 0) {
+        await bridge.dispose();
+        bridges.delete(ws);
+        bridgeConfigKeys.delete(ws);
+      }
+      return null;
+    }
+
+    if (bridge && bridgeConfigKeys.get(ws) !== configKey) {
+      if (bridge.pendingApprovals.size > 0) {
+        logger?.warn?.('[im-bridge] IM 配置已变更，但仍有审批进行中；本事件先走 Web，审批结束后重建连接');
+        return null;
+      }
+      await bridge.dispose();
+      bridges.delete(ws);
+      bridgeConfigKeys.delete(ws);
+      bridge = null;
+      logger?.info?.('[im-bridge] IM 配置已变更，重建连接');
+    }
+
+    if (!bridge) {
+      bridge = new ApprovalBridge({ ws, logger, userQuestions, config });
+      await bridge.init();
+      if (bridge.transports.size === 0) {
+        // 连接失败不留坏 bridge：否则后续事件会一直复用它，永远没有飞书通知
+        await bridge.dispose();
+        appendImAudit(ws, { type: 'connect-failed', result: 'error', error: '没有可用的 IM transport（检查 App ID/Secret、事件订阅与网络）' });
+        return null;
+      }
+      bridges.set(ws, bridge);
+      bridgeConfigKeys.set(ws, configKey);
+    }
+
+    const entry = Object.entries(bridge.config.channels).find(([, c]) => c.enabled);
+    if (!entry) return null;
+    const [channel, channelConfig] = entry;
+    if (!channelConfig.targetOpenId) {
+      logger?.warn?.('[im-bridge] 未绑定目标用户，跳过 IM 通知');
+      appendImAudit(ws, { type: 'notify-failed', result: 'error', error: '未绑定目标 Open ID' });
+      return null;
+    }
+
+    return { bridge, channel, targetOpenId: channelConfig.targetOpenId };
+  };
 
   // 监听 user-questions/request waterfall。
   // 该事件按 Agent scope 过滤：必须注册在 agent.ctx 上，根 ctx 的全局监听收不到。
@@ -78,58 +146,9 @@ export function installImBridge(ctx) {
       return next();
     }
 
-    // 获取或创建该工作区的 bridge。
-    // 配置是热更新的：每次问题都重新读 im-config.json；目标 Open ID/凭据/启停变化后
-    // 不能继续用旧 bridge（旧实现只在首次创建时读配置，改了 Open ID 或先配置后启用时
-    // 会一直发到旧目标/一直不发，表现为「DSH 有弹窗、飞书没通知」）。
-    const config = readImConfig(ws);
-    const configKey = JSON.stringify(config);
-    let bridge = bridges.get(ws);
-    if (!hasEnabledChannel(config)) {
-      if (bridge && bridge.pendingApprovals.size === 0) {
-        await bridge.dispose();
-        bridges.delete(ws);
-        bridgeConfigKeys.delete(ws);
-      }
-      return next();
-    }
-    if (bridge && bridgeConfigKeys.get(ws) !== configKey) {
-      if (bridge.pendingApprovals.size > 0) {
-        logger?.warn?.('[im-bridge] IM 配置已变更，但仍有审批进行中；本问题先走 Web，审批结束后重建连接');
-        return next();
-      }
-      await bridge.dispose();
-      bridges.delete(ws);
-      bridgeConfigKeys.delete(ws);
-      bridge = null;
-      logger?.info?.('[im-bridge] IM 配置已变更，重建连接');
-    }
-    if (!bridge) {
-      bridge = new ApprovalBridge({ ws, logger, userQuestions, config });
-      await bridge.init();
-      if (bridge.transports.size === 0) {
-        // 连接失败不留坏 bridge：否则后续问题会一直复用它，永远没有飞书通知
-        await bridge.dispose();
-        appendImAudit(ws, { type: 'connect-failed', result: 'error', error: '没有可用的 IM transport（检查 App ID/Secret、事件订阅与网络）' });
-        return next();
-      }
-      bridges.set(ws, bridge);
-      bridgeConfigKeys.set(ws, configKey);
-    }
-
-    // 找到第一个启用的渠道
-    const channel = Object.entries(bridge.config.channels).find(([, c]) => c.enabled)?.[0];
-    if (!channel) {
-      return next();
-    }
-
-    const channelConfig = bridge.config.channels[channel];
-    const targetOpenId = channelConfig.targetOpenId;
-    if (!targetOpenId) {
-      logger?.warn?.('[im-bridge] 未绑定目标用户，跳过 IM 通知');
-      appendImAudit(ws, { type: 'notify-failed', result: 'error', error: '未绑定目标 Open ID', questions: questions.length });
-      return next();
-    }
+    const ensured = await ensureBridge(ws);
+    if (!ensured) return next();
+    const { bridge, channel, targetOpenId } = ensured;
 
     // 提取任务名
     const task = extractTaskName(hkQuestions[0]) ?? agent.session?.title ?? 'DSH 提问';
@@ -227,7 +246,111 @@ export function installImBridge(ctx) {
     }
   };
 
-  // global 与 agent-scoped 都注册；同一个 request 只处理一次（谁先到用谁）
+  /**
+   * DSH 工具权限弹窗（approval/request）也走飞书。
+   * 与 user-questions 一样让 Web 和飞书先答先得；IM 先答时只 abort 子 signal，
+   * 让 Web 卡片消失，不取消整个 turn。
+   */
+  const processApproval = async (request, next) => {
+    const { agent, toolName } = request;
+    if (!agent) return next();
+    const ws = getWs(agent);
+    if (!ws) return next();
+
+    const originalSignal = request.signal;
+    if (originalSignal?.aborted) return next();
+
+    const localAbort = new AbortController();
+    const forwardAbort = () => localAbort.abort(originalSignal?.reason);
+    if (originalSignal) {
+      originalSignal.addEventListener('abort', forwardAbort, { once: true });
+    }
+    // 下游 Web 只看到子 signal；IM 先答时 abort 它即可收起 Web 卡片，outer turn 不受影响。
+    request.signal = localAbort.signal;
+
+    const cleanupForward = () => originalSignal?.removeEventListener('abort', forwardAbort);
+
+    // 先让 Web 弹窗出现，再发飞书卡片；任意一端先答先得。
+    const webAnswer = Promise.resolve()
+      .then(() => next())
+      .catch((err) => {
+        logger?.warn?.(`[im-bridge] approval Web answer failed: ${err?.message ?? err}`);
+        return 'unavailable';
+      });
+
+    const ensured = await ensureBridge(ws);
+    if (!ensured) {
+      void webAnswer.finally(cleanupForward);
+      return webAnswer;
+    }
+    const { bridge, channel, targetOpenId } = ensured;
+    if (localAbort.signal.aborted) {
+      void webAnswer.finally(cleanupForward);
+      return webAnswer;
+    }
+
+    const title = agent.session?.title ? `DSH 权限审批 · ${agent.session.title}` : 'DSH 权限审批';
+    const detail = approvalReason(request);
+
+    let pending;
+    try {
+      pending = await bridge.createApproval({
+        sessionId: agent.session?.id ?? agent.id,
+        task: title,
+        kind: 'permission',
+        title,
+        toolName: toolName ?? 'unknown',
+        expiryMinutes: bridge.config.permissionExpiryMinutes ?? 10,
+        questions: [{
+          id: 'permission',
+          question: detail,
+          detail,
+          options: [{ label: '允许一次' }, { label: '拒绝' }],
+        }],
+        targetOpenId,
+        channel,
+      });
+    } catch (err) {
+      const message = String(err?.message ?? err);
+      logger?.error?.('[im-bridge] 创建飞书权限审批失败:', message);
+      appendImAudit(ws, {
+        type: 'notify-failed',
+        result: 'error',
+        error: message.slice(0, 500),
+        tool: toolName,
+      });
+      void webAnswer.finally(cleanupForward);
+      return webAnswer;
+    }
+
+    const imAnswer = bridge.waitForDecision(pending, { signal: localAbort.signal });
+    const winner = await Promise.race([
+      webAnswer.then((outcome) => ({ source: 'web', outcome })),
+      imAnswer.then((outcome) => ({ source: 'im', outcome })),
+    ]);
+
+    if (winner.source === 'web' && winner.outcome !== 'unavailable') {
+      // Web 先答（或 turn 被取消）：撤掉飞书卡片，按 Web 的结果返回。
+      await bridge.cancelApproval(pending.approvalId, '已在 DSH 处理');
+      cleanupForward();
+      return winner.outcome;
+    }
+
+    if (winner.source === 'web') {
+      // 没有可用的 Web 回答者（next() 直接返回 unavailable），继续等飞书。
+      const outcome = await imAnswer;
+      cleanupForward();
+      return outcome;
+    }
+
+    // 飞书先答：只收起 Web 卡片，不取消整个 turn。
+    localAbort.abort(new Error('approval answered on IM'));
+    void webAnswer.catch(() => {});
+    cleanupForward();
+    return winner.outcome;
+  };
+
+  // 同一个 request 只处理一次（global 监听可能被多次触发）
   const handleQuestion = (request, next) => {
     const existing = handledRequests.get(request);
     if (existing) return existing;
@@ -235,9 +358,18 @@ export function installImBridge(ctx) {
     handledRequests.set(request, pending);
     return pending;
   };
+  const handleApproval = (request, next) => {
+    const existing = handledApprovals.get(request);
+    if (existing) return existing;
+    const pending = processApproval(request, next);
+    handledApprovals.set(request, pending);
+    return pending;
+  };
 
-  // DSH 的 user-questions/request 是 scope-filtered waterfall：必须 global + prepend
+  // DSH 的 user-questions/request 与 approval/request 都是 scope-filtered waterfall：
+  // 必须 global + prepend，根 ctx 的普通监听收不到。
   disposers.push(ctx.on('user-questions/request', handleQuestion, { global: true, prepend: true }));
+  disposers.push(ctx.on('approval/request', handleApproval, { global: true, prepend: true }));
 
   // 清理
   disposers.push(async () => {

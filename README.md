@@ -229,9 +229,13 @@ go only to the provider you configure.
   under a personal tenant does not migrate. Fill App ID/Secret, fetch your Open ID, send a test
   message, then enable (the enable toggle saves immediately; App ID/Secret/Open ID edits still need
   the Save button). A personal tenant gets `21001 Access denied due to platform policy` when
-  requesting `tenant_access_token`. HK approvals appear in both DSH and Feishu; the first answer wins. Finish
-  one multi-question approval on one surface; "Feishu answers some, DSH finishes the rest" is
-  merged, but the reverse is not supported because DSH partial answers stay client-side.
+  requesting `tenant_access_token`. HK approvals, questions and DSH tool-permission prompts (for
+  example `danger-full-access` or an approval-gated bash call) appear in both DSH and Feishu; the
+  first answer wins. A Feishu **Allow once** grants only that one operation; the card expires after
+  10 minutes by default (configurable in IM settings). When Feishu answers first, the matching DSH
+  permission card closes automatically. Finish one multi-question approval on one surface;
+  "Feishu answers some, DSH finishes the rest" is merged, but the reverse is not supported because
+  DSH partial answers stay client-side.
 - Guards: source writes are blocked until the quality gate is recorded; destructive git commands
   (`reset --hard`, `clean -f`, `push --force`) are rejected
 
@@ -343,6 +347,14 @@ the next card is sent after the current one is answered. If it is configured but
 `notify-failed` / `connect-failed` with an `error`); a `started` record means check that the target
 Open ID belongs to the recipient and that the app can send messages (`im:message`). IM config
 changes are picked up on the next question; no DSH restart is required.
+
+**A DSH permission prompt (for example `danger-full-access`) did not reach Feishu?**
+Permission prompts now use the same `approval/request` bridge, but only in a workspace where Feishu
+approval notifications are enabled, and they race the DSH prompt (first answer wins). If DSH shows the
+prompt but Feishu does not, confirm the enable toggle is on and the target Open ID is yours, then check
+`.harness/local/im-audit.jsonl` for a `started` entry. Permission cards expire after 10 minutes by
+default (adjustable under **Permission approval expiry**); an expired prompt fails closed, so retry the
+operation to get a new card.
 
 **Feishu Open ID lookup fails with `21001 Access denied due to platform policy`?**
 This is a Feishu platform-policy rejection, not a wrong App ID/Secret or a plugin permission.

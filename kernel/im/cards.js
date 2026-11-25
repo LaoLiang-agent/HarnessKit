@@ -79,6 +79,54 @@ export function buildApprovalCard({ approvalId, title, detail, options, currentI
   });
 }
 
+/** DSH 工具权限审批卡片：按钮直接表达「允许一次 / 拒绝」 */
+export function buildPermissionCard({ approvalId, title, detail, toolName, expiresAt }) {
+  const elements = [];
+
+  if (toolName) {
+    elements.push({ tag: 'div', text: markdown(`**工具**：\`${toolName}\``) });
+  }
+  if (detail) {
+    elements.push({ tag: 'div', text: markdown(detail) });
+  }
+
+  elements.push({ tag: 'hr' });
+  elements.push({
+    tag: 'div',
+    text: markdown('允许一次只对本次操作生效；拒绝后该工具调用会失败。'),
+  });
+  elements.push({
+    tag: 'action',
+    actions: [
+      {
+        tag: 'button',
+        text: plainText('允许一次'),
+        type: 'primary',
+        width: 'fill',
+        value: { action: `${approvalId}:0:0` },
+      },
+      {
+        tag: 'button',
+        text: plainText('拒绝'),
+        type: 'danger',
+        width: 'fill',
+        value: { action: `${approvalId}:0:1` },
+      },
+    ],
+  });
+
+  if (expiresAt) {
+    const mins = Math.max(1, Math.round((expiresAt - Date.now()) / 60000));
+    elements.push({ tag: 'div', text: markdown(`\n⏱ 有效期约 ${mins} 分钟`) });
+  }
+
+  return JSON.stringify({
+    config: { wide_screen_mode: true },
+    header: { title: plainText(title), template: 'orange' },
+    elements,
+  });
+}
+
 /** 结果卡片（已处理/已过期/无权限/请补充说明） */
 export function buildResultCard({ title, resultText, template = 'grey' }) {
   return JSON.stringify({
