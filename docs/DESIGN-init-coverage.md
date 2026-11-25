@@ -37,6 +37,7 @@
 5. `build.json` 增加 `install` / `lint`，并提供 `--write-build` 建议机制。
 6. CodeGraph 默认不自动全局安装；缺失时只 WARN，可跳过。
 7. 计划与完整性校验共用 `lib.enumerate_projects` / `lib.detect_project`。
+8. `codebase-guide/overview.md` 自动写入确定性子工程地图（只改标记块）。
 
 ### 2.2 非目标（后续）
 
@@ -44,7 +45,7 @@
 - 不做任意 monorepo 的模块级构建编排。
 - 不自动猜测 `start-ok` / `start-port` 并当事实。
 - 不改发布流程、不改版本号。
-- `codebase-guide` 深文档生成、已有 AGENTS 缺口补齐留到 P1；根 AGENTS 地图同步已实现。
+- `codebase-guide` 架构散文、已有 AGENTS 缺口补齐留到 P1；子工程地图与根 AGENTS 同步已实现。
 
 ---
 
@@ -350,7 +351,9 @@ CodeGraph 是**可选增强**，不是质量门：
 
 ---
 
-## 12. 根 AGENTS 子工程地图同步
+## 12. 根 AGENTS 与架构总览同步
+
+### 12.1 根 AGENTS 子工程地图
 
 `runInit` 首次创建根 `AGENTS.md` 时写入标记块：
 
@@ -373,6 +376,20 @@ CodeGraph 是**可选增强**，不是质量门：
 
 同时修复：`addSource` 对“已登记且目录存在但不是 git 仓库”的路径不再重复写入一条 source。
 
+### 12.2 codebase-guide/overview.md
+
+`harness_init.py --write-overview [--tier ...] [--dry-run]`：
+
+- 优先读 `.harness/.logs/workflow/harness-init-plan.json`（保留 init 确认时的 tier）；
+- 写入 `<!-- hk:overview:begin/end -->` 标记块，列为：子工程、技术栈、构建工具、角色、档位、路径；
+- 有标记 → 只替换块内，块外散文/人工内容保留；
+- 无标记 → 追加独立章节（首次接管），不覆盖原文；
+- 文件不存在 → 创建最小骨架 + 地图；
+- 无子工程/缺失来源也如实写入；
+- 重复执行内容不变则报「未变化」，不写盘。
+
+该阶段只写机器事实，不生成架构散文；散文 TODO 仍由人/AI 补全。
+
 ## 13. 兼容性
 
 - Plan 增加 `schema=2`、`summary`、`missing_sources`、`tier`、`template_kind`、`modules_enabled`、`build_suggestion`；保留旧字段。
@@ -388,14 +405,14 @@ CodeGraph 是**可选增强**，不是质量门：
 | 文件 | 改动 |
 |---|---|
 | `packs/ai-coding/assets/scripts/lib.py` | 枚举、探测、模板解析、模块、构建建议、CodeGraph opt-in |
-| `packs/ai-coding/assets/scripts/harness_init.py` | plan v2、三档、generic、`--write-build` |
+| `packs/ai-coding/assets/scripts/harness_init.py` | plan v2、三档、generic、`--write-build`、`--write-overview` |
 | `packs/ai-coding/assets/scripts/codebase_guide_init.py` | descriptor 驱动、generic 不跳过、tier 检查 |
 | `packs/ai-coding/assets/scripts/check_codegraph.py` | `--optional` / `--allow-install`、配置、自定义路径 |
 | `packs/ai-coding/assets/scripts/run_field.py` | `install` / `lint` |
 | `packs/ai-coding/assets/scripts/verify.py` | Gradle/Python/Rust 构建兜底 |
 | `packs/ai-coding/assets/templates/generic/*` | 新增 3 个模板 |
 | `packs/ai-coding/assets/templates/**/build.tmpl` | 增加 install/lint 空键 |
-| `packs/ai-coding/flows/init.yml` | 三档、构建确认、install 验证、CodeGraph 可选 |
+| `packs/ai-coding/flows/init.yml` | 三档、构建确认、install 验证、overview 写入、CodeGraph 可选 |
 | `packs/ai-coding/agents/project-manager.md` | CodeGraph 不自动安装 |
 | `kernel/commands.js` | init 描述 |
 | `README*.md` / `docs/DETAIL*.md` | 修正初始化承诺 |
@@ -433,7 +450,8 @@ code/custom/         自定义 path（kit.sources）
 - `--write-build` 识别 pnpm/scripts，且不覆盖人工非默认值；
 - 根 AGENTS 标记块随 `addSource` 更新、块外人工内容不变；无标记旧文件不改写；
 - CodeGraph 缺失时 `--optional` 只 WARN；
-- 完整性校验覆盖 generic 项目。
+- 完整性校验覆盖 generic 项目；
+- overview 标记块写入、人工内容保留、重复执行不改写。
 
 回归：`npm test`、`npm run pack:check`。
 
@@ -441,12 +459,11 @@ code/custom/         自定义 path（kit.sources）
 
 ## 16. 后续（P1/P2）
 
-1. `codebase-guide/overview.md` 写入确定性子工程地图。
-2. 已有 `AGENTS.md` 的章节缺口分析 + 只追加修复。
-3. 专用模板：Gradle、React/Next/Nest、Go、Python、Rust。
-4. 模块级构建配置（monorepo / 多 App）。
-5. 生成物版本标记与漂移检查（`init --check`）。
-6. 文档质量评估 fixture（命令真实、无编造、长度上限）。
+1. 已有 `AGENTS.md` 的章节缺口分析 + 只追加修复。
+2. 专用模板：Gradle、React/Next/Nest、Go、Python、Rust。
+3. 模块级构建配置（monorepo / 多 App）。
+4. 生成物版本标记与漂移检查（`init --check`）。
+5. 文档质量评估 fixture（命令真实、无编造、长度上限）。
 
 ---
 
@@ -458,6 +475,7 @@ code/custom/         自定义 path（kit.sources）
 - [x] build 建议可审计，人工值不被覆盖
 - [x] CodeGraph 不自动全局安装，可跳过
 - [x] 根 AGENTS 地图随 addSource 增量更新，不动人工内容；旧版 HK 文件可自动补标记
+- [x] overview 子工程地图只改标记块，人工正文保留
 - [x] 校验与计划同源
 - [x] 多语言 fixture 通过
 - [x] 未改版本号、未打 tag、未 npm publish

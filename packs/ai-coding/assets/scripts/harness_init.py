@@ -7,6 +7,8 @@
 #       探测并写 .harness/.logs/workflow/harness-init-plan.json（AI 读文件）
 #   python3 harness_init.py --json [--tier ...]
 #       计划打到 stdout，不落盘
+#   python3 harness_init.py --write-overview [--tier minimal|standard|full] [--dry-run]
+#       把确定性子工程地图写入 .harness/codebase-guide/overview.md（只改标记块）
 #   python3 harness_init.py --write-build <子工程|路径> [--dry-run]
 #       [--keys install,compile,test,lint] [--keep-template-defaults]
 #       把推断出的构建命令写入 <子工程>/.harness/build.json；不覆盖人工定制的非默认值
@@ -26,6 +28,9 @@ from pathlib import Path
 import lib
 
 PLAN_PATH = Path(".harness") / ".logs" / "workflow" / "harness-init-plan.json"
+OVERVIEW_PATH = Path(".harness") / "codebase-guide" / "overview.md"
+OVERVIEW_BEGIN = "<!-- hk:overview:begin -->"
+OVERVIEW_END = "<!-- hk:overview:end -->"
 TIER_ORDER = {"minimal": 0, "standard": 1, "full": 2}
 BUILD_KEYS = ("install", "compile", "test", "lint")
 
@@ -192,6 +197,87 @@ def _write_plan(root: Path, plan: dict) -> Path:
     return out
 
 
+def _cell(value) -> str:
+    return str(value if value is not None else "").replace("|", "\\|").replace("\n", " ")
+
+
+def _overview_block(plan: dict) -> str:
+    """只写机器事实：子工程、技术栈、构建工具、角色、档位、路径。"""
+    rows = []
+    for p in plan.get("subprojects") or []:
+        stack = p.get("service_type") or p.get("type") or "unknown"
+        fw = p.get("framework") or ""
+        if fw and fw != stack and fw not in ("java", "python", "go", "rust", "dotnet", "gradle"):
+            stack = f"{stack} ({fw})"
+        rows.append("| {name} | {stack} | {tool} | {role} | {tier} | `{path}` |".format(
+            name=_cell(p.get("name")),
+            stack=_cell(stack),
+            tool=_cell(p.get("build_tool") or "—"),
+            role=_cell(p.get("role") or "unknown"),
+            tier=_cell(p.get("tier") or "—"),
+            path=_cell(p.get("path")),
+        ))
+    if not rows:
+        rows.append("| （未发现子工程） | — | — | — | — | — |")
+    lines = [
+        OVERVIEW_BEGIN,
+        "| 子工程 | 技术栈 | 构建工具 | 角色 | 档位 | 路径 |",
+        "|---|---|---|---|---|---|",
+        *rows,
+    ]
+    missing = plan.get("missing_sources") or []
+    if missing:
+        lines += ["", "> 未找到的登记来源：" + "、".join(f"`{_cell(m.get('path'))}`" for m in missing)]
+    lines.append(OVERVIEW_END)
+    return "\n".join(lines)
+
+
+def _load_overview_plan(root: Path, tier_override: str) -> dict:
+    if not tier_override:
+        try:
+            plan = json.loads((root / PLAN_PATH).read_text(encoding="utf-8"))
+            if isinstance(plan, dict) and plan.get("schema") == 2 and isinstance(plan.get("subprojects"), list):
+                return plan
+        except (OSError, json.JSONDecodeError):
+            pass
+    return generate_plan(root, tier_override)
+
+
+def write_overview(root: Path, tier_override: str = "", dry_run: bool = False) -> int:
+    """把确定性子工程地图写入 .harness/codebase-guide/overview.md 的标记块。
+
+    - 有标记 → 只替换块内；块外散文/人工内容保留；
+    - 无标记 → 追加一个独立章节（首次接管），不覆盖原文；
+    - 文件不存在 → 创建最小骨架 + 地图。
+    """
+    plan = _load_overview_plan(root, tier_override)
+    block = _overview_block(plan)
+    target = root / OVERVIEW_PATH
+    old = target.read_text(encoding="utf-8") if target.is_file() else ""
+    if not old:
+        new = ("# 项目架构总览\n\n"
+               "> 由 Harness Kit 维护：子工程地图自动更新，架构描述由人/AI 补全。\n\n"
+               "## 子工程地图（Harness Kit 自动维护）\n\n" + block + "\n")
+    elif OVERVIEW_BEGIN in old and OVERVIEW_END in old and old.index(OVERVIEW_BEGIN) < old.index(OVERVIEW_END):
+        b = old.index(OVERVIEW_BEGIN)
+        e = old.index(OVERVIEW_END) + len(OVERVIEW_END)
+        new = old[:b] + block + old[e:]
+    else:
+        new = old.rstrip() + "\n\n## 子工程地图（Harness Kit 自动维护）\n\n" + block + "\n"
+    if dry_run:
+        print(block)
+        return 0
+    if new == old:
+        print(f"未变化：{OVERVIEW_PATH.as_posix()}（{len(plan.get('subprojects') or [])} 个子工程）")
+        return 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(".md.tmp")
+    tmp.write_text(new, encoding="utf-8")
+    os.replace(tmp, target)
+    print(f"✅ {OVERVIEW_PATH.as_posix()}: 已写入 {len(plan.get('subprojects') or [])} 个子工程的地图")
+    return 0
+
+
 def _resolve_target(root: Path, target: str):
     refs, _ = lib.enumerate_projects(root)
     norm = target.replace("\\", "/").strip().strip("/")
@@ -209,8 +295,13 @@ def _parse_args(argv: list) -> dict:
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a in ("--detect", "--json", "--write-build", "write-build"):
-            opts["mode"] = "--json" if a == "--json" else "--write-build" if "write" in a else "--detect"
+        if a in ("--detect", "--json", "--write-build", "write-build", "--write-overview"):
+            if a == "--json":
+                opts["mode"] = "--json"
+            elif a == "--write-overview":
+                opts["mode"] = "--write-overview"
+            else:
+                opts["mode"] = "--write-build" if "write" in a else "--detect"
         elif a == "--tier" and i + 1 < len(argv):
             opts["tier"] = argv[i + 1]
             i += 1
@@ -311,6 +402,8 @@ def write_build(root: Path, target: str, keys: list, dry_run: bool,
 def main():
     opts = _parse_args(sys.argv[1:])
     root = lib.ROOT
+    if opts["mode"] == "--write-overview":
+        return write_overview(root, opts["tier"], opts["dry_run"])
     if opts["mode"] == "--write-build":
         if not opts["target"]:
             print("用法: python3 .harness/scripts/harness_init.py --write-build <子工程|路径> [--dry-run]")

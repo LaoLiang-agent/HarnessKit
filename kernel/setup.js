@@ -445,7 +445,7 @@ export async function runInit(ws, { assets, branch, sources = [], onProgress } =
       '| 文件 | 内容 |',
       '|---|---|',
       '| `index.md` | 本文件 — 路由表 |',
-      '| `overview.md` | 项目架构总览（技术栈、目录结构、子工程关系），由 `/hk-init` 流程据实补全 |',
+      '| `overview.md` | 项目架构总览（子工程地图由 `/hk-init` 自动维护，架构散文由人/AI 补全） |',
       '',
     ].join('\n')],
     // overview.md 预置骨架：对应旧框架「框架模板预置 + 人/AI 逐步补全」约定，

@@ -72,6 +72,13 @@ stages:
       - 对每个确认生成的子工程派发一个 subagent：模板 root-AGENTS.tmpl（存量工作区若只有 root-CLAUDE.tmpl 则兼容）全文 + 目标代码目录 + 输出 <子工程>/AGENTS.md；仅当 AGENTS.md 和 CLAUDE.md 都不存在时生成，已有任一则跳过
       - 通用模板要求 ≤80 行、只写可验证事实；无法确认的章节写「未确认（需人工补充）」，禁止编造
       - 「参考文档」段必须列 docs/CODE_STANDARDS.md（standard/full 档）—— 模板已写死该引用；minimal 档如无该文件，如实说明
+  - name: 架构总览
+    actor: PM
+    do:
+      - 运行 `python3 .harness/scripts/harness_init.py --write-overview`
+      - 只写 `.harness/codebase-guide/overview.md` 的 `<!-- hk:overview:begin/end -->` 标记块：子工程、技术栈、构建工具、角色、档位、路径
+      - 不写架构散文、不编造模块关系；已有标记只替换块内，块外内容原样保留
+      - 文件没有标记时追加独立章节（首次接管），不覆盖原文；写入/未变化结果如实汇报
   - name: 模块级 AGENTS.md
     actor: PM
     do:

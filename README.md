@@ -62,7 +62,7 @@ would otherwise rediscover every time:
 - a root `AGENTS.md`; existing `CLAUDE.md` is left untouched and also read by DSH; its source map is updated when repositories are added (marker block only, manual content preserved; legacy generated files get markers added automatically)
 - per-repository `AGENTS.md` (or an existing `CLAUDE.md`) and `<repo>/.harness/build.json`
 - `docs/CODE_STANDARDS.md` (standard/full) and module-level `AGENTS.md` (full only)
-- `codebase-guide/`: workspace architecture skeleton, filled in on demand
+- `codebase-guide/`: workspace architecture skeleton; the sub-project map is maintained by init, prose is filled in on demand
 - per-repository `.codegraph/` (optional): class, method and call-chain indexes
 - `.harness/scripts`, `rules`, `templates`: board, health checks, spec lint and coding baselines
 

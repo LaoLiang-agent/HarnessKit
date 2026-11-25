@@ -3111,6 +3111,15 @@ section('初始化：多语言探测 / 三档生成 / build 建议');
   ok('自定义 path 可见且路径正确', by.custom.path === 'code/custom');
   ok('缺失来源如实报告', plan.missing_sources.some((w) => w.path === 'services/gone'));
 
+  // 架构总览：只写标记块，保留人工内容
+  fs.appendFileSync(path.join(ws, '.harness/codebase-guide/overview.md'), '\n人工架构说明。\n');
+  const ov = execFileSync(python, [script, '--write-overview'], { cwd: ws, encoding: 'utf8' });
+  const ovText = fs.readFileSync(path.join(ws, '.harness/codebase-guide/overview.md'), 'utf8');
+  ok('overview 写入子工程地图', ov.includes('已写入') && ovText.includes('<!-- hk:overview:begin -->') && ovText.includes('| custom | go |') && ovText.includes('| dotnet | dotnet |'));
+  ok('overview 保留人工内容', ovText.includes('人工架构说明。'));
+  const ovAgain = execFileSync(python, [script, '--write-overview'], { cwd: ws, encoding: 'utf8' });
+  ok('overview 重复执行不重复写', ovAgain.includes('未变化'));
+
   // --tier full 只影响本次计划
   execFileSync(python, [script, '--detect', '--tier', 'full'], { cwd: ws, encoding: 'utf8' });
   const full = JSON.parse(fs.readFileSync(path.join(ws, '.harness/.logs/workflow/harness-init-plan.json'), 'utf8'));
