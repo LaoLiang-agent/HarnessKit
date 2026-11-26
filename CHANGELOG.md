@@ -17,6 +17,7 @@ All notable changes to Harness Kit are documented here. The format follows
   避免文档已归档但 `.harness` 长期处于未提交状态。
 - 归档文档/看板先以 `archive(<任务>): R<N> 归档文档与看板` 落本地提交；通用
   `harness: sync <时间>` 仅承载其他同步脏文件，便于从历史中定位某次任务归档。
+- 资产同步提交信息使用本地时间，不再出现看板 10:21、提交 02:21 的 UTC 时差。
 - 新增 Gradle/Kotlin、Node（React/Next/Nest/Express）、Go、Python、Rust 专用模板；
   Gradle 多模块从 `settings.gradle(.kts)` 的 `include` 发现子项目，Go/Python/Rust 走
   backend 文档形态。

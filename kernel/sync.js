@@ -10,6 +10,12 @@ import { runGit } from './exec.js';
 const APPEND_ONLY_FILES = new Set(['memory/index.md', 'specs/_index.md', 'tasks/board.md', 'tasks/claims.json']);
 const APPEND_ONLY_RE = /^deliverables\/_archive\/[^/]+\/rounds\.md$/;
 
+/** 本地时间戳（git 提交信息用本地时间，避免 UTC 与看板时间差 8 小时）。 */
+function localStamp(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export function isAppendOnly(rel) {
   return APPEND_ONLY_FILES.has(rel) || APPEND_ONLY_RE.test(rel);
 }
@@ -265,7 +271,7 @@ export async function syncAssets(ws, kit, { allowDeletions = false, paths = null
   }
   if ((await g(['status', '--porcelain'])).stdout.trim()) {
     await g(stageArgs);
-    const msg = `harness: sync ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+    const msg = `harness: sync ${localStamp()}`;
     const c = await g(['commit', '-m', msg]);
     if (c.code !== 0) return fail(`自动提交失败：\n${c.stderr || c.stdout}`);
     steps.push(`自动提交本地变更（\`${msg}\`）`);
