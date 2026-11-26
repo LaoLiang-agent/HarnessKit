@@ -21,14 +21,14 @@ Harness Kit 是 **DSH 插件包**，不是独立应用。请安装到 DeepSeek H
 ### 应用内安装（推荐）
 
 1. 打开 **DSH → Plugins → Add plugin**
-2. 输入 `dsh-harness-kit@0.3.2`
+2. 输入 `dsh-harness-kit@0.3.3`
 3. 安装后启用 bundle；如果 DSH 提示重启，完全退出并重新打开 DSH
 4. 在侧栏打开 **Harness Kit** → 「＋ 工作区」→ 创建并初始化工作区
 
 ### 命令行安装
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.3.2
+dsh plugin --profile desktop add dsh-harness-kit@0.3.3
 ```
 
 需要先完全退出 DSH Desktop；其他 profile 把 `desktop` 换成实际名称。

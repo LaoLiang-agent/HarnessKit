@@ -6,6 +6,8 @@ All notable changes to Harness Kit are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-26
+
 ### Added
 
 - 归档冲突支持界面化恢复：冲突现场保留在本机 detached 工作树，面板/会话给出
@@ -451,6 +453,7 @@ First public release.
 - Screenshots of the war-room panel, the new-workspace wizard and the task dialog, rendered from a
   sample workspace; declared in `screenshots.json` for marketplace storefronts.
 
+[0.3.3]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.3
 [0.3.2]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.2
 [0.3.1]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.1
 [0.3.0]: https://github.com/LaoLiang-agent/HarnessKit/releases/tag/v0.3.0

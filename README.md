@@ -26,14 +26,14 @@ Harness Kit is a **DSH plugin bundle**, not a standalone app. Install it into De
 ### In the app (recommended)
 
 1. Open **DSH → Plugins → Add plugin**
-2. Enter `dsh-harness-kit@0.3.2`
+2. Enter `dsh-harness-kit@0.3.3`
 3. Install, then enable the bundle. If DSH asks to restart, fully quit and reopen DSH
 4. Open **Harness Kit** in the sidebar → **＋ Workspace** → create and initialize a workspace
 
 ### Command line
 
 ```sh
-dsh plugin --profile desktop add dsh-harness-kit@0.3.2
+dsh plugin --profile desktop add dsh-harness-kit@0.3.3
 ```
 
 Quit DSH Desktop first; replace `desktop` with your profile name for other profiles.
