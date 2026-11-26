@@ -54,7 +54,7 @@ Project Manager（当前会话 Lead，编排与看板）、Business Analyst（`r
 
 四个日常入口是 `/hk init`、`/hk task`、`/hk close`、`/hk doctor`；旧 `/hk-*` 命令保留为高级别名。
 
-`/hk close` 默认开启 `worktree.autoClose`（新工作区默认）：先按 `targetSync`（默认 `safe`，只做本地同步）把本地目标对齐 `origin`，再把干净任务分支本地合入、释放 slot 并删除任务分支。不会自动 push；冲突、目标脏或分叉会在归档前停下，任务保持活跃。`--no-merge` 只归档文档，`--dry-run` 只预演。
+`/hk close` 默认开启 `worktree.autoClose`（新工作区默认）：先按 `targetSync`（默认 `safe`，只做本地同步）把本地目标对齐 `origin`，再把干净任务分支本地合入、释放 slot 并删除任务分支。不会自动 push。冲突时把现场保留在本机 detached 工作树，面板/会话给出“保留目标版本 / 保留任务版本 / 手动处理 / 暂不归档”，解决后用 `--continue` 提交合并并继续归档，或 `--abort` 清理；目标脏或分叉仍在归档前停下。`--no-merge` 只归档文档，`--dry-run` 只预演。
 
 每次归档会在 `.harness/deliverables/_archive/<任务>/metrics/R<N>.json` 留下本轮统计：实际 provider/model/推理等级、轮次、token 分项、活动耗时、工具失败与覆盖率。面板的「查看运行记录」使用同一采集函数；只收元数据，不记录 prompt、消息正文或原始 session id。历史任务没有自动补录。
 

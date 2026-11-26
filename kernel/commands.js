@@ -14,6 +14,7 @@ import { assetsLayout, syncAssets } from './sync.js';
 import { claimTask } from './panel.js';
 import { clearAdvanceMarks } from './advance.js';
 import { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, ensureBaselineMirrors, renderAnalysisNotice, ensureTaskAnalysisWorktrees, removeTaskAnalysisWorktrees, parseBaseSpec, describeMainWorktree, recordDecision, clearDecision, readWorkspaces, mergeTaskBranches, reconcileArchivedWorktrees } from './worktree.js';
+import { readTaskArchiveConflict, setTaskArchiveConflict, clearTaskArchiveConflict, abortArchiveConflict, applyConflictChoice, commitArchiveConflict, buildConflictDecision, buildManualDecision, conflictSummaryLines } from './archive-conflict.js';
 import { acquireTestEnv, releaseTestEnv, describeTestEnv } from './te.js';
 import { discoverAll, discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
 import { recordTaskSession } from './bindings.js';
@@ -697,13 +698,22 @@ async function hkArchive({ agent, rawInput, ctx }) {
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
   const { flags, positional } = parseArgs(rawInput);
   const task = positional[0];
-  if (!task) return err('用法：/hk-archive <任务名> [--merge [仓:分支,…]] [--no-merge] [--dry-run]');
+  if (!task) return err('用法：/hk-archive <任务名> [--merge [仓:分支,…]] [--no-merge] [--dry-run] [--resolve recommended|ours|theirs|manual|--continue|--abort]');
   // 合入确认（B 方案，2026-11-17）：--merge = 人显式确认要把任务分支本地合入目标基线；
   // 可带 repo:branch 覆盖目标（不带则用任务创建时指定的基线）。合并只做本地提交，不推送。
   const mergeAsked = flags.merge !== undefined;
   const noMerge = flags['no-merge'] === true;
   const dryRun = flags['dry-run'] === true;
+  const resolveMode = typeof flags.resolve === 'string' ? flags.resolve.trim() : null;
+  const continueConflict = flags.continue === true;
+  const abortConflict = flags.abort === true;
   if (mergeAsked && noMerge) return err('`--merge` 与 `--no-merge` 不能同时使用。');
+  if ([resolveMode, continueConflict, abortConflict].filter(Boolean).length > 1) {
+    return err('`--resolve`、`--continue`、`--abort` 一次只能用一个。');
+  }
+  if ((resolveMode || continueConflict) && noMerge) {
+    return err('`--resolve` / `--continue` 不能与 `--no-merge` 同时使用。');
+  }
   const mergeOverrides = mergeAsked && typeof flags.merge === 'string' ? parseBaseSpec(flags.merge) : {};
   // 0.2.0：autoClose 取代 autoMergeClean（旧键兼容）；只做本地合并，不推送。
   const autoClose = kit.worktree?.autoClose === true || kit.worktree?.autoMergeClean === true;
@@ -712,6 +722,50 @@ async function hkArchive({ agent, rawInput, ctx }) {
   const mergeOpts = { syncTarget: targetSync, dryRun };
 
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);
+  // 归档冲突恢复：冲突现场是本机临时工作树，文档尚未归档，任务保持活跃。
+  // 选项由 buildConflictDecision 生成，面板读 decisions.json 渲染为按钮。
+  let pendingConflict = readTaskArchiveConflict(ws, task);
+  if (abortConflict) {
+    const aborted = await abortArchiveConflict(ws, task);
+    clearDecision(ws, task);
+    return aborted.ok ? ok(aborted.text) : err(`中止归档冲突失败：${aborted.error}`);
+  }
+  if (continueConflict) {
+    if (!pendingConflict) return err(`任务 ${task} 没有待继续的归档冲突。`);
+    const committed = await commitArchiveConflict(ws, task);
+    if (!committed.ok) return err(`归档冲突尚未解决：${committed.error}\n修复后重跑 \`/hk-archive ${task} --continue\`；或 \`/hk-archive ${task} --abort\` 放弃合并。`);
+    clearDecision(ws, task);
+    return resumeArchiveAfterConflict(agent, ctx, task, committed);
+  }
+  if (resolveMode) {
+    if (!pendingConflict) return err(`任务 ${task} 没有待处理的归档冲突。`);
+    if (!['recommended', 'ours', 'theirs', 'manual'].includes(resolveMode)) {
+      return err('`--resolve` 只支持 recommended / ours / theirs / manual。');
+    }
+    if (resolveMode === 'manual') {
+      const d = buildManualDecision(task, pendingConflict);
+      recordDecision(ws, task, d);
+      return decision(d.text, d.code, d.options);
+    }
+    const applied = await applyConflictChoice(ws, task, resolveMode);
+    if (!applied.ok) return err(`保留版本失败：${applied.error}\n可改用 \`/hk-archive ${task} --resolve manual\` 手动处理。`);
+    const committed = await commitArchiveConflict(ws, task);
+    if (!committed.ok) return err(`提交冲突解决失败：${committed.error}\n修复后重跑 \`/hk-archive ${task} --continue\`；或 \`/hk-archive ${task} --abort\` 放弃合并。`);
+    clearDecision(ws, task);
+    return resumeArchiveAfterConflict(agent, ctx, task, committed);
+  }
+  if (pendingConflict) {
+    if (noMerge) {
+      // 用户明确只要文档：先清理 merge 现场，再走 --no-merge 旧路径，避免留下半合并工作树。
+      await abortArchiveConflict(ws, task);
+      clearDecision(ws, task);
+      pendingConflict = null;
+    } else {
+      const d = buildConflictDecision(task, pendingConflict);
+      recordDecision(ws, task, d);
+      return decision(d.text, d.code, d.options);
+    }
+  }
   // 活跃任务归档前先清理其他已归档残留；残留收尾（taskDir 不存在）不能先清理，
   // 否则 releaseTaskWorkspaces 的 ledger 入口会被提前删掉。
   if (fs.existsSync(taskDir)) await reconcileArchivedQuiet(ws, kit);
@@ -721,7 +775,15 @@ async function hkArchive({ agent, rawInput, ctx }) {
     // 此时活目录已清，正常预检必然失败；这里识别为「只做工作区释放」的收尾模式。
     const wl = readWorkspaces(ws);
     if (wl.tasks?.[task]) {
-      const mg = shouldMerge ? await mergeTaskBranches(ws, kit, task, mergeOverrides, mergeOpts) : null;
+      const mg = shouldMerge ? await mergeTaskBranches(ws, kit, task, mergeOverrides, { ...mergeOpts, onConflict: 'hold' }) : null;
+      if (mg) {
+        const record = persistHeldConflicts(ws, task, mg);
+        if (record) {
+          const d = buildConflictDecision(task, record);
+          recordDecision(ws, task, d);
+          return decision(d.text, d.code, d.options);
+        }
+      }
       if (dryRun) {
         return ok(`/hk-archive ${task} 收尾预演（dry-run，未改动任何 ref）：\n${(mg ? mergeLines(mg) : ['（未启用自动收尾）']).join('\n')}`);
       }
@@ -810,8 +872,20 @@ async function hkArchive({ agent, rawInput, ctx }) {
   }
   let mgBefore = null;
   if (shouldMerge) {
-    mgBefore = await mergeTaskBranches(ws, kit, task, mergeOverrides, mergeOpts);
-    if (mgBefore.conflicts.length > 0 || mgBefore.refused.length > 0) {
+    mgBefore = await mergeTaskBranches(ws, kit, task, mergeOverrides, { ...mergeOpts, onConflict: 'hold' });
+    if (mgBefore.conflicts.length > 0) {
+      const record = persistHeldConflicts(ws, task, mgBefore);
+      if (record) {
+        const d = buildConflictDecision(task, record);
+        recordDecision(ws, task, d);
+        return decision(d.text, d.code, d.options);
+      }
+      const summary = conflictSummaryLines({ repos: mgBefore.conflicts.map((c) => ({
+        repo: c.repo, target: c.target, files: c.details ?? [],
+      })) });
+      return err(`归档未执行：工作区收尾被阻断，任务 **${task}** 仍保持活跃，文档未归档。\n${summary.join('\n')}\n${mgBefore.conflicts.map((c) => c.reason).filter(Boolean).join('\n')}\n\n修复后重跑 \`/hk-archive ${task}\`；若只想先归档文档，加 \`--no-merge\`。`);
+    }
+    if (mgBefore.refused.length > 0) {
       return err(`归档未执行：工作区收尾被阻断，任务 **${task}** 仍保持活跃，文档未归档。\n${mergeLines(mgBefore).join('\n')}\n\n修复后重跑 \`/hk-archive ${task}\`；若只想先归档文档，加 \`--no-merge\`。`);
     }
   }
@@ -869,11 +943,12 @@ async function hkArchive({ agent, rawInput, ctx }) {
   fs.rmSync(taskDir, { recursive: true, force: true });
   updateBoard(ws, task, 'DONE');
   clearAdvanceMarks(ws, task);
+  clearTaskArchiveConflict(ws, task);
+  clearDecision(ws, task);
   bindCurrentSession(ws, task, agent);
 
   // worktree 收尾：合入已在前置阶段完成；这里只释放槽位/切回基线并删除已合入分支。
   const wtResult = await releaseTaskWorkspaces(ws, kit, task);
-  clearDecision(ws, task);
   const taCleanup = await removeTaskAnalysisWorktrees(ws, kit, task);
   const staleLines = wtResult.stale.map((s) => `⚠️ ${s.source}：${s.reason}`);
   const confirmHint = wtResult.stale.length > 0
@@ -955,6 +1030,37 @@ function hkTe({ agent, rawInput }) {
   }
   if (sub === 'status') return ok(describeTestEnv(ws));
   return err('用法：/hk-te [acquire|release <任务名> | status]');
+}
+
+/** 把 mergeTaskBranches 里 held 的冲突落成本机状态；没有 held 返回 null。 */
+function persistHeldConflicts(ws, task, mg) {
+  const held = (mg?.conflicts ?? []).filter((c) => c.held);
+  if (held.length === 0) return null;
+  return setTaskArchiveConflict(ws, task, {
+    repos: held.map((c) => ({
+      repo: c.repo,
+      target: c.target,
+      branch: c.branch,
+      repoDir: c.repoDir,
+      worktree: c.worktree,
+      temp: c.temp !== false,
+      detached: c.detached === true,
+      targetWorktree: c.targetWorktree ?? null,
+      baseCommit: c.baseCommit ?? null,
+      files: c.details ?? [],
+    })),
+  });
+}
+
+/** 冲突解决后继续原归档流程；合并提交信息放在结果最上方，便于追溯。 */
+async function resumeArchiveAfterConflict(agent, ctx, task, committed) {
+  const r = await hkArchive({ agent, rawInput: task, ctx });
+  const lines = [
+    ...(committed.commits ?? []).map((c) => `✅ ${c.repo} → ${c.target} 已本地合入（commit ${c.commit}，未推送）`),
+    ...(committed.warnings ?? []).map((w) => `⚠️ ${w}`),
+  ];
+  if (lines.length === 0) return r;
+  return { ...r, text: `${lines.join('\n')}\n${r.text ?? ''}`.trim() };
 }
 
 /** 合入结果的行化输出（--merge / autoClose 用）。 */

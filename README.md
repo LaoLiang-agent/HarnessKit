@@ -269,8 +269,10 @@ go only to the provider you configure.
   each level maps a role name (preferred) or logical name (`reasoning`, `coding`, `fast`) to a
   concrete provider/model; unmapped names fall back to the session default
 - Zero-touch closeout: `/hk close` updates the target branch, merges a clean task branch locally,
-  releases the slot and deletes the merged branch. It never pushes; conflicts or ambiguous targets
-  stop before archiving. `--no-merge` archives documents only, `--dry-run` previews the plan.
+  releases the slot and deletes the merged branch. It never pushes; conflicts keep a local
+  resolution workspace (keep target / keep task / resolve manually) with `--continue` or `--abort`,
+  and ambiguous targets stop before archiving. `--no-merge` archives documents only, `--dry-run`
+  previews the plan.
 - Per-round run records: every archive writes `_archive/<task>/metrics/R<N>.json` with the actual
   provider/model/effort, token components, active duration and tool failures. The panel shows the
   same summary live. No prompts, message bodies or raw session ids are recorded.
@@ -286,7 +288,7 @@ equivalent. Four daily entries:
 |---|---|
 | `/hk init [--assets <url\|init\|local>]` | Initialize or repair `.harness/`, bind the asset repository |
 | `/hk task [<task>] <description> [--file <path>]... [--base <repo:branch,...>] [--fix]` | Start a full-flow task; repeat `--file` for materials; `--base` pins the analysis/merge base per repo; `--fix` starts the quick fix path |
-| `/hk close <task> [--merge\|--no-merge] [--dry-run]` | Archive a round, close the worktree and write run metrics |
+| `/hk close <task> [--merge\|--no-merge] [--dry-run] [--continue\|--abort]` | Archive a round, close the worktree and write run metrics; resume or clean up a conflict |
 | `/hk doctor [--fix]` | Health check; `--fix` repairs deterministic gaps |
 
 Advanced aliases remain available:

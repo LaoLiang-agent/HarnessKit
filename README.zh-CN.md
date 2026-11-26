@@ -223,7 +223,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 - 池化 worktree：多个任务同时开发时，按仓库分配复用工作区，避免分支互相污染
 - 测试环境租约：`/hk-te` 保证同一时间只有一个任务占用测试环境
 - 模型路由：`kit.json` 提供团队默认，`.harness/local/models.json` 提供本机覆盖；每级都把角色名（优先）或逻辑名（`reasoning` / `coding` / `fast`）映射到 provider/model，未映射时回退会话默认
-- 零人工收尾：`/hk close` 先同步目标基线，再把干净任务分支本地合入、释放槽位并删除已合入分支。不自动 push；冲突或目标异常在归档前停下。`--no-merge` 只归档文档，`--dry-run` 只预演。
+- 零人工收尾：`/hk close` 先同步目标基线，再把干净任务分支本地合入、释放槽位并删除已合入分支。不自动 push；冲突时保留本机现场并在面板给出保留目标/任务/手动/暂不归档，`--continue` 继续、`--abort` 清理；目标异常在归档前停下。`--no-merge` 只归档文档，`--dry-run` 只预演。
 - 每轮运行统计：归档写入 `_archive/<任务>/metrics/R<N>.json`，记录实际 provider/model/推理等级、token 分项、活动耗时和工具失败；面板可实时查看同一份汇总。不记录 prompt、消息正文或原始 session id。
 
 ---
@@ -236,7 +236,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 |---|---|
 | `/hk init [--assets <url\|init\|local>]` | 初始化/修复 `.harness/`，绑定资产仓库 |
 | `/hk task [<任务>] <描述> [--file <路径>]... [--base <仓:分支,…>] [--fix]` | 启动任务；可重复 `--file` 引用材料；`--base` 按仓固定分析与归档合入基点；`--fix` 走快速修复 |
-| `/hk close <任务> [--merge\|--no-merge] [--dry-run]` | 归档本轮、收尾工作区并写入运行统计 |
+| `/hk close <任务> [--merge\|--no-merge] [--dry-run] [--continue\|--abort]` | 归档本轮、收尾工作区并写入运行统计；冲突后可继续或清理现场 |
 | `/hk doctor [--fix]` | 体检；`--fix` 修复确定性缺件 |
 
 高级别名继续可用：

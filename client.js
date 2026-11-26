@@ -232,6 +232,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false);
       const [note, setNote] = useState(null);
       const [expanded, setExpanded] = useState(false);
+      const [refreshKey, setRefreshKey] = useState(0);
 
       useEffect(() => {
         if (!sessionId) { setData(null); return undefined; }
@@ -249,7 +250,7 @@ window.__ModuleLoader__.load({
         void load();
         const timer = setInterval(() => { void load(); }, 15000);
         return () => { cancelled = true; clearInterval(timer); };
-      }, [sessionId]);
+      }, [sessionId, refreshKey]);
 
       if (!data) return null;
       const { ws, items } = data;
@@ -263,11 +264,17 @@ window.__ModuleLoader__.load({
         try {
           const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
           const json = await res.json();
-          setNote(json?.ok ? '已提交，等待执行结果…' : (json?.error || '操作失败'));
+          setNote(json?.ok
+            ? '已提交，等待执行结果…'
+            : json?.decision
+              ? '需要你确认：请在下方选项中选择处理方式'
+              : (json?.error || '操作失败'));
         } catch (e) {
           setNote(String(e?.message ?? e));
         } finally {
           setBusy(false);
+          // 决策选项执行后尽快刷新注意力条，避免用户等 15s 轮询才看到状态变化。
+          setRefreshKey((k) => k + 1);
         }
       };
       const run = (line) => post('/harness-kit/command', { workspace: ws.id, line, sessionId });
@@ -562,7 +569,11 @@ window.__ModuleLoader__.load({
               dbgClient({ step: 'legacy-jump', ok: false, target: j.sessionId, err: String(e?.message || e) });
             }
           }
-          toast(j.ok ? `已发送到会话执行：${line}` : j.error || '失败', j.ok);
+          toast(j.ok
+            ? `已发送到会话执行：${line}`
+            : j.decision
+              ? '需要你确认归档冲突：请在「需要你」中选择处理方式'
+              : (j.error || '失败'), j.ok);
           setTimeout(fetchState, 600);
         }).catch((e) => toast(e.message, false)).finally(() => setBusy(false));
       }, [ws, toast, fetchState, openFallbackSession]);
@@ -877,7 +888,11 @@ window.__ModuleLoader__.load({
               dbgClient({ step: 'jump', ok: false, target: t.sessionId, err: String(e?.message || e) });
             }
           }
-          toast(j.ok ? `已发送到会话执行：${line}` : j.error || '失败', j.ok);
+          toast(j.ok
+            ? `已发送到会话执行：${line}`
+            : j.decision
+              ? '需要你确认归档冲突：请在「需要你」中选择处理方式'
+              : (j.error || '失败'), j.ok);
           setTimeout(fetchState, 600);
         }).catch((e) => toast(e.message, false)).finally(() => setBusy(false));
       }, [ws, uiWorkspace, run, toast, fetchState]);

@@ -269,8 +269,11 @@ export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = 
       ? { level: 'block', kind: 'sync-blocked', text: `根仓库 rebase 中途（上次冲突未处理完），需人工在 ${sync.repoRoot ?? '根仓库'} 解冲突后 git rebase --continue` }
       : { level: 'block', kind: 'sync-blocked', text: '资产同步冲突已中止回滚，需要人工合并（.harness 仓库）', sync: true });
   }
+  const archiveConflictTasks = new Set(Object.entries(decisions ?? {})
+    .filter(([, d]) => d?.code === 'archive-conflict')
+    .map(([task]) => task));
   for (const t of tasks) {
-    if (t.status === 'AWAITING_ARCHIVE') {
+    if (t.status === 'AWAITING_ARCHIVE' && !archiveConflictTasks.has(t.task)) {
       items.push({ level: 'warn', kind: 'archive', task: t.task, text: `${t.task} · 已完成待归档`, line: `/hk-archive ${t.task}` });
     }
   }
@@ -308,7 +311,7 @@ export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = 
   // 待裁决决策点（外来分支占用等）：block 级常驻，options 由面板渲染为可点按钮
   for (const [task, d] of Object.entries(decisions ?? {})) {
     items.push({
-      level: 'block', kind: 'workspace-decision', task,
+      level: 'block', kind: d?.kind ?? 'workspace-decision', task,
       text: d.text || `任务 ${task} 有待裁决决策点（${d.code}）`,
       options: Array.isArray(d.options) ? d.options : [], jump: true,
     });

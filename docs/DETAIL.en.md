@@ -79,9 +79,10 @@ Four daily entries cover the workflow: `/hk init`, `/hk task`, `/hk close`, `/hk
 
 `/hk close` enables `worktree.autoClose` by default for new workspaces. It aligns the local target
 with `origin` according to `targetSync` (default `safe`, local only), merges a clean task branch
-locally, releases the slot and deletes the merged task branch. It never pushes. Conflicts, a dirty
-target or a diverged target stop before archiving, leaving the task active. `--no-merge` archives
-documents only; `--dry-run` previews.
+locally, releases the slot and deletes the merged task branch. It never pushes. On a conflict it keeps the merge in a local detached worktree and offers
+"keep target / keep task / resolve manually / defer archive" in the panel; `--continue` commits the
+resolution and resumes archiving, `--abort` cleans it up. A dirty or diverged target still stops
+before archiving. `--no-merge` archives documents only; `--dry-run` previews.
 
 Each archive writes `.harness/deliverables/_archive/<task>/metrics/R<N>.json` with the actual
 provider/model/reasoning effort, turns, token components, active duration, tool failures and

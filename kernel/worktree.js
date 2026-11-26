@@ -26,6 +26,7 @@ import path from 'node:path';
 import { harnessDir, localStatePath } from './paths.js';
 import { runGit } from './exec.js';
 import { provisionLocalFiles } from './local-files.js';
+import { inspectConflict, updateTargetAfterDetached } from './archive-conflict.js';
 
 const ledgerPath = (ws) => localStatePath(ws, 'worktrees.json', 'tasks/worktrees.json');
 const worktreeRoot = (ws, repo) => path.join(ws, '.worktrees', repo);
@@ -435,8 +436,12 @@ async function syncTargetBranch(ws, repoDir, name, target, out, mode = 'safe') {
  * （.worktrees/<仓>/_merge）合并后删除。主工作树脏 → 拒绝该仓。
  *
  * 返回 { merged, conflicts, refused, alreadyMerged, unchanged, synced, planned, dryRun }。
+ *
+ * onConflict = 'hold' 时，把冲突现场保留在 detached 临时工作树里，并把结构化
+ * 冲突详情返回给调用方（归档命令据此生成“需要你”决策）。目标分支即使正被主
+ * 工作树 checkout，也先回滚再在 detached 工作树复现，解决后快进目标分支。
  */
-export async function mergeTaskBranches(ws, kit, task, overrides = {}, { syncTarget = 'safe', dryRun = false } = {}) {
+export async function mergeTaskBranches(ws, kit, task, overrides = {}, { syncTarget = 'safe', dryRun = false, onConflict = 'abort' } = {}) {
   const out = { merged: [], conflicts: [], refused: [], alreadyMerged: [], unchanged: [], synced: [], planned: [], dryRun: dryRun === true };
   const ledger = readWorkspaces(ws);
   const entry = ledger.tasks?.[task];
@@ -525,12 +530,58 @@ export async function mergeTaskBranches(ws, kit, task, overrides = {}, { syncTar
     }
 
     // --no-ff 合并：即使可快进也留合并提交，记录"某任务合入"
-    const mg = await runGit(['merge', '--no-ff', '-m', `harness: 合入 ${branch}（${task}）`, branch], { cwd: mergeCwd });
+    const mergeMessage = `harness: 合入 ${branch}（${task}）`;
+    const mg = await runGit(['merge', '--no-ff', '-m', mergeMessage, branch], { cwd: mergeCwd });
     if (mg.code !== 0) {
       const files = (await runGit(['diff', '--name-only', '--diff-filter=U'], { cwd: mergeCwd })).stdout.trim().split('\n').filter(Boolean);
+      const initialDetails = await inspectConflict(mergeCwd, target, branch);
+      if (onConflict === 'hold') {
+        // 冲突现场不能在目标分支持有的工作树里保留（会把主树变成 merge 中途）。
+        // 先回滚当前 merge，再在 detached 临时工作树里复现冲突；解决后把提交
+        // 快进/更新到目标分支。这样目标分支被主工作树 checkout 时也能安全恢复。
+        await runGit(['merge', '--abort'], { cwd: mergeCwd });
+        if (tempDir) {
+          await runGit(['worktree', 'remove', '--force', tempDir], { cwd: repoDir });
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+        const targetCommit = (await runGit(['rev-parse', `refs/heads/${target}`], { cwd: repoDir })).stdout.trim();
+        const holdDir = path.join(worktreeRoot(ws, name), '_merge-conflict');
+        await runGit(['worktree', 'remove', '--force', holdDir], { cwd: repoDir });
+        fs.rmSync(holdDir, { recursive: true, force: true });
+        await runGit(['worktree', 'prune'], { cwd: repoDir });
+        const add = await runGit(['worktree', 'add', '--detach', holdDir, target], { cwd: repoDir });
+        if (add.code !== 0) {
+          out.conflicts.push({
+            repo: name, target, branch, files, details: initialDetails, held: false,
+            reason: `无法创建冲突处理工作树：${(add.stderr || '').trim().split('\n')[0]}`,
+          });
+          continue;
+        }
+        const hm = await runGit(['merge', '--no-ff', '-m', mergeMessage, branch], { cwd: holdDir });
+        if (hm.code !== 0) {
+          const details = await inspectConflict(holdDir, target, branch);
+          out.conflicts.push({
+            repo: name, target, branch, repoDir, worktree: holdDir, temp: true,
+            detached: true, targetWorktree: holder ?? null, baseCommit: targetCommit,
+            files: details.map((f) => f.path), details, held: true,
+          });
+          continue;
+        }
+        // 极端情况：复现时冲突消失（例如外部已解决），直接落提交。
+        const fullHash = (await runGit(['rev-parse', 'HEAD'], { cwd: holdDir })).stdout.trim();
+        const updated = await updateTargetAfterDetached(repoDir, target, holder ?? null, targetCommit, fullHash);
+        await runGit(['worktree', 'remove', '--force', holdDir], { cwd: repoDir });
+        fs.rmSync(holdDir, { recursive: true, force: true });
+        if (!updated.ok) { out.refused.push({ repo: name, reason: updated.error }); continue; }
+        out.merged.push({ repo: name, target, commit: fullHash.slice(0, 12) });
+        continue;
+      }
       await runGit(['merge', '--abort'], { cwd: mergeCwd });
       if (tempDir) { await runGit(['worktree', 'remove', '--force', tempDir], { cwd: repoDir }); fs.rmSync(tempDir, { recursive: true, force: true }); }
-      out.conflicts.push({ repo: name, target, files });
+      out.conflicts.push({
+        repo: name, target, branch, files, details: initialDetails, held: false,
+        reason: null,
+      });
       continue;
     }
     const commit = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: mergeCwd })).stdout.trim();

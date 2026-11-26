@@ -1631,9 +1631,141 @@ section('结构化决策点（外来占用 → 可点选项 + 引擎停重试）
   const c1 = await run('hk-archive', 'task-c2', ws2);
   ok('前置：归档后槽位保留', !!readWorkspaces(ws2).tasks['task-c2']);
   const c2 = await run('hk-archive', 'task-c2 --merge', ws2);
-  ok('冲突 → 中止回滚并报冲突文件', c2.kind === 'error' && c2.text.includes('合并冲突') && c2.text.includes('same.txt'));
+  ok('冲突 → 中止回滚并报冲突文件', c2.kind === 'error' && c2.text.includes('same.txt') && (c2.text.includes('归档被') || c2.text.includes('合并冲突')));
+  const c2abort = await run('hk-archive', 'task-c2 --abort', ws2);
+  ok('残留收尾冲突也可中止清理', c2abort.kind === 'success');
   ok('冲突后基线未污染（dev 保持原提交）', git('log --oneline -1', repo2).includes('dev-change') && fs.readFileSync(path.join(repo2, 'same.txt'), 'utf8').trim() === 'from-dev');
   ok('冲突后槽位仍保留', !!readWorkspaces(ws2).tasks['task-c2']);
+}
+
+section('归档冲突：add/add 建议与手动恢复');
+{
+  // 同类真实场景：两边都新增同一文件；任务侧只是基线编译补丁。
+  const { ensureTaskWorkspaces, readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const { readTaskArchiveConflict } = await import(path.join(bundleRoot, 'kernel/archive-conflict.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  fs.mkdirSync(repo, { recursive: true });
+  git('init -b dev', repo);
+  fake(ws, 'services/backend/app.txt', 'v1');
+  git('add .', repo);
+  git('commit -m init', repo);
+  await run('hk-init', '', ws);
+  const kitPath = path.join(ws, '.harness/kit.json');
+  const kit = JSON.parse(fs.readFileSync(kitPath, 'utf8'));
+  kit.worktree = { autoClose: true, targetSync: 'off' };
+  fs.writeFileSync(kitPath, JSON.stringify(kit, null, 2) + '\n');
+  // 任务分支先从“还没有该文件”的 feat_phm 切出
+  git('branch feat_phm', repo);
+  fake(ws, '.harness/deliverables/task-r/analysis-base.json', JSON.stringify({ backend: 'feat_phm' }));
+  await ensureTaskWorkspaces(ws, kit, 'task-r');
+  // 任务侧新增该文件，提交说明是基线编译修复
+  fake(ws, 'services/backend/Type.java', 'public enum Type { A; public static Type of(String code){ return null; } }\n');
+  git('add .', repo);
+  git('commit -m "feat: task" -m "补齐基线缺失的 Type 枚举（基线编译失败）"', repo);
+  // 目标分支随后也补同一文件（真实 case 的 b1c0d34 形态）；用临时工作树避免切走任务分支
+  const targetWt = path.join(ws, '.worktrees/backend/_target-seed');
+  git(`worktree add "${targetWt}" feat_phm`, repo);
+  fs.writeFileSync(path.join(targetWt, 'Type.java'), 'public enum Type { A; public static String labelOrCode(){ return ""; } }\n');
+  git('add .', targetWt);
+  git('commit -m "缺失文件提交"', targetWt);
+  git(`worktree remove "${targetWt}"`, repo);
+  fake(ws, '.harness/deliverables/task-r/proposal.md', '# p\n\n审批 1：通过\n');
+  fake(ws, '.harness/deliverables/task-r/test-report.md', '# t\n\n## 结论\nPASS\n');
+  const conflict = await run('hk-archive', 'task-r', ws);
+  const held = readTaskArchiveConflict(ws, 'task-r');
+  ok('add/add 冲突被识别并保留现场', conflict.kind === 'error' && !!held);
+  ok('基线编译补丁给出保留目标版本建议', conflict.text.includes('建议：保留目标版本'));
+  ok('决策提供按建议继续选项', conflict.text.includes('--resolve recommended'));
+  const resolved = await run('hk-archive', 'task-r --resolve recommended', ws);
+  ok('按建议继续后归档成功', resolved.kind === 'success' && !readTaskArchiveConflict(ws, 'task-r'));
+  ok('按建议继续后目标文件仍是目标版本', fs.readFileSync(path.join(repo, 'Type.java'), 'utf8').includes('labelOrCode'));
+  ok('按建议继续后目标分支有合并提交', git('log --oneline -1', repo).includes('harness: 合入'));
+  ok('按建议继续后槽位释放', !readWorkspaces(ws).tasks['task-r']);
+}
+{
+  // --abort 清理现场；--resolve ours 一键保留目标版本并继续
+  const { ensureTaskWorkspaces, readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const { readTaskArchiveConflict } = await import(path.join(bundleRoot, 'kernel/archive-conflict.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  fs.mkdirSync(repo, { recursive: true });
+  git('init -b dev', repo);
+  fake(ws, 'services/backend/same.txt', 'base');
+  git('add .', repo);
+  git('commit -m init', repo);
+  await run('hk-init', '', ws);
+  const kitPath = path.join(ws, '.harness/kit.json');
+  const kit = JSON.parse(fs.readFileSync(kitPath, 'utf8'));
+  kit.worktree = { autoClose: true, targetSync: 'off' };
+  fs.writeFileSync(kitPath, JSON.stringify(kit, null, 2) + '\n');
+  await ensureTaskWorkspaces(ws, kit, 'task-o1');
+  await ensureTaskWorkspaces(ws, kit, 'task-o2');
+  const slot = path.join(ws, '.worktrees/backend/slot-1');
+  fake(ws, '.worktrees/backend/slot-1/same.txt', 'from-task');
+  git('add .', slot);
+  git('commit -m task-change', slot);
+  fake(ws, 'services/backend/same.txt', 'from-dev');
+  git('add .', repo);
+  git('commit -m dev-change', repo);
+  fake(ws, '.harness/deliverables/task-o2/proposal.md', '# p\n\n审批 1：通过\n');
+  fake(ws, '.harness/deliverables/task-o2/test-report.md', '# t\n\n## 结论\nPASS\n');
+  const c = await run('hk-archive', 'task-o2', ws);
+  ok('冲突决策：保留现场并给出恢复命令', c.kind === 'error' && c.text.includes('--resolve') && c.text.includes('--abort'));
+  const held = readTaskArchiveConflict(ws, 'task-o2');
+  ok('冲突决策：状态文件含冲突文件与建议字段', !!held && held.repos[0].files[0].path === 'same.txt' && 'recommendation' in held.repos[0].files[0]);
+  const aborted = await run('hk-archive', 'task-o2 --abort', ws);
+  ok('--abort：清理现场且目标不变', aborted.kind === 'success' && !readTaskArchiveConflict(ws, 'task-o2') && git('log --oneline -1', repo).includes('dev-change') && fs.readFileSync(path.join(repo, 'same.txt'), 'utf8').trim() === 'from-dev');
+  const c2 = await run('hk-archive', 'task-o2', ws);
+  ok('--abort 后可重新进入冲突处理', c2.kind === 'error' && !!readTaskArchiveConflict(ws, 'task-o2'));
+  const resolved = await run('hk-archive', 'task-o2 --resolve ours', ws);
+  ok('--resolve ours：保留目标版本并继续归档', resolved.kind === 'success' && !readTaskArchiveConflict(ws, 'task-o2'));
+  ok('--resolve ours：目标文件为目标版本', fs.readFileSync(path.join(repo, 'same.txt'), 'utf8').trim() === 'from-dev');
+  ok('--resolve ours：目标分支有合并提交', git('log --oneline -1', repo).includes('harness: 合入'));
+  ok('--resolve ours：槽位已释放', !readWorkspaces(ws).tasks['task-o2']);
+}
+
+{
+  // 手动解决：保留现场 → 编辑 → --continue 校验并继续归档
+  const { ensureTaskWorkspaces, readWorkspaces } = await import(path.join(bundleRoot, 'kernel/worktree.js'));
+  const { readTaskArchiveConflict } = await import(path.join(bundleRoot, 'kernel/archive-conflict.js'));
+  const ws = mkws();
+  cleanups.push(ws);
+  const repo = path.join(ws, 'services/backend');
+  fs.mkdirSync(repo, { recursive: true });
+  git('init -b dev', repo);
+  fake(ws, 'services/backend/same.txt', 'base');
+  git('add .', repo);
+  git('commit -m init', repo);
+  await run('hk-init', '', ws);
+  const kitPath = path.join(ws, '.harness/kit.json');
+  const kit = JSON.parse(fs.readFileSync(kitPath, 'utf8'));
+  kit.worktree = { autoClose: true, targetSync: 'off' };
+  fs.writeFileSync(kitPath, JSON.stringify(kit, null, 2) + '\n');
+  await ensureTaskWorkspaces(ws, kit, 'task-m1');
+  await ensureTaskWorkspaces(ws, kit, 'task-m2');
+  const slot = path.join(ws, '.worktrees/backend/slot-1');
+  fake(ws, '.worktrees/backend/slot-1/same.txt', 'from-task');
+  git('add .', slot);
+  git('commit -m task-change', slot);
+  fake(ws, 'services/backend/same.txt', 'from-dev');
+  git('add .', repo);
+  git('commit -m dev-change', repo);
+  fake(ws, '.harness/deliverables/task-m2/proposal.md', '# p\n\n审批 1：通过\n');
+  fake(ws, '.harness/deliverables/task-m2/test-report.md', '# t\n\n## 结论\nPASS\n');
+  const conflict = await run('hk-archive', 'task-m2', ws);
+  ok('手动场景：冲突先保留现场', conflict.kind === 'error' && !!readTaskArchiveConflict(ws, 'task-m2'));
+  const manual = await run('hk-archive', 'task-m2 --resolve manual', ws);
+  ok('手动场景：--resolve manual 返回继续/中止选项', manual.kind === 'error' && manual.text.includes('--continue') && manual.text.includes('--abort'));
+  const held = readTaskArchiveConflict(ws, 'task-m2');
+  const worktree = held.repos[0].worktree;
+  fs.writeFileSync(path.join(worktree, 'same.txt'), 'from-dev + from-task\n');
+  const continued = await run('hk-archive', 'task-m2 --continue', ws);
+  ok('手动场景：--continue 提交合并并继续归档', continued.kind === 'success' && !readTaskArchiveConflict(ws, 'task-m2'));
+  ok('手动场景：目标分支包含人工解决内容', fs.readFileSync(path.join(repo, 'same.txt'), 'utf8').includes('from-dev + from-task'));
+  ok('手动场景：槽位已释放', !readWorkspaces(ws).tasks['task-m2']);
 }
 // ---------------------------------------------------------------- 零人工收尾（0.2.0）
 section('零人工收尾：目标快进、重复收尾、失败前置、dry-run/--no-merge');
@@ -1733,7 +1865,7 @@ section('零人工收尾：目标快进、重复收尾、失败前置、dry-run/
   fake(ws, '.harness/deliverables/task-b/proposal.md', '# p\n\n审批 1：通过\n');
   fake(ws, '.harness/deliverables/task-b/test-report.md', '# t\n\n## 结论\nPASS\n');
   const c = await run('hk-archive', 'task-b', ws);
-  ok('冲突 → 归档前置失败并报冲突文件', c.kind === 'error' && c.text.includes('归档未执行') && c.text.includes('same.txt'));
+  ok('冲突 → 归档前置失败并报冲突文件', c.kind === 'error' && c.text.includes('same.txt') && (c.text.includes('归档被') || c.text.includes('归档未执行')));
   ok('冲突后任务仍活跃、文档未归档', fs.existsSync(path.join(ws, '.harness/deliverables/task-b/proposal.md')) && !!readWorkspaces(ws).tasks['task-b']);
   const nm = await run('hk-archive', 'task-b --no-merge', ws);
   ok('--no-merge 只归档文档并保留 stale 槽位', nm.kind === 'success' && nm.text.includes('已归档') && !fs.existsSync(path.join(ws, '.harness/deliverables/task-b')) && !!readWorkspaces(ws).tasks['task-b']);
