@@ -2134,6 +2134,7 @@ const { pullAssets, syncAssets } = await import(path.join(bundleRoot, 'kernel/sy
   const r6 = await run('hk-archive', 't2', ws);
   ok('归档后自动同步执行并推送', r6.kind === 'success' && r6.text.includes('自动同步') && r6.text.includes('push'));
   ok('归档产物已在远端', git('ls-tree -r --name-only main', bare).includes('deliverables/_archive/t2/rounds.md'));
+  ok('归档提交信息带任务名与轮次', git('log --format=%s -8', path.join(ws, '.harness')).includes('archive(t2): R0'));
 }
 
 // ---------------------------------------------------------------- M4 面板数据

@@ -15,6 +15,8 @@ All notable changes to Harness Kit are documented here. The format follows
   在本机决策点保留可重试提示，并在 `/hk-sync` 成功后自动清除。
 - 归档收尾剧本要求 PM 在 Spec/Memory Merge 后把独立资产仓库的变更落成本地提交，
   避免文档已归档但 `.harness` 长期处于未提交状态。
+- 归档文档/看板先以 `archive(<任务>): R<N> 归档文档与看板` 落本地提交；通用
+  `harness: sync <时间>` 仅承载其他同步脏文件，便于从历史中定位某次任务归档。
 - 新增 Gradle/Kotlin、Node（React/Next/Nest/Express）、Go、Python、Rust 专用模板；
   Gradle 多模块从 `settings.gradle(.kts)` 的 `include` 发现子项目，Go/Python/Rust 走
   backend 文档形态。

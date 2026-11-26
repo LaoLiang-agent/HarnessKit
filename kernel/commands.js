@@ -947,6 +947,10 @@ async function hkArchive({ agent, rawInput, ctx }) {
   clearTaskArchiveConflict(ws, task);
   clearDecision(ws, task);
   bindCurrentSession(ws, task, agent);
+  let assetCommit = null;
+  try { assetCommit = await commitArchiveAssets(ws, task, tag); } catch (cause) {
+    assetCommit = { error: String(cause?.message || cause).replace(/\s+/g, ' ').slice(0, 160) };
+  }
 
   // worktree 收尾：合入已在前置阶段完成；这里只释放槽位/切回基线并删除已合入分支。
   const wtResult = await releaseTaskWorkspaces(ws, kit, task);
@@ -999,6 +1003,11 @@ async function hkArchive({ agent, rawInput, ctx }) {
   }
 
   let syncHint;
+  const commitNote = assetCommit?.message
+    ? `本地资产提交：\`${assetCommit.message}\``
+    : assetCommit?.error
+      ? `⚠️ 归档资产本地提交失败：${assetCommit.error}`
+      : '';
   if (kit.assets?.autoSync === true && fs.existsSync(path.join(harnessDir(ws), '.git'))) {
     const r = await syncAssets(ws, kit);
     if (r.kind === 'success') {
@@ -1022,7 +1031,7 @@ async function hkArchive({ agent, rawInput, ctx }) {
         ? `资产随工作区根仓库管理（\`${lay.repoRoot}\`），随根仓库 commit/push 即共享，无需 \`/hk-sync\``
         : '资产仓库为本地模式；如需团队共享，绑定远端后用 `/hk-sync` 同步';
   }
-  return ok(`任务 **${task}** 已归档为 ${tag}：\n- 追加归档：${appended.map((f) => `\`_archive/${task}/${f}\``).join('、') || '（无）'}\n- 轮次摘要追加到 \`_archive/${task}/rounds.md\`\n- 活目录已清空${wtNote ? `\n- ${wtNote}` : ''}${metricsNote}\n\n${mergeNote}${syncHint}。`);
+  return ok(`任务 **${task}** 已归档为 ${tag}：\n- 追加归档：${appended.map((f) => `\`_archive/${task}/${f}\``).join('、') || '（无）'}\n- 轮次摘要追加到 \`_archive/${task}/rounds.md\`\n- 活目录已清空${commitNote ? `\n- ${commitNote}` : ''}${wtNote ? `\n- ${wtNote}` : ''}${metricsNote}\n\n${mergeNote}${syncHint}。`);
 }
 
 // ---------------------------------------------------------------- /hk-te
@@ -1044,6 +1053,27 @@ function hkTe({ agent, rawInput }) {
   }
   if (sub === 'status') return ok(describeTestEnv(ws));
   return err('用法：/hk-te [acquire|release <任务名> | status]');
+}
+
+/** 归档文档/看板落成本地提交：独立资产仓库才做，消息带任务名与轮次。 */
+async function commitArchiveAssets(ws, task, tag) {
+  const hd = harnessDir(ws);
+  if (!fs.existsSync(path.join(hd, '.git'))) return null;
+  const activePath = `deliverables/${task}`;
+  const tracked = (await runGit(['ls-files', '--', activePath], { cwd: hd, timeoutMs: 15_000 })).stdout.trim();
+  const paths = [
+    ...(fs.existsSync(path.join(hd, activePath)) || tracked ? [activePath] : []),
+    `deliverables/_archive/${task}`,
+    'tasks/board.md',
+  ];
+  const st = await runGit(['status', '--porcelain', '--', ...paths], { cwd: hd, timeoutMs: 30_000 });
+  if (st.code !== 0 || !st.stdout.trim()) return null;
+  const add = await runGit(['add', '-A', '--', ...paths], { cwd: hd, timeoutMs: 30_000 });
+  if (add.code !== 0) return { error: `暂存失败：${(add.stderr || '').trim().split('\n')[0]}` };
+  const message = `archive(${task}): ${tag} 归档文档与看板`;
+  const commit = await runGit(['commit', '-m', message], { cwd: hd, timeoutMs: 60_000 });
+  if (commit.code !== 0) return { error: `提交失败：${(commit.stderr || commit.stdout || '').trim().split('\n')[0]}` };
+  return { message };
 }
 
 /** 把 mergeTaskBranches 里 held 的冲突落成本机状态；没有 held 返回 null。 */
