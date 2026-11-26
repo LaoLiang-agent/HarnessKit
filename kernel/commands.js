@@ -13,7 +13,7 @@ import { activeTasks, taskIsPlanning } from './state.js';
 import { assetsLayout, syncAssets } from './sync.js';
 import { claimTask } from './panel.js';
 import { clearAdvanceMarks } from './advance.js';
-import { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, ensureBaselineMirrors, renderAnalysisNotice, ensureTaskAnalysisWorktrees, removeTaskAnalysisWorktrees, parseBaseSpec, describeMainWorktree, recordDecision, clearDecision, readWorkspaces, mergeTaskBranches, reconcileArchivedWorktrees } from './worktree.js';
+import { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, ensureBaselineMirrors, renderAnalysisNotice, ensureTaskAnalysisWorktrees, removeTaskAnalysisWorktrees, parseBaseSpec, describeMainWorktree, recordDecision, readDecisions, clearDecision, readWorkspaces, mergeTaskBranches, reconcileArchivedWorktrees } from './worktree.js';
 import { readTaskArchiveConflict, setTaskArchiveConflict, clearTaskArchiveConflict, abortArchiveConflict, applyConflictChoice, commitArchiveConflict, buildConflictDecision, buildManualDecision, conflictSummaryLines } from './archive-conflict.js';
 import { acquireTestEnv, releaseTestEnv, describeTestEnv } from './te.js';
 import { discoverAll, discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
@@ -251,6 +251,7 @@ export function updateBoard(ws, task, status, opts = {}) {
       const cells = parseBoardRow(line);
       cells[1] = status;
       cells[5] = date;
+      if (opts.hint !== undefined) cells[6] = opts.hint;
       return `| ${cells.join(' | ')} |`;
     });
     fs.writeFileSync(board, updated, 'utf8');
@@ -941,7 +942,7 @@ async function hkArchive({ agent, rawInput, ctx }) {
 
   // clear the active dir
   fs.rmSync(taskDir, { recursive: true, force: true });
-  updateBoard(ws, task, 'DONE');
+  updateBoard(ws, task, 'DONE', { hint: `已归档 ${tag}` });
   clearAdvanceMarks(ws, task);
   clearTaskArchiveConflict(ws, task);
   clearDecision(ws, task);
@@ -990,6 +991,8 @@ async function hkArchive({ agent, rawInput, ctx }) {
       '- 流程优先决策门：若经验属于 tooling/infra/shared 级，应改 harness 资产本身（模板/角色/流程定义），而不是只写记忆',
       '',
       '完成后向人汇报两个合并的结果清单（含 hot/cold 数量）。',
+      '- **最后必须把本轮资产落成本地提交**（仅 `.harness` 是独立资产仓库时，即存在 `.harness/.git`）：`git -C .harness add -A`，`git -C .harness commit -m "harness: archive <任务> spec/memory"`；不要 push，随后运行 `/hk-sync` 或提示人同步。embedded 布局不要执行，交给根仓库提交。',
+      '- 提交后把看板续接提示改为实际结果：`python3 .harness/scripts/update_board.py <任务> --hint "已归档 <R0>；Spec/Memory Merge 完成，资产待同步"`（轮次按实际 R 号）。',
     ].join('\n');
     steer(agent, mergePrompt);
     mergeNote = 'Spec/Memory Merge 收尾剧本已提交 PM（基于归档段执行）；';
@@ -998,7 +1001,18 @@ async function hkArchive({ agent, rawInput, ctx }) {
   let syncHint;
   if (kit.assets?.autoSync === true && fs.existsSync(path.join(harnessDir(ws), '.git'))) {
     const r = await syncAssets(ws, kit);
-    syncHint = r.kind === 'success' ? `资产已自动同步（assets.autoSync）：${r.text}` : `资产自动同步失败（assets.autoSync）：${r.text}`;
+    if (r.kind === 'success') {
+      syncHint = `资产已自动同步（assets.autoSync）：${r.text}`;
+    } else {
+      syncHint = `资产自动同步失败（assets.autoSync）：${r.text}`;
+      // 归档已成功，但资产同步失败不能静默：留下可重试的决策点（任务 DONE 不参与自动续接）。
+      recordDecision(ws, task, {
+        kind: 'asset-sync-failed',
+        code: 'asset-sync-failed',
+        text: `任务 ${task} 已归档，但资产自动同步失败：${r.text}`,
+        options: [{ label: '重试资产同步', line: '/hk-sync', primary: true }],
+      });
+    }
   } else if (kit.assets && kit.assets.mode !== 'local') {
     syncHint = `资产仓库已绑定${kit.assets.url ? `（${kit.assets.url}）` : ''}，请运行 \`/hk-sync\` 同步（或在 kit.json 设 \`assets.autoSync=true\` 让归档后自动同步）`;
   } else {
@@ -1099,7 +1113,13 @@ async function hkSync({ agent, rawInput }) {
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
   const { flags } = parseArgs(rawInput ?? '');
   await reconcileArchivedQuiet(ws, kit);
-  return syncAssets(ws, kit, { allowDeletions: flags['allow-deletions'] === true });
+  const r = await syncAssets(ws, kit, { allowDeletions: flags['allow-deletions'] === true });
+  if (r.kind === 'success') {
+    for (const [task, d] of Object.entries(readDecisions(ws))) {
+      if (d?.code === 'asset-sync-failed') clearDecision(ws, task);
+    }
+  }
+  return r;
 }
 
 // ---------------------------------------------------------------- /hk-local

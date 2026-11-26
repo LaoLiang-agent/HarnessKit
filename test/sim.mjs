@@ -204,6 +204,7 @@ section('hk-archive 归档与预检');
     fs.existsSync(path.join(ws, '.harness/deliverables/_archive/t1/bugfix.md')) &&
     fs.readFileSync(path.join(ws, '.harness/deliverables/_archive/t1/rounds.md'), 'utf8').includes('| R0 |') &&
     !fs.existsSync(path.join(ws, '.harness/deliverables/t1')));
+  ok('归档后看板续接提示更新为已归档', /^\| t1 \| DONE \|.*已归档 R0/m.test(fs.readFileSync(path.join(ws, '.harness/tasks/board.md'), 'utf8')));
   // 归档命令自己的会话是最后采集点：即使任务创建/归档前没有绑定，也要写真实 token，而不是 0 stub。
   await run('hk-fix', 't-metrics 统计采集', ws);
   fs.appendFileSync(path.join(ws, '.harness/deliverables/t-metrics/bugfix.md'), '\n\n裁决：轻量\n');
