@@ -29,6 +29,7 @@ import { readWorkspaces } from './worktree.js';
 import { listAllGitBranches } from './worktree.js';
 import { reconcileTestEnv, readTestEnv } from './te.js';
 import { readDecisions } from './worktree.js';
+import { readArchiveFinalizes } from './archive-finalize.js';
 import { discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
 import { collectTaskMetrics, readLatestTaskMetrics } from './metrics.js';
 import { readLocalModels, writeLocalModels, clearLocalModels } from './local-models.js';
@@ -251,7 +252,7 @@ export function initGaps(ws, kit) {
  * 「需要你」注意力项（M4b）：审批/待归档/同步阻塞·落后/初始化缺口。
  * 返回 [{level: block|warn, kind, task?, text, line?, jump?}]，block 在前。
  */
-export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = null, decisions = {}, archivedLedger = []) {
+export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = null, decisions = {}, archivedLedger = [], finalize = {}) {
   const items = [];
   for (const t of tasks) {
     if (t.status === 'DONE') continue;
@@ -307,6 +308,27 @@ export function attentionItems(tasks, sync, gaps = [], staleSlots = [], teEnv = 
   // TE 串行：有人在排队时提示当前持有者与等待者
   if (teEnv?.holder && (teEnv.queue?.length ?? 0) > 0) {
     items.push({ level: 'warn', kind: 'te-queued', task: teEnv.holder, text: `TE 环境被 ${teEnv.holder} 占用，排队等待：${teEnv.queue.join(' → ')}（TE 完成后自动释放，无需人工）` });
+  }
+  // 归档收尾：文档已归档后，资产同步/最终确认仍可能未完成（本机状态，不写共享看板）。
+  // 已有 asset-sync-failed 决策点时不再重复一条同样的提醒。
+  const assetSyncFailedTasks = new Set(Object.entries(decisions ?? {})
+    .filter(([, d]) => d?.code === 'asset-sync-failed')
+    .map(([task]) => task));
+  for (const [task, f] of Object.entries(finalize ?? {})) {
+    if (assetSyncFailedTasks.has(task)) continue;
+    if (f?.assetSync !== 'synced') {
+      items.push({
+        level: 'warn', kind: 'archive-finalize', task,
+        text: `${task} · 已归档${f?.tag ? ` ${f.tag}` : ''}，资产未同步或文档未提交`,
+        line: '/hk-sync',
+      });
+    } else if (f?.specMemory !== 'confirmed') {
+      items.push({
+        level: 'warn', kind: 'archive-finalize', task,
+        text: `${task} · 已归档${f?.tag ? ` ${f.tag}` : ''}，Spec/Memory 收尾待确认`,
+        line: `/hk-archive ${task} --finalize`,
+      });
+    }
   }
   // 待裁决决策点（外来分支占用等）：block 级常驻，options 由面板渲染为可点按钮
   for (const [task, d] of Object.entries(decisions ?? {})) {
@@ -431,6 +453,7 @@ export function workspaceState(ws, { sync = null } = {}) {
   const taskSessions = readTaskSessions(ws);
   const ledger = readWorkspaces(ws);
   const ledgerTe = readTestEnv(ws);
+  const finalize = readArchiveFinalizes(ws);
   // Rename is a human action on board.md. If the old row says it was renamed
   // to this task, carry the old claim over so the new card keeps its owner.
   const claimFor = (task) => {
@@ -473,9 +496,10 @@ export function workspaceState(ws, { sync = null } = {}) {
     sync,
     slots,
     te: ledgerTe,
+    finalize: finalize.tasks ?? {},
     initGaps: gapItems,
     attention: (() => {
-      const items = attentionItems(tasks, sync, gapItems.map((g) => g.label), staleSlots, ledgerTe, readDecisions(ws), archivedLedger);
+      const items = attentionItems(tasks, sync, gapItems.map((g) => g.label), staleSlots, ledgerTe, readDecisions(ws), archivedLedger, finalize.tasks ?? {});
       // 初始化失败 → block 级常驻提示（页面重开仍可见；成功后自动消失）
       const initJob = initProgress.get(ws);
       if (initJob?.done && initJob.error) {

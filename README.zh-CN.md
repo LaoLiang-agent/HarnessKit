@@ -236,7 +236,7 @@ AI 写得越快，需要看的越多。固定角色让 CR/TE 各自只做一件�
 |---|---|
 | `/hk init [--assets <url\|init\|local>]` | 初始化/修复 `.harness/`，绑定资产仓库 |
 | `/hk task [<任务>] <描述> [--file <路径>]... [--base <仓:分支,…>] [--fix]` | 启动任务；可重复 `--file` 引用材料；`--base` 按仓固定分析与归档合入基点；`--fix` 走快速修复 |
-| `/hk close <任务> [--merge\|--no-merge] [--dry-run] [--continue\|--abort]` | 归档本轮、收尾工作区并写入运行统计；冲突后可继续或清理现场 |
+| `/hk close <任务> [--merge\|--no-merge] [--dry-run] [--continue\|--abort\|--finalize]` | 归档本轮、收尾工作区并写入运行统计；冲突后可继续/清理现场，资产收尾后确认归档完成 |
 | `/hk doctor [--fix]` | 体检；`--fix` 修复确定性缺件 |
 
 高级别名继续可用：

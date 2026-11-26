@@ -10,6 +10,96 @@ import { runGit } from './exec.js';
 const APPEND_ONLY_FILES = new Set(['memory/index.md', 'specs/_index.md', 'tasks/board.md', 'tasks/claims.json']);
 const APPEND_ONLY_RE = /^deliverables\/_archive\/[^/]+\/rounds\.md$/;
 
+// --------------------------------------------------------------- 资产冲突的三路合并
+// 看板不是“纯追加”：两边各改不同任务行、或同一任务一行先暂停后归档，都会让
+// git 的文本冲突无法按前缀合并。这里只做确定性资产合并，仍把语义冲突留给人。
+
+/** 解析看板行；返回 { task, cells }（7 列）。 */
+function boardRow(line) {
+  if (!line.startsWith('|')) return null;
+  const cells = line.split('|').slice(1, -1).map((s) => s.trim());
+  if (cells.length < 6) return null;
+  const task = cells[0];
+  if (!task || task === '任务名' || /^-+$/.test(task)) return null;
+  return { task, cells, status: cells[1], at: cells[5], raw: line };
+}
+
+function boardMap(text) {
+  const map = new Map();
+  for (const line of String(text ?? '').split('\n')) {
+    const row = boardRow(line);
+    if (row) map.set(row.task, row);
+  }
+  return map;
+}
+
+function chooseBoardRow(ours, theirs) {
+  // 先看“上次活动”：远端可能在本机归档后又重开任务，较新的状态应生效。
+  if (ours.at && theirs.at && ours.at !== theirs.at) {
+    return ours.at > theirs.at ? ours : theirs;
+  }
+  if (!ours.at && theirs.at) return theirs;
+  if (ours.at && !theirs.at) return ours;
+  // 时间相同/缺失时，DONE 优先于非 DONE（归档是终态；重开需新时间）。
+  if (ours.status !== theirs.status) {
+    if (ours.status === 'DONE' && theirs.status !== 'DONE') return ours;
+    if (theirs.status === 'DONE' && ours.status !== 'DONE') return theirs;
+  }
+  return null;
+}
+
+/**
+ * 看板行级三路合并：
+ * - 不同任务取并集；
+ * - 同一任务单边改动取改动侧；
+ * - 双边改动按状态（DONE 优先）/上次活动时间取较新侧；
+ * - 无法判断返回 null，由调用方中止 rebase 转人工。
+ */
+export function mergeBoardText(baseText, oursText, theirsText) {
+  const base = boardMap(baseText);
+  const ours = boardMap(oursText);
+  const theirs = boardMap(theirsText);
+  const merged = new Map();
+  for (const task of new Set([...base.keys(), ...ours.keys(), ...theirs.keys()])) {
+    const b = base.get(task);
+    const o = ours.get(task);
+    const t = theirs.get(task);
+    if (!o && !t) continue; // 两边都删：正常删除
+    if (o && !t) {
+      if (!b) { merged.set(task, o); continue; } // 我们新增
+      if (o.raw === b.raw) continue; // 对方删除、我们未改
+      return null; // 删除/修改冲突
+    }
+    if (!o && t) {
+      if (!b) { merged.set(task, t); continue; } // 对方新增
+      if (t.raw === b.raw) continue; // 我们删除、对方未改
+      return null;
+    }
+    if (o.raw === t.raw) { merged.set(task, o); continue; }
+    if (b && o.raw === b.raw) { merged.set(task, t); continue; }
+    if (b && t.raw === b.raw) { merged.set(task, o); continue; }
+    const pick = chooseBoardRow(o, t);
+    if (!pick) return null;
+    merged.set(task, pick);
+  }
+  const out = [];
+  const seen = new Set();
+  for (const line of String(oursText ?? '').split('\n')) {
+    const row = boardRow(line);
+    if (!row) { out.push(line); continue; }
+    if (seen.has(row.task)) continue;
+    seen.add(row.task);
+    if (merged.has(row.task)) out.push(merged.get(row.task).raw);
+  }
+  const extras = [...theirs.keys()].filter((task) => !ours.has(task) && merged.has(task));
+  if (extras.length > 0) {
+    let at = -1;
+    for (let i = 0; i < out.length; i += 1) if (boardRow(out[i])) at = i;
+    out.splice(at + 1, 0, ...extras.map((task) => merged.get(task).raw));
+  }
+  return out.join('\n');
+}
+
 /** 本地时间戳（git 提交信息用本地时间，避免 UTC 与看板时间差 8 小时）。 */
 function localStamp(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
@@ -218,6 +308,66 @@ export async function pullAssets(ws, kit) {
     : '已拉取并 rebase 远端提交。');
 }
 
+function looksArchived(text) {
+  return /##\s*R\d+（/.test(String(text ?? '')) || /状态\*\*：approved/.test(String(text ?? ''));
+}
+
+/** 归档侧（含 R<N> 段或 approved）优先；两边都是归档内容则交人工。 */
+function pickArchivedText(a2, a3) {
+  const list = [a2, a3].filter((r) => r && r.code === 0 && r.stdout.trim());
+  if (list.length === 0) return null;
+  if (list.length === 1) return list[0].stdout;
+  if (a2.stdout === a3.stdout) return a2.stdout;
+  const archived = list.filter((r) => /##\s*R\d+（/.test(r.stdout) || /状态\*\*：approved/.test(r.stdout));
+  return archived.length === 1 ? archived[0].stdout : null;
+}
+
+/** 处理“本地已归档 / 远端暂停”的 rename/rename：保留归档，删除 paused 与源 proposal。 */
+async function resolveArchivedProposal(g, hd, conflicts, unresolved, merged) {
+  const tasks = new Set();
+  for (const p of conflicts) {
+    const archive = p.match(/^deliverables\/_archive\/([^/]+)\/proposal\.md$/);
+    const paused = p.match(/^deliverables\/([^/]+)\/proposal\.paused\.md$/);
+    if (archive) tasks.add(archive[1]);
+    if (paused) tasks.add(paused[1]);
+  }
+  for (const task of tasks) {
+    const archive = `deliverables/_archive/${task}/proposal.md`;
+    const paused = `deliverables/${task}/proposal.paused.md`;
+    const source = `deliverables/${task}/proposal.md`;
+    const archiveAbs = path.join(hd, archive);
+    const p2 = await g(['show', `:2:${paused}`]);
+    const p3 = await g(['show', `:3:${paused}`]);
+    if (p2.code !== 0 && p3.code !== 0) continue; // 对方没有暂停态，交给普通规则
+
+    let text = null;
+    if (conflicts.includes(archive)) {
+      const a2 = await g(['show', `:2:${archive}`]);
+      const a3 = await g(['show', `:3:${archive}`]);
+      text = pickArchivedText(a2, a3);
+    }
+    // rename/rename 在部分 git 版本只把 paused 报成冲突，归档文件已落工作区：
+    // 只要工作区里的归档 proposal 确实是 R<N>/approved 内容，也允许收掉 paused。
+    if (!text && fs.existsSync(archiveAbs)) {
+      const localText = fs.readFileSync(archiveAbs, 'utf8');
+      if (looksArchived(localText)) text = localText;
+    }
+    if (!text || !looksArchived(text)) continue;
+    fs.writeFileSync(archiveAbs, text, 'utf8');
+    await g(['add', '--', archive]);
+    for (const p of [paused, source]) {
+      const abs = path.join(hd, p);
+      const tracked = (await g(['ls-files', '--', p])).stdout.trim();
+      if (fs.existsSync(abs)) fs.rmSync(abs, { force: true });
+      if (tracked) await g(['rm', '-f', '--ignore-unmatch', '--', p]);
+    }
+    unresolved.delete(archive);
+    unresolved.delete(paused);
+    unresolved.delete(source);
+    merged.push(archive);
+  }
+}
+
 export async function syncAssets(ws, kit, { allowDeletions = false, paths = null } = {}) {
   const hd = path.join(ws, '.harness');
   const g = (args) => runGit(args, { cwd: hd, timeoutMs: 300_000 });
@@ -288,34 +438,46 @@ export async function syncAssets(ws, kit, { allowDeletions = false, paths = null
         .trim()
         .split('\n')
         .filter(Boolean);
-      if (conflicts.length > 0 && conflicts.every(isAppendOnly)) {
-        // 纯追加自动三路合并：ours = base+A、theirs = base+B ⇒ base+A+B
+      if (conflicts.length > 0) {
+        const unresolved = new Set(conflicts);
         const merged = [];
+        await resolveArchivedProposal(g, hd, conflicts, unresolved, merged);
         for (const f of conflicts) {
-          const base = (await g(['show', `:1:${f}`])).stdout;
-          const ours = (await g(['show', `:2:${f}`])).stdout;
-          const theirs = (await g(['show', `:3:${f}`])).stdout;
-          if (!ours.startsWith(base) || !theirs.startsWith(base)) {
-            await g(['rebase', '--abort']);
-            return fail(
-              `\`${f}\` 虽在纯追加白名单，但实际改动含改写/删除（非 base 前缀追加），已中止 rebase 回滚到同步前状态，请人工处理：\`cd .harness && git pull --rebase ${remote} ${branch}\``,
-            );
+          if (!unresolved.has(f)) continue;
+          const base = await g(['show', `:1:${f}`]);
+          const ours = await g(['show', `:2:${f}`]);
+          const theirs = await g(['show', `:3:${f}`]);
+          if (base.code !== 0 || ours.code !== 0 || theirs.code !== 0) continue;
+
+          if (f === 'tasks/board.md') {
+            const text = mergeBoardText(base.stdout, ours.stdout, theirs.stdout);
+            if (text === null) continue;
+            fs.writeFileSync(path.join(hd, f), text, 'utf8');
+            await g(['add', f]);
+            unresolved.delete(f);
+            merged.push(f);
+            continue;
           }
-          fs.writeFileSync(path.join(hd, f), ours + theirs.slice(base.length), 'utf8');
+
+          if (!isAppendOnly(f)) continue; // 非确定性资产冲突 → 人工
+          if (!ours.stdout.startsWith(base.stdout) || !theirs.stdout.startsWith(base.stdout)) continue;
+          fs.writeFileSync(path.join(hd, f), ours.stdout + theirs.stdout.slice(base.stdout.length), 'utf8');
           await g(['add', f]);
+          unresolved.delete(f);
           merged.push(f);
+        }
+        if (unresolved.size > 0) {
+          await g(['rebase', '--abort']);
+          return fail(
+            `以下文件冲突，超出可自动合并范围，已中止 rebase 回滚到同步前状态，转人工处理：\n${[...unresolved].map((f) => `- \`${f}\``).join('\n')}\n\n手工步骤：\`cd .harness && git pull --rebase ${remote} ${branch}\`，解冲突后 \`git rebase --continue && git push ${remote} ${branch}\`，或修复后重跑 \`/hk-sync\`。`,
+          );
         }
         const cont = await g(['-c', 'core.editor=true', 'rebase', '--continue']);
         if (cont.code !== 0) {
           await g(['rebase', '--abort']);
           return fail(`自动合并后 \`rebase --continue\` 失败，已回滚到同步前状态：\n${cont.stderr || cont.stdout}`);
         }
-        steps.push(`纯追加冲突自动三路合并：${merged.map((f) => `\`${f}\``).join('、')}`);
-      } else if (conflicts.length > 0) {
-        await g(['rebase', '--abort']);
-        return fail(
-          `以下文件冲突，超出纯追加自动合并范围，已中止 rebase 回滚到同步前状态，转人工处理：\n${conflicts.map((f) => `- \`${f}\``).join('\n')}\n\n手工步骤：\`cd .harness && git pull --rebase ${remote} ${branch}\`，解冲突后 \`git rebase --continue && git push ${remote} ${branch}\`，或修复后重跑 \`/hk-sync\`。`,
-        );
+        steps.push(`资产冲突自动合并：${merged.map((f) => `\`${f}\``).join('、')}`);
       } else if (/untracked working tree files would be overwritten/i.test(out)) {
         return fail(`远端新增文件与本地未跟踪文件同名，已停止同步（未覆盖本地文件）：\n${out}\n请先移动/改名或提交这些文件后重试。`);
       } else {

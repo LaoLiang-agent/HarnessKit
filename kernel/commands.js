@@ -15,6 +15,7 @@ import { claimTask } from './panel.js';
 import { clearAdvanceMarks } from './advance.js';
 import { ensureTaskWorkspaces, releaseTaskWorkspaces, clearTaskWorkspaces, renderWorkspaceNotice, ensureBaselineMirrors, renderAnalysisNotice, ensureTaskAnalysisWorktrees, removeTaskAnalysisWorktrees, parseBaseSpec, describeMainWorktree, recordDecision, readDecisions, clearDecision, readWorkspaces, mergeTaskBranches, reconcileArchivedWorktrees } from './worktree.js';
 import { readTaskArchiveConflict, setTaskArchiveConflict, clearTaskArchiveConflict, abortArchiveConflict, applyConflictChoice, commitArchiveConflict, buildConflictDecision, buildManualDecision, conflictSummaryLines } from './archive-conflict.js';
+import { readArchiveFinalizes, readTaskArchiveFinalize, setTaskArchiveFinalize, updateTaskArchiveFinalize, clearTaskArchiveFinalize } from './archive-finalize.js';
 import { acquireTestEnv, releaseTestEnv, describeTestEnv } from './te.js';
 import { discoverAll, discoverSource, readLocalFiles, writeLocalFiles, provisionAllSlots } from './local-files.js';
 import { recordTaskSession } from './bindings.js';
@@ -699,7 +700,7 @@ async function hkArchive({ agent, rawInput, ctx }) {
   if (!kit) return err('尚未初始化：请先运行 `/hk-init`。');
   const { flags, positional } = parseArgs(rawInput);
   const task = positional[0];
-  if (!task) return err('用法：/hk-archive <任务名> [--merge [仓:分支,…]] [--no-merge] [--dry-run] [--resolve recommended|ours|theirs|manual|--continue|--abort]');
+  if (!task) return err('用法：/hk-archive <任务名> [--merge [仓:分支,…]] [--no-merge] [--dry-run] [--resolve recommended|ours|theirs|manual|--continue|--abort|--finalize]');
   // 合入确认（B 方案，2026-11-17）：--merge = 人显式确认要把任务分支本地合入目标基线；
   // 可带 repo:branch 覆盖目标（不带则用任务创建时指定的基线）。合并只做本地提交，不推送。
   const mergeAsked = flags.merge !== undefined;
@@ -708,12 +709,16 @@ async function hkArchive({ agent, rawInput, ctx }) {
   const resolveMode = typeof flags.resolve === 'string' ? flags.resolve.trim() : null;
   const continueConflict = flags.continue === true;
   const abortConflict = flags.abort === true;
+  const finalizeTask = flags.finalize === true;
   if (mergeAsked && noMerge) return err('`--merge` 与 `--no-merge` 不能同时使用。');
-  if ([resolveMode, continueConflict, abortConflict].filter(Boolean).length > 1) {
-    return err('`--resolve`、`--continue`、`--abort` 一次只能用一个。');
+  if ([resolveMode, continueConflict, abortConflict, finalizeTask].filter(Boolean).length > 1) {
+    return err('`--resolve`、`--continue`、`--abort`、`--finalize` 一次只能用一个。');
   }
-  if ((resolveMode || continueConflict) && noMerge) {
-    return err('`--resolve` / `--continue` 不能与 `--no-merge` 同时使用。');
+  if ((resolveMode || continueConflict || finalizeTask) && noMerge) {
+    return err('`--resolve` / `--continue` / `--finalize` 不能与 `--no-merge` 同时使用。');
+  }
+  if (finalizeTask && (mergeAsked || resolveMode || continueConflict || abortConflict || dryRun)) {
+    return err('`--finalize` 只能单独使用。');
   }
   const mergeOverrides = mergeAsked && typeof flags.merge === 'string' ? parseBaseSpec(flags.merge) : {};
   // 0.2.0：autoClose 取代 autoMergeClean（旧键兼容）；只做本地合并，不推送。
@@ -723,6 +728,7 @@ async function hkArchive({ agent, rawInput, ctx }) {
   const mergeOpts = { syncTarget: targetSync, dryRun };
 
   const taskDir = path.join(harnessDir(ws), 'deliverables', task);
+  if (finalizeTask) return finalizeArchivedTask(ws, task);
   // 归档冲突恢复：冲突现场是本机临时工作树，文档尚未归档，任务保持活跃。
   // 选项由 buildConflictDecision 生成，面板读 decisions.json 渲染为按钮。
   let pendingConflict = readTaskArchiveConflict(ws, task);
@@ -951,6 +957,13 @@ async function hkArchive({ agent, rawInput, ctx }) {
   try { assetCommit = await commitArchiveAssets(ws, task, tag); } catch (cause) {
     assetCommit = { error: String(cause?.message || cause).replace(/\s+/g, ' ').slice(0, 160) };
   }
+  const hasAssetGit = fs.existsSync(path.join(harnessDir(ws), '.git'));
+  setTaskArchiveFinalize(ws, task, {
+    tag,
+    docs: assetCommit?.error ? 'pending' : 'committed',
+    assetSync: hasAssetGit ? 'pending' : 'synced',
+    specMemory: 'pending',
+  });
 
   // worktree 收尾：合入已在前置阶段完成；这里只释放槽位/切回基线并删除已合入分支。
   const wtResult = await releaseTaskWorkspaces(ws, kit, task);
@@ -1012,6 +1025,7 @@ async function hkArchive({ agent, rawInput, ctx }) {
     const r = await syncAssets(ws, kit);
     if (r.kind === 'success') {
       syncHint = `资产已自动同步（assets.autoSync）：${r.text}`;
+      updateTaskArchiveFinalize(ws, task, { assetSync: 'synced' });
     } else {
       syncHint = `资产自动同步失败（assets.autoSync）：${r.text}`;
       // 归档已成功，但资产同步失败不能静默：留下可重试的决策点（任务 DONE 不参与自动续接）。
@@ -1053,6 +1067,59 @@ function hkTe({ agent, rawInput }) {
   }
   if (sub === 'status') return ok(describeTestEnv(ws));
   return err('用法：/hk-te [acquire|release <任务名> | status]');
+}
+
+/** 确认归档收尾：资产干净/同步到位 + spec/memory 门禁；语义合并由人确认。 */
+async function finalizeArchivedTask(ws, task) {
+  const rec = readTaskArchiveFinalize(ws, task);
+  if (!rec) return err(`任务 ${task} 没有待收尾的归档记录；可能已确认或未归档。`);
+  if (rec.docs === 'pending') {
+    return err(`任务 ${task} 的归档文档尚未本地提交；先运行 \`/hk-sync\` 或检查资产仓库后重试。`);
+  }
+  const hd = harnessDir(ws);
+  const checks = [];
+  if (fs.existsSync(path.join(hd, '.git'))) {
+    const status = await runGit(['status', '--porcelain'], { cwd: hd, timeoutMs: 30_000 });
+    if (status.code !== 0) return err(`读取资产状态失败：${(status.stderr || status.stdout).trim().split('\n')[0]}`);
+    if (status.stdout.trim()) {
+      return err(`资产仓库仍有未提交变更，先运行 \`/hk-sync\`：\n${status.stdout.trim().split('\n').slice(0, 8).map((l) => `- \`${l.slice(3)}\``).join('\n')}`);
+    }
+    checks.push('资产工作区干净');
+    const upstream = await runGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { cwd: hd, timeoutMs: 15_000 });
+    if (upstream.code === 0) {
+      const [ahead, behind] = await Promise.all([
+        runGit(['rev-list', '--count', '@{u}..HEAD'], { cwd: hd, timeoutMs: 15_000 }),
+        runGit(['rev-list', '--count', 'HEAD..@{u}'], { cwd: hd, timeoutMs: 15_000 }),
+      ]);
+      const a = Number(ahead.stdout.trim() || 0);
+      const b = Number(behind.stdout.trim() || 0);
+      if (a > 0 || b > 0) {
+        return err(`资产仓库尚未同步（领先 ${a} / 落后 ${b}），先运行 \`/hk-sync\` 后重试。`);
+      }
+      checks.push('资产已同步远端');
+    }
+  }
+  const specsDir = path.join(hd, 'specs');
+  const hasSpecs = fs.existsSync(specsDir) && fs.readdirSync(specsDir).some((f) => f.endsWith('.md') && !f.startsWith('_') && f !== 'spec-template.md');
+  const lint = path.join(hd, 'scripts', 'spec_lint.py');
+  if (hasSpecs && fs.existsSync(lint)) {
+    const r = await run('python3', [lint], { cwd: ws, timeoutMs: 120_000 });
+    if (r.code !== 0) {
+      return err(`Spec 门禁未通过，归档收尾未确认：\n${(r.stdout || r.stderr).trim().split('\n').slice(0, 12).join('\n')}`);
+    }
+    checks.push('spec_lint PASS');
+  }
+  const mem = path.join(hd, 'scripts', 'memory_index.py');
+  if (fs.existsSync(mem)) {
+    const r = await run('python3', [mem, 'check'], { cwd: ws, timeoutMs: 120_000 });
+    if (r.code !== 0) {
+      return err(`Memory 索引检查未通过，归档收尾未确认：\n${(r.stdout || r.stderr).trim().split('\n').slice(0, 12).join('\n')}`);
+    }
+    checks.push('memory_index check PASS');
+  }
+  clearTaskArchiveFinalize(ws, task);
+  clearDecision(ws, task);
+  return ok(`归档收尾已确认：${task}${rec.tag ? ` ${rec.tag}` : ''}\n- ${checks.join('\n- ')}`);
 }
 
 /** 归档文档/看板落成本地提交：独立资产仓库才做，消息带任务名与轮次。 */
@@ -1147,6 +1214,9 @@ async function hkSync({ agent, rawInput }) {
   if (r.kind === 'success') {
     for (const [task, d] of Object.entries(readDecisions(ws))) {
       if (d?.code === 'asset-sync-failed') clearDecision(ws, task);
+    }
+    for (const task of Object.keys(readArchiveFinalizes(ws).tasks)) {
+      updateTaskArchiveFinalize(ws, task, { assetSync: 'synced' });
     }
   }
   return r;

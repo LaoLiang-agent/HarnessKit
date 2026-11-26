@@ -205,6 +205,8 @@ section('hk-archive 归档与预检');
     fs.readFileSync(path.join(ws, '.harness/deliverables/_archive/t1/rounds.md'), 'utf8').includes('| R0 |') &&
     !fs.existsSync(path.join(ws, '.harness/deliverables/t1')));
   ok('归档后看板续接提示更新为已归档', /^\| t1 \| DONE \|.*已归档 R0/m.test(fs.readFileSync(path.join(ws, '.harness/tasks/board.md'), 'utf8')));
+  const finalized = await run('hk-archive', 't1 --finalize', ws);
+  ok('归档收尾可确认并清除本机状态', finalized.kind === 'success' && finalized.text.includes('归档收尾已确认'));
   // 归档命令自己的会话是最后采集点：即使任务创建/归档前没有绑定，也要写真实 token，而不是 0 stub。
   await run('hk-fix', 't-metrics 统计采集', ws);
   fs.appendFileSync(path.join(ws, '.harness/deliverables/t-metrics/bugfix.md'), '\n\n裁决：轻量\n');
@@ -1873,6 +1875,63 @@ section('零人工收尾：目标快进、重复收尾、失败前置、dry-run/
 }
 // ---------------------------------------------------------------- hk-sync
 section('hk-sync 资产同步');
+{
+  // 归档 vs 暂停：本地已归档、远端把 proposal 改为 paused.md → 自动保留归档并合并看板。
+  const { syncAssets } = await import(path.join(bundleRoot, 'kernel/sync.js'));
+  const tmp = mkws();
+  cleanups.push(tmp);
+  const bare = path.join(tmp, 'remote.git');
+  const seed = path.join(tmp, 'seed');
+  const seedTask = path.join(seed, 'deliverables/t');
+  fs.mkdirSync(seedTask, { recursive: true });
+  fs.writeFileSync(path.join(seedTask, 'proposal.md'), '# 提案：t\n\n> 状态：draft\n');
+  fs.writeFileSync(path.join(seed, 'tasks.md'), '');
+  fs.mkdirSync(path.join(seed, 'tasks'), { recursive: true });
+  fs.writeFileSync(path.join(seed, 'tasks/board.md'), '# 任务看板\n\n| 任务名 | 状态 | Profile | Apply进度 | 分支 | 上次活动 | 续接提示 |\n|---|---|---|---|---|---|---|\n| t | IN_PROGRESS | standard | — | — | 2026-11-25 10:00 | — |\n');
+  git('init -q -b main && git add -A && git commit -qm seed', seed);
+  git(`clone -q --bare ${seed} ${bare}`, tmp);
+  const ws = mkws();
+  cleanups.push(ws);
+  git(`clone -q ${bare} .harness`, ws);
+  git('config user.email t@t && git config user.name t', path.join(ws, '.harness'));
+  fake(ws, '.harness/kit.json', JSON.stringify({ version: 1, pack: 'ai-coding', sources: [], assets: { mode: 'clone', url: bare, branch: 'main' } }));
+  const other = path.join(tmp, 'other');
+  git(`clone -q ${bare} ${other}`, tmp);
+  // 远端：暂停任务
+  fs.renameSync(path.join(other, 'deliverables/t/proposal.md'), path.join(other, 'deliverables/t/proposal.paused.md'));
+  fs.appendFileSync(path.join(other, 'tasks/board.md'), '');
+  const remoteBoard = path.join(other, 'tasks/board.md');
+  fs.writeFileSync(remoteBoard, fs.readFileSync(remoteBoard, 'utf8').replace('| t | IN_PROGRESS | standard | — | — | 2026-11-25 10:00 | — |', '| t | PENDING | — | — | — | 2026-11-25 11:09 | 已临时搁置 |'));
+  git('add -A && git commit -qm pause && git push -q origin main', other);
+  // 本地：归档任务
+  const local = path.join(ws, '.harness');
+  fs.mkdirSync(path.join(local, 'deliverables/_archive/t'), { recursive: true });
+  const proposal = fs.readFileSync(path.join(local, 'deliverables/t/proposal.md'), 'utf8');
+  fs.writeFileSync(path.join(local, 'deliverables/_archive/t/proposal.md'), proposal.replace('状态：draft', '状态：approved').replace('# 提案：t', '---\n\n## R0（2026-11-26 归档）\n\n# 提案：t'));
+  fs.rmSync(path.join(local, 'deliverables/t'), { recursive: true, force: true });
+  fs.writeFileSync(path.join(local, 'tasks/board.md'), fs.readFileSync(path.join(local, 'tasks/board.md'), 'utf8').replace('| t | IN_PROGRESS | standard | — | — | 2026-11-25 10:00 | — |', '| t | DONE | standard | 已归档 | — | 2026-11-26 10:21 | 已归档 R0 |'));
+  git('add -A && git commit -qm "archive(t): R0"', local);
+  const r = await syncAssets(ws, readKitJson(ws));
+  ok('归档 vs 暂停：自动合并并推送', r.kind === 'success' && r.text.includes('资产冲突自动合并'));
+  ok('归档 vs 暂停：保留归档 proposal', fs.readFileSync(path.join(local, 'deliverables/_archive/t/proposal.md'), 'utf8').includes('## R0（'));
+  ok('归档 vs 暂停：删除 paused/source', !fs.existsSync(path.join(local, 'deliverables/t/proposal.paused.md')) && !fs.existsSync(path.join(local, 'deliverables/t/proposal.md')));
+  ok('归档 vs 暂停：看板保留 DONE', fs.readFileSync(path.join(local, 'tasks/board.md'), 'utf8').includes('| t | DONE |'));
+  ok('归档 vs 暂停：远端已同步归档', git('show main:deliverables/_archive/t/proposal.md', bare).includes('## R0（') && !git('ls-tree -r --name-only main', bare).includes('proposal.paused.md'));
+}
+
+{
+  // 看板行级三路合并：不同任务取并集；同任务 DONE 优先于 PENDING。
+  const { mergeBoardText } = await import(path.join(bundleRoot, 'kernel/sync.js'));
+  const header = '# 任务看板\n\n| 任务名 | 状态 | Profile | Apply进度 | 分支 | 上次活动 | 续接提示 |\n|---|---|---|---|---|---|---|\n';
+  const base = header + '| t1 | IN_PROGRESS | standard | — | — | 2026-11-26 09:00 | — |\n| t2 | DONE | quick | 已归档 | — | 2026-11-25 10:00 | done |\n';
+  const ours = header + '| t1 | DONE | standard | 已归档 | — | 2026-11-26 10:21 | 已归档 R0 |\n| t2 | DONE | quick | 已归档 | — | 2026-11-25 10:00 | done |\n';
+  const theirs = header + '| t1 | PENDING | — | — | — | 2026-11-25 11:09 | 已临时搁置 |\n| t2 | DONE | quick | 已归档 | — | 2026-11-25 10:00 | done |\n| t3 | DONE | fix-light | 已归档 | dev | 2026-11-25 15:48 | 已归档 R0 |\n';
+  const merged = mergeBoardText(base, ours, theirs);
+  ok('看板三路合并：同任务 DONE 优先', !!merged && merged.includes('| t1 | DONE |') && !merged.includes('已临时搁置'));
+  ok('看板三路合并：不同任务取并集', !!merged && merged.includes('| t2 |') && merged.includes('| t3 |'));
+  const ambiguous = mergeBoardText(header + '| t1 | IN_PROGRESS | — | — | — | 2026-11-26 10:00 | — |\n', header + '| t1 | IN_PROGRESS | — | — | — | 2026-11-26 10:00 | A |\n', header + '| t1 | IN_PROGRESS | — | — | — | 2026-11-26 10:00 | B |\n');
+  ok('看板三路合并：同状态同时间双改 → 交人工', ambiguous === null);
+}
 const { pullAssets, syncAssets } = await import(path.join(bundleRoot, 'kernel/sync.js'));
 {
   // 未绑定 git → 指引
@@ -2019,7 +2078,7 @@ const { pullAssets, syncAssets } = await import(path.join(bundleRoot, 'kernel/sy
   fs.appendFileSync(path.join(ws, '.harness/memory/index.md'), '- 本地条目\n');
   const r4 = await run('hk-sync', '', ws);
   const mergedLocal = fs.readFileSync(path.join(ws, '.harness/memory/index.md'), 'utf8');
-  ok('纯追加冲突自动合并成功', r4.kind === 'success' && r4.text.includes('自动三路合并'));
+  ok('纯追加冲突自动合并成功', r4.kind === 'success' && r4.text.includes('资产冲突自动合并'));
   ok('合并结果含双方追加行', mergedLocal.includes('- 本地条目') && mergedLocal.includes('- 远端条目'));
   ok('已推送合并结果', fs.readFileSync(path.join(ws, '.harness/memory/index.md'), 'utf8') === git('show main:memory/index.md', bare));
   ok('rebase 已干净收尾（无进行中状态）', !fs.existsSync(path.join(ws, '.harness/.git/rebase-merge')) && !fs.existsSync(path.join(ws, '.harness/.git/rebase-apply')));
@@ -2614,6 +2673,10 @@ section('M4b 面板：lane/claims/注意力/团队动态/配置更新');
     ok('链越序入注意力（warn+jump）', attentionItems(oooTask, null).some((i) => i.kind === 'chain-out-of-order' && i.level === 'warn'));
     ok('DONE 的 ⛔/越序不进注意力', !attentionItems([{ task: 'd', status: 'DONE', progress: { outOfOrder: true, stages: [{ name: 'CR', blocked: true }] } }], null).length);
     const arch = attentionItems([], null, [], [], null, {}, [{ task: 'old', repos: ['backend', 'frontend'] }]);
+    const finSync = attentionItems([], null, [], [], null, {}, [], { t: { tag: 'R0', assetSync: 'pending' } });
+    const finSpec = attentionItems([], null, [], [], null, {}, [], { t: { tag: 'R0', assetSync: 'synced' } });
+    ok('归档未同步入注意力', finSync.some((i) => i.kind === 'archive-finalize' && i.line === '/hk-sync'));
+    ok('归档收尾待确认入注意力', finSpec.some((i) => i.kind === 'archive-finalize' && i.line === '/hk-archive t --finalize'));
     ok('已归档但台账未释放入注意力（warn + 归档命令）', arch.some((i) => i.kind === 'worktree-archived' && i.level === 'warn' && i.task === 'old' && i.line === '/hk-archive old' && i.text.includes('backend')));
   }
   // 面板 HTTP 路由的 DSH Connection 访问检查：任意网页不能调用 owner-private 路由

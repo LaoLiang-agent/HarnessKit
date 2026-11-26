@@ -288,7 +288,7 @@ equivalent. Four daily entries:
 |---|---|
 | `/hk init [--assets <url\|init\|local>]` | Initialize or repair `.harness/`, bind the asset repository |
 | `/hk task [<task>] <description> [--file <path>]... [--base <repo:branch,...>] [--fix]` | Start a full-flow task; repeat `--file` for materials; `--base` pins the analysis/merge base per repo; `--fix` starts the quick fix path |
-| `/hk close <task> [--merge\|--no-merge] [--dry-run] [--continue\|--abort]` | Archive a round, close the worktree and write run metrics; resume or clean up a conflict |
+| `/hk close <task> [--merge\|--no-merge] [--dry-run] [--continue\|--abort\|--finalize]` | Archive a round, close the worktree and write run metrics; resume a conflict or confirm asset finalization |
 | `/hk doctor [--fix]` | Health check; `--fix` repairs deterministic gaps |
 
 Advanced aliases remain available:

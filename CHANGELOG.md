@@ -18,6 +18,12 @@ All notable changes to Harness Kit are documented here. The format follows
 - 归档文档/看板先以 `archive(<任务>): R<N> 归档文档与看板` 落本地提交；通用
   `harness: sync <时间>` 仅承载其他同步脏文件，便于从历史中定位某次任务归档。
 - 资产同步提交信息使用本地时间，不再出现看板 10:21、提交 02:21 的 UTC 时差。
+- 资产同步对确定性冲突自动三路合并：`tasks/board.md` 按行/任务合并（不同任务取并集，
+  同任务取较新状态，时间相同 DONE 优先）；本地已归档、远端改为 `proposal.paused.md`
+  时保留归档并删除 paused。其余冲突仍中止回滚转人工。
+- 新增归档收尾状态：归档后记录本机 `archive-finalize.json`，面板提示先 `/hk-sync`、
+  再 `/hk-archive <任务> --finalize`；后者校验资产干净/同步到位、spec_lint 与 memory
+  索引，通过后清除提示。
 - 新增 Gradle/Kotlin、Node（React/Next/Nest/Express）、Go、Python、Rust 专用模板；
   Gradle 多模块从 `settings.gradle(.kts)` 的 `include` 发现子项目，Go/Python/Rust 走
   backend 文档形态。

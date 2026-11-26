@@ -82,7 +82,9 @@ with `origin` according to `targetSync` (default `safe`, local only), merges a c
 locally, releases the slot and deletes the merged task branch. It never pushes. On a conflict it keeps the merge in a local detached worktree and offers
 "keep target / keep task / resolve manually / defer archive" in the panel; `--continue` commits the
 resolution and resumes archiving, `--abort` cleans it up. A dirty or diverged target still stops
-before archiving. `--no-merge` archives documents only; `--dry-run` previews.
+before archiving. `--no-merge` archives documents only; `--dry-run` previews. After archiving, a local
+finalization record prompts `/hk-sync`, then `/hk-archive <task> --finalize` to confirm
+Spec/Memory closeout; finalize checks the asset tree is clean, synced, and spec/memory gates pass.
 
 Each archive writes `.harness/deliverables/_archive/<task>/metrics/R<N>.json` with the actual
 provider/model/reasoning effort, turns, token components, active duration, tool failures and
